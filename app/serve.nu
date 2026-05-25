@@ -104,11 +104,11 @@ def default-stack-id []: nothing -> string {
   }
 }
 
-# Add a clip of the given kind. A content clip's initial body (piped in) is
-# CAS-stored on the frame. Returns the new clip id.
-def add-clip [kind: string, mime: string]: any -> string {
+# Add a clip of the given kind to a stack. A content clip's initial body
+# (piped in) is CAS-stored on the frame. Returns the new clip id.
+def add-clip [stack_id: string, kind: string, mime: string]: any -> string {
   let body = $in
-  let meta = {stack_id: (default-stack-id), kind: $kind, mime_type: $mime}
+  let meta = {stack_id: $stack_id, kind: $kind, mime_type: $mime}
   let f = if ($body | is-empty) {
     null | .append "clip.add" --meta $meta --ttl forever
   } else {
@@ -184,15 +184,35 @@ def icon-svg [kind: string]: nothing -> string {
   }
 }
 
-def render-list [clips: list, selected: string]: nothing -> string {
-  let items = $clips | each {|c|
-    let label = (clip-display-label $c)
-    let cls = if $c.id == $selected { "selected" } else { "" }
-    let onclick = $"$sid = '($c.id)'; @post\('/nav'\)"
-    let onclose = $"@post\('/clip/close?clip=($c.id)'\)"
-    $"<li class='($cls)'><button type='button' class='row' data-on:click=\"($onclick)\">(icon-svg $c.kind)($label)<small>($c.id | str substring 0..8)</small></button><button type='button' class='close' data-on:click=\"($onclose)\" title='Close'>×</button></li>"
-  } | str join ""
-  $"<aside id='sessions-list'><header>Clips <button type='button' class='new-btn' data-on:click=\"$picking = true\" title='New clip'>+</button></header><ul>($items)</ul></aside>"
+def render-clip-row [c: record, selected: string]: nothing -> string {
+  let label = (html-escape (clip-display-label $c))
+  let cls = if $c.id == $selected { "selected" } else { "" }
+  let onclick = $"$sid = '($c.id)'; @post\('/nav'\)"
+  let onclose = $"@post\('/clip/close?clip=($c.id)'\)"
+  $"<li class='($cls)'><button type='button' class='row' data-on:click=\"($onclick)\">(icon-svg $c.kind)($label)<small>($c.id | str substring 0..8)</small></button><button type='button' class='close' data-on:click=\"($onclose)\" title='Close'>×</button></li>"
+}
+
+# A stack row: click switches (stack.select), double-click renames (reuses the
+# rename modal in 'stack' mode), × deletes. Name is carried in data-* so the
+# dblclick handler reads it off the element rather than via string interpolation.
+def render-stack-row [s: record, selected: string]: nothing -> string {
+  let cls = if $s.id == $selected { "selected" } else { "" }
+  let nm = (html-escape ($s.name? | default "stack"))
+  let nm_attr = ($nm | str replace -a "'" '&#39;')
+  let onclick = $"@post\('/stack/select?stack=($s.id)'\)"
+  let ondbl = "$draft = el.dataset.name; $renameStackId = el.dataset.stack; $renameMode = 'stack'; $renaming = true"
+  let onclose = $"@post\('/stack/close?stack=($s.id)'\)"
+  $"<li class='($cls)'><button type='button' class='row' data-stack='($s.id)' data-name='($nm_attr)' data-on:click=\"($onclick)\" data-on:dblclick=\"($ondbl)\">($nm)</button><button type='button' class='close' data-on:click=\"($onclose)\" title='Delete stack'>×</button></li>"
+}
+
+# The sidebar: a stacks switcher over the selected stack's clip list. Stacks
+# render most-recently-touched first (matching projection's selection order).
+def render-sidebar [proj: record]: nothing -> string {
+  let sel_stack = ($proj.selectedStackId | default "")
+  let v = (view-of $proj)
+  let stack_items = ($proj.stacks | sort-by lastTouched | reverse | each {|s| render-stack-row $s $sel_stack } | str join "")
+  let clip_items = ($v.clips | each {|c| render-clip-row $c $v.sel } | str join "")
+  $"<aside id='sessions-list'><header>Stacks <button type='button' class='new-btn' data-on:click=\"@post\('/stack/new'\)\" title='New stack'>+</button></header><ul class='stacks'>($stack_items)</ul><header>Clips <button type='button' class='new-btn' data-on:click=\"$picking = true\" title='New clip'>+</button></header><ul class='clips'>($clip_items)</ul></aside>"
 }
 
 # Render one continuous-document pane for a clip, keyed by clip id. A terminal
@@ -287,12 +307,12 @@ def mountable [clips: list]: nothing -> list {
       # terminal clip; if there are no clips at all, seed one terminal.
       let stack_id = (default-stack-id)
       let boot = (.cat | projection project)
-      let boot_stack = ($boot.stacks | where id == $stack_id | get 0?)
+      let all_clips = ($boot.stacks | each {|s| $s.clips } | flatten)
       if (pty list | is-empty) {
-        if ($boot_stack | is-empty) or (($boot_stack.clips | length) == 0) {
-          spawn-for-clip (add-clip "terminal" "application/x-stacks-terminal") | ignore
+        if ($all_clips | is-empty) {
+          spawn-for-clip (add-clip $stack_id "terminal" "application/x-stacks-terminal") | ignore
         } else {
-          for c in ($boot_stack.clips | where kind == "terminal") { spawn-for-clip $c.id | ignore }
+          for c in ($all_clips | where kind == "terminal") { spawn-for-clip $c.id | ignore }
         }
       }
 
@@ -327,17 +347,18 @@ def mountable [clips: list]: nothing -> list {
             let title = (load-title)
             let canvas = (load-canvas $sel)
 
-            let list_patch = (render-list $clips $sel | to datastar-patch-elements --selector "#sessions-list")
+            let sel_stack = ($proj.selectedStackId | default "")
+            let list_patch = (render-sidebar $proj | to datastar-patch-elements --selector "#sessions-list")
             let doc_patch = if (not $doc_ready) {
               (render-doc $clips | to datastar-patch-elements --selector "#doc")
             } else { null }
-            let sel_patch = ({selectedSid: $sel, connId: $conn_id, docReady: true} | to datastar-patch-signals)
+            let sel_patch = ({selectedSid: $sel, selectedStack: $sel_stack, connId: $conn_id, docReady: true} | to datastar-patch-signals)
             let dims_patch = ({focusedDims: $dims} | to datastar-patch-signals)
             let title_patch = ({title: $title} | to datastar-patch-signals)
             let canvas_patch = (render-canvas $canvas | to datastar-patch-elements --selector "#canvas")
 
             let out = ([$sel_patch $dims_patch $title_patch $list_patch $canvas_patch $doc_patch] | where {|x| $x != null })
-            {out: $out, next: {proj: $proj, ready: true, rendered: (mountable $clips), title: $title, canvas: $canvas, sel: $sel, dims: $dims}}
+            {out: $out, next: {proj: $proj, ready: true, rendered: (mountable $clips), title: $title, canvas: $canvas, sel: $sel, sel_stack: $sel_stack, dims: $dims}}
 
           } else if ($topic | str starts-with "xs.") {
             # Heartbeats and other system noise.
@@ -358,10 +379,12 @@ def mountable [clips: list]: nothing -> list {
               let sel = $v.sel
               let all_ids = ($clips | get id)
 
+              let sel_stack = ($proj.selectedStackId | default "")
               # Sidebar: re-render only when a projection frame changed it.
               let list_patch = if $is_proj {
-                (render-list $clips $sel | to datastar-patch-elements --selector "#sessions-list")
+                (render-sidebar $proj | to datastar-patch-elements --selector "#sessions-list")
               } else { null }
+              let selstk_patch = if $sel_stack != $st.sel_stack { ({selectedStack: $sel_stack} | to datastar-patch-signals) } else { null }
 
               # #doc reconcile (surgical -- never re-morph, to protect live
               # grids). Mount newly-ready clips; drop panes for gone clips.
@@ -400,12 +423,12 @@ def mountable [clips: list]: nothing -> list {
               let out = ([$list_patch]
                 | append $add_patches
                 | append $rm_patches
-                | append [$sel_patch $dims_patch $canvas_patch $title_patch]
+                | append [$sel_patch $selstk_patch $dims_patch $canvas_patch $title_patch]
                 | where {|x| $x != null })
-              {out: $out, next: {proj: $proj, ready: true, rendered: $rendered2, title: $title, canvas: $canvas, sel: $sel, dims: $dims}}
+              {out: $out, next: {proj: $proj, ready: true, rendered: $rendered2, title: $title, canvas: $canvas, sel: $sel, sel_stack: $sel_stack, dims: $dims}}
             }
           }
-        } {proj: (projection empty), ready: false, rendered: [], title: "", canvas: "", sel: "", dims: ""}
+        } {proj: (projection empty), ready: false, rendered: [], title: "", canvas: "", sel: "", sel_stack: "", dims: ""}
       | flatten
       | to sse
       | metadata set --content-type "text/event-stream"
@@ -425,21 +448,69 @@ def mountable [clips: list]: nothing -> list {
     }
 
     [POST, "/clip/new"] => {
-      # Create a clip of ?type= (note | terminal). The clip.add frame
-      # propagates to every /sse via `.cat -f`. A terminal also gets a freshly-
-      # spawned pty bound to it; a `clip.events` nudge then prompts the streams
-      # to mount its pane once the pty is live. Select the new clip.
+      # Create a clip of ?type= (note | terminal) in the currently-selected
+      # stack (carried in the $selectedStack signal; live selection isn't
+      # persisted, so the client tells us). The clip.add frame propagates to
+      # every /sse via `.cat -f`. A terminal also gets a freshly-spawned pty
+      # bound to it; a `clip.events` nudge then prompts the streams to mount
+      # its pane once the pty is live. Select the new clip.
+      let signals = $body | from datastar-signals $req
+      let target = ($signals.selectedStack? | default "")
+      let stack = if $target == "" { (default-stack-id) } else { $target }
       let type = ($req.query.type? | default "note")
       let cid = if $type == "terminal" {
-        let c = (add-clip "terminal" "application/x-stacks-terminal")
+        let c = (add-clip $stack "terminal" "application/x-stacks-terminal")
         spawn-for-clip $c | ignore
         $c
       } else {
-        "" | add-clip "content" "text/markdown"
+        "" | add-clip $stack "content" "text/markdown"
       }
       save-focused-sid $cid
       {} | .bus pub "clip.events"
       {id: $cid} | .bus pub "clip.select"
+      null | metadata set { merge {'http.response': {status: 204}} }
+    }
+
+    [POST, "/stack/new"] => {
+      # Create a new (manual-sort) stack and switch to it.
+      let f = (null | .append "stack.add" --meta {name: "stack", sort: "manual"} --ttl forever)
+      {id: $f.id} | .bus pub "stack.select"
+      null | metadata set { merge {'http.response': {status: 204}} }
+    }
+
+    [POST, "/stack/select"] => {
+      # Switch the global stack cursor (ephemeral; folded by /sse).
+      let sid = ($req.query.stack? | default "")
+      if $sid != "" { {id: $sid} | .bus pub "stack.select" }
+      null | metadata set { merge {'http.response': {status: 204}} }
+    }
+
+    [POST, "/stack/rename"] => {
+      # Rename a stack (persisted stack.update; propagates via `.cat -f`).
+      let signals = $body | from datastar-signals $req
+      let sid = ($signals.renameStackId? | default "")
+      let nm = ($signals.draft? | default "" | str trim)
+      if $sid != "" and $nm != "" {
+        null | .append "stack.update" --meta {id: $sid, name: $nm} --ttl forever | ignore
+      }
+      null | metadata set { merge {'http.response': {status: 204}} }
+    }
+
+    [POST, "/stack/close"] => {
+      # Delete a stack (and kill its terminal clips' ptys). Guarded so the last
+      # stack can't be removed -- there must always be somewhere for clips.
+      let sid = ($req.query.stack? | default "")
+      let proj = (.cat | projection project)
+      if $sid != "" and (($proj.stacks | length) > 1) {
+        let st = ($proj.stacks | where id == $sid | get 0?)
+        if ($st | is-not-empty) {
+          for c in ($st.clips | where kind == "terminal") {
+            let psid = (sid-for-clip $c.id)
+            if $psid != "" { pty close $psid }
+          }
+        }
+        null | .append "stack.delete" --meta {id: $sid} --ttl forever | ignore
+      }
       null | metadata set { merge {'http.response': {status: 204}} }
     }
 

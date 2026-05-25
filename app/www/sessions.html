@@ -159,7 +159,7 @@
   </style>
 </head>
 <body
-  data-signals='{"selectedSid":"","connId":"","sid":"","sel":"","termCols":0,"termRows":0,"termTitle":"","focusedDims":"","title":{{ title | default("") | tojson | e }},"docReady":false,"picking":false,"renaming":false,"renameMode":"title","draft":"","label":""}'
+  data-signals='{"selectedSid":"","selectedStack":"","connId":"","sid":"","sel":"","termCols":0,"termRows":0,"termTitle":"","focusedDims":"","title":{{ title | default("") | tojson | e }},"docReady":false,"picking":false,"renaming":false,"renameMode":"title","renameStackId":"","draft":"","label":""}'
   data-init="@get('/sse')"
   data-effect="document.title = $title || 'ghostty-web-nu sessions'"
   data-actions='{
@@ -234,7 +234,7 @@
   <!-- Rename modal. -->
   <div class="modal-backdrop" data-show="$renaming" data-on:click="$renaming = false">
     <div class="modal-box" data-on:click="evt.stopPropagation()">
-      <div class="modal-heading" data-text="$renameMode === 'tab' ? 'Rename tab' : 'Rename window'"></div>
+      <div class="modal-heading" data-text="$renameMode === 'tab' ? 'Rename clip' : ($renameMode === 'stack' ? 'Rename stack' : 'Rename window')"></div>
       <input
         type="text"
         class="modal-input"
@@ -242,7 +242,7 @@
         aria-label="rename"
         data-bind="draft"
         data-effect="$renaming && requestAnimationFrame(() => { el.focus(); el.setSelectionRange(0, el.value.length); })"
-        data-on:keydown="if (evt.key === 'Enter') { if ($renameMode === 'tab') { $label = $draft; $renaming = false; @post('/pty/label') } else { $title = $draft; $renaming = false; @post('/title') } } else if (evt.key === 'Escape') { $renaming = false }">
+        data-on:keydown="if (evt.key === 'Enter') { if ($renameMode === 'tab') { $label = $draft; $renaming = false; @post('/pty/label') } else if ($renameMode === 'stack') { $renaming = false; @post('/stack/rename') } else { $title = $draft; $renaming = false; @post('/title') } } else if (evt.key === 'Escape') { $renaming = false }">
     </div>
   </div>
 
