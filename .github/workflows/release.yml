@@ -54,7 +54,9 @@ jobs:
           mkdir "$dist"
           cp "target/${{ matrix.target }}/release/stacks2099" "$dist/"
           cp README.md LICENSE "$dist/" 2>/dev/null || true
-          tar czf "$dist.tar.gz" "$dist"
+          # Archive the contents at the root (binary, README, LICENSE) so a
+          # Homebrew formula can `bin.install "stacks2099"` directly.
+          tar czf "$dist.tar.gz" -C "$dist" .
 
       - name: Package (windows)
         if: runner.os == 'Windows'
