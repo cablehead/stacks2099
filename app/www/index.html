@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="utf-8">
+  <title>ghostty-web-nu</title>
+  <link rel="stylesheet" href="/stellar.css">
+  <link rel="stylesheet" href="/grid.css">
+  <link rel="stylesheet" href="/term.css">
+  <script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.1/bundles/datastar.js"></script>
+  <script type="module" src="/key-buffer.js"></script>
+</head>
+<body
+  data-signals="{sid: '', termCols: 0, termRows: 0, termTitle: ''}"
+  data-on:sid-ready__window="$sid = evt.detail.sid"
+  data-effect="document.title = $termTitle || 'ghostty-web-nu'"
+>
+  <div
+    id="status"
+    data-text="$termCols > 0 ? ('sid ' + ($sid ? $sid.slice(0,8) : '') + ' (' + $termCols + 'x' + $termRows + ')') : 'connecting...'"
+  >connecting...</div>
+  <div id="screen" data-effect="$sid && @get('/pty/view?sid=' + $sid, {openWhenHidden: true})"><div id="grid"></div></div>
+  <key-buffer data-attr:sid="$sid"></key-buffer>
+
+  <script type="module">
+    import { ensureTermFont, mountTerminal } from './terminal.js';
+
+    await ensureTermFont();
+
+    const screen = document.getElementById('screen');
+    const grid = document.getElementById('grid');
+    const status = document.getElementById('status');
+
+    // currentSid is set after bootstrap; the resize callback reads it so a
+    // resize that fires before the pty exists is a no-op.
+    let sid = null;
+    const term = mountTerminal({
+      screen,
+      grid,
+      onResize: (cols, rows) => {
+        if (!sid) return;
+        fetch('/pty/resize?sid=' + encodeURIComponent(sid), {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ cols, rows }),
+        }).catch(() => {});
+      },
+    });
+    const initial = term.initialDims;
+
+    // Reattach to the prior sid on refresh. sessionStorage scopes to this
+    // tab, so a refresh hits the same pty while a new tab gets its own. The
+    // probe is POST /pty/resize -- a 204 means the sid is alive AND the dims
+    // are updated to the current viewport in one round trip; any other
+    // status means we mint a fresh one.
+    sid = sessionStorage.getItem('sid');
+    let reattached = false;
+    if (sid) {
+      try {
+        const r = await fetch('/pty/resize?sid=' + encodeURIComponent(sid), {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(initial),
+        });
+        reattached = r.status === 204;
+      } catch {}
+      if (!reattached) {
+        sessionStorage.removeItem('sid');
+        sid = null;
+      }
+    }
+    if (!sid) {
+      try {
+        const r = await fetch('/pty/create', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(initial),
+        });
+        ({ sid } = await r.json());
+        sessionStorage.setItem('sid', sid);
+      } catch (e) {
+        // No frame will arrive, so the $termCols-driven status binding stays
+        // on "connecting..."; surface the failure directly instead.
+        status.textContent = 'pty/create failed: ' + e.message;
+        throw e;
+      }
+    }
+    window.__sid = sid;
+    window.dispatchEvent(new CustomEvent('sid-ready', { detail: { sid } }));
+  </script>
+</body>
+</html>

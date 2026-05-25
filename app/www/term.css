@@ -1,0 +1,32 @@
+/* term.css: single-pane (index.html) layout. Shared cell/font/color/scroll
+ * styling lives in grid.css; this file only positions the single full-window
+ * terminal and its status readout. */
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--term-bg);
+  color: var(--term-fg);
+}
+
+body {
+  font-family: var(--term-font);
+  font-size: 14px;
+  overflow: hidden;
+  /* Dynamic viewport height so Safari's collapsing toolbar/tab chrome
+     doesn't leave the grid sized to an area that's partly behind it.
+     #screen (position:absolute, no positioned ancestor here) fills this
+     viewport box. */
+  height: 100dvh;
+}
+
+#status {
+  position: fixed;
+  top: 6px;
+  right: 8px;
+  font-size: 12px;
+  opacity: 0.6;
+  pointer-events: none;
+  z-index: 10;
+}

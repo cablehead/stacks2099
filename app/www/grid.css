@@ -1,0 +1,177 @@
+/* grid.css: shared projection-terminal styling used by both the single-pane
+ * (index.html) and multi-session (sessions.html) surfaces.
+ *
+ * Classes follow `pty::render_grid_html` in http-nu's pty.rs:
+ *   .c                       - any styled run (no-attr runs are emitted bare)
+ *   .sb .sd .si .su .sx .ss   - bold, dim, italic, underline, invisible, strikethrough
+ *                               (reverse video is a server-side fg/bg swap, no class)
+ *   .f0..f15 .b0..b15         - ANSI 16-color palette fg/bg
+ *   .cursor                   - cell under the current cursor
+ *   style="color:#...;background:#...;"  - 256-color / truecolor inline fallbacks
+ * The grid root is `<div id="grid" data-cols=N data-rows=M>`, rows are
+ * `<div class="row" id="r-N">`. Datastar morphs by id; idiomorph keeps stable
+ * rows in place and rewrites only the cell runs that changed.
+ *
+ * #screen is the scroll container; #grid (its only child) is the morph
+ * target. Any inline style on #grid would be wiped by the morph, so the
+ * row-aligned height lives on #screen, which the server never touches.
+ * #screen is absolutely positioned and fills its nearest positioned
+ * ancestor -- the viewport in single-pane, the .term-wrap cell in sessions.
+ */
+
+/* Vendored JetBrains Mono NL Nerd Font (Mono variant: single-width icons,
+ * no ligatures). A complete monospace face with box-drawing, block,
+ * powerline, and Nerd Font icon glyphs all at uniform advance -- so a
+ * nushell `ls` table (whose borders are ambiguous-width box chars) stays
+ * aligned without the browser substituting a non-monospace fallback. */
+@font-face {
+  font-family: 'JetBrainsMonoNerd';
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+  src: url('/fonts/JetBrainsMonoNLNerdFontMono-Regular.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'JetBrainsMonoNerd';
+  font-weight: bold;
+  font-style: normal;
+  font-display: swap;
+  src: url('/fonts/JetBrainsMonoNLNerdFontMono-Bold.woff2') format('woff2');
+}
+
+:root {
+  --term-bg: #1e1e1e;
+  --term-fg: #d4d4d4;
+  /* Integer pixel row height so a whole number of rows tiles the scroll
+     container exactly -- a fractional (em-based) line-height leaves a
+     sub-pixel sliver clipped at the top when scrolled to the bottom. */
+  --cell-h: 17px;
+  /* Single complete monospace face for the grid. No multi-font fallback
+     here on purpose: a fallback font would advance box-drawing glyphs at a
+     different width and break column alignment. The generic monospace is
+     only a last resort if the woff2 fails to load. */
+  --term-font: 'JetBrainsMonoNerd', monospace;
+}
+
+/* Scrollbars are hidden (see below); content scrolls via wheel/keyboard.
+   That removes the need to reserve a gutter and the "scrollbar eats a
+   column" width math -- the full width is always usable. */
+*::-webkit-scrollbar { display: none; }
+* { scrollbar-width: none; }
+
+#screen {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  /* Fallback fills the positioned ancestor; JS overrides with a whole
+     multiple of the row height so a bottom-anchored scroll never leaves a
+     half-row clipped at the top. */
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* The grid root always carries data-cols (single-pane #grid or per-pane
+   #grid-<sid>), so target that rather than a specific id. */
+[data-cols] {
+  font-family: var(--term-font);
+  font-size: 14px;
+  line-height: var(--cell-h);
+  white-space: pre;
+}
+
+/* Scoped to the grid: the sessions sidebar also uses a `.row` class for its
+   tab buttons, and an unscoped height here would clip them to one cell. */
+[data-cols] .row {
+  display: block;
+  height: var(--cell-h);
+}
+
+.cell-probe {
+  position: absolute;
+  visibility: hidden;
+  top: -9999px;
+  left: -9999px;
+  font-family: var(--term-font);
+  font-size: 14px;
+  line-height: var(--cell-h);
+  white-space: pre;
+}
+
+/* Attribute classes. Reverse video is handled in Rust by swapping the
+ * foreground and background colors in the emitted inline style, so there
+ * is no `.sr` rule -- the swap happens at render time. */
+.sb { font-weight: bold; }
+.sd { opacity: 0.6; }
+.si { font-style: italic; }
+.su { text-decoration: underline; }
+.sx { visibility: hidden; }
+.ss { text-decoration: line-through; }
+
+/* ANSI 16 palette - standard xterm-ish dark theme */
+.f0  { color: #000000; }
+.f1  { color: #cd0000; }
+.f2  { color: #00cd00; }
+.f3  { color: #cdcd00; }
+.f4  { color: #1e90ff; }
+.f5  { color: #cd00cd; }
+.f6  { color: #00cdcd; }
+.f7  { color: #e5e5e5; }
+.f8  { color: #4d4d4d; }
+.f9  { color: #ff5454; }
+.f10 { color: #54ff54; }
+.f11 { color: #ffff54; }
+.f12 { color: #5454ff; }
+.f13 { color: #ff54ff; }
+.f14 { color: #54ffff; }
+.f15 { color: #ffffff; }
+
+.b0  { background: #000000; }
+.b1  { background: #cd0000; }
+.b2  { background: #00cd00; }
+.b3  { background: #cdcd00; }
+.b4  { background: #1e90ff; }
+.b5  { background: #cd00cd; }
+.b6  { background: #00cdcd; }
+.b7  { background: #e5e5e5; }
+.b8  { background: #4d4d4d; }
+.b9  { background: #ff5454; }
+.b10 { background: #54ff54; }
+.b11 { background: #ffff54; }
+.b12 { background: #5454ff; }
+.b13 { background: #ff54ff; }
+.b14 { background: #54ffff; }
+.b15 { background: #ffffff; }
+
+/* Cursor cell: invert against the theme. Applied to the same <span> as the
+ * cell's other attrs, so it stacks with an explicit .bN when present. */
+.cursor {
+  background: var(--term-fg);
+  color: var(--term-bg);
+  animation: cursor-blink 1s steps(2) infinite;
+}
+@keyframes cursor-blink {
+  50% { opacity: 0.5; }
+}
+
+/* Key buffer overlay: floating ghost characters showing in-flight keys. */
+key-buffer {
+  position: fixed;
+  bottom: 8px;
+  left: 8px;
+  font-family: var(--term-font);
+  font-size: 12px;
+  color: var(--term-fg);
+  opacity: 0.7;
+  pointer-events: none;
+  z-index: 5;
+  letter-spacing: 1px;
+}
+key-buffer .ghost {
+  display: inline-block;
+  padding: 1px 4px;
+  margin-right: 2px;
+  background: rgba(212, 212, 212, 0.15);
+  border-radius: 3px;
+}

@@ -9,13 +9,12 @@ rust-version = "1.88.0"
 description = "The surprisingly performant, Nushell-scriptable, cross.stream-powered, Datastar-ready HTTP server that fits in your back pocket."
 license = "MIT"
 repository = "https://github.com/cablehead/http-nu"
-readme = "README.md"
 homepage = "https://github.com/cablehead/http-nu"
 keywords = ["http", "nushell", "server", "cli", "http-server"]
 categories = ["web-programming", "command-line-utilities"]
 
 [[bin]]
-name = "http-nu"
+name = "stacks2099"
 path = "src/main.rs"
 
 [dependencies]

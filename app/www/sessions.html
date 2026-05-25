@@ -1,0 +1,657 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="utf-8">
+  <title>{{ title or "ghostty-web-nu sessions" }}</title>
+  <script type="module" src="{{ datastar_js_path }}"></script>
+  <script src="https://cdn.jsdelivr.net/npm/iconify-icon@2/dist/iconify-icon.min.js"></script>
+  <script type="module" src="/key-buffer.js"></script>
+  <link rel="stylesheet" href="/stellar.css">
+  <link rel="stylesheet" href="/md.css">
+  <link rel="stylesheet" href="/grid.css">
+  <style>
+    :root {
+      --bg: #1d0e2e; --fg: #d4d4d4;
+      --pane: #161616; --pane-border: #2a2a2a;
+      --sel: #2a9d4a; --sel-blur: #2d4f7c; --sel-fg: #ffffff; --dim: #888;
+      --chrome: #252525;
+    }
+    html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--fg); font: 14px var(--term-font); }
+    body { display: grid; grid-template-columns: 14rem 1fr auto; height: 100dvh; }
+    aside { background: var(--pane); border-right: 1px solid var(--pane-border); overflow-y: auto; min-height: 0; }
+    aside header { padding: .4rem .5rem .4rem .75rem; border-bottom: 1px solid var(--pane-border); font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: var(--dim); display: flex; align-items: center; justify-content: space-between; }
+    aside header .new-btn { background: transparent; color: inherit; border: 1px solid var(--pane-border); border-radius: 3px; padding: 0 .5rem; font: inherit; cursor: pointer; line-height: 1.4; }
+    aside header .new-btn:hover { background: #222; color: var(--fg); }
+    aside ul { list-style: none; margin: 0; padding: 0; }
+    aside li { display: flex; align-items: stretch; border-bottom: 1px solid var(--pane-border); }
+    aside li .row { flex: 1; min-width: 0; text-align: left; background: transparent; color: inherit; border: 0; padding: .4rem .75rem; font: inherit; cursor: pointer; overflow: hidden; }
+    aside li .row:hover { background: #222; }
+    /* Selected tab is blue while merely selected (navigate mode) and green
+       once a terminal is focused -- mirrors the focused/blurred distinction. */
+    aside li.selected .row { background: var(--sel-blur); color: var(--sel-fg); }
+    body.mode-focus aside li.selected .row { background: var(--sel); }
+    aside li .close { flex: 0 0 auto; width: 1.75rem; background: transparent; color: inherit; border: 0; padding: 0; font: inherit; cursor: pointer; opacity: 0; transition: opacity .1s; }
+    aside li:hover .close, aside li.selected .close { opacity: .6; }
+    aside li .close:hover { opacity: 1; color: #ff7676; background: #222; }
+    aside li .copy { flex: 0 0 auto; width: 1.75rem; display: flex; align-items: center; justify-content: center; background: transparent; color: inherit; border: 0; padding: 0; font: inherit; cursor: pointer; opacity: 0; transition: opacity .1s; }
+    aside li:hover .copy, aside li.selected .copy { opacity: .6; }
+    aside li .copy:hover { opacity: 1; background: #222; }
+    aside li .copy iconify-icon { font-size: 13px; }
+    aside li .copy.copied { opacity: 1; color: var(--sel); }
+    aside li small { display: block; font-size: 11px; opacity: .6; }
+    /* main is a grid: topbar | (terminal + rightbar) | statusbar. */
+    main { display: grid; grid-template-rows: auto 1fr auto; min-height: 0; overflow: hidden; }
+    .topbar {
+      background: var(--chrome); padding: .15rem .75rem;
+      display: flex; align-items: center;
+      font-size: 11px; color: var(--dim);
+    }
+    .title-display { cursor: pointer; padding: 0 .25rem; border-radius: 2px; }
+    .title-display:hover { background: #2f2f2f; color: var(--fg); }
+    .middle { display: grid; grid-template-columns: 1fr 1ch; min-height: 0; }
+    /* Continuous document: every session's terminal stacked vertically, the
+       whole column scrolls. Each .pane is a fixed-height live terminal whose
+       grid.css #screen-<sid> fills the .pane-screen below its header. */
+    #doc { min-height: 0; overflow-y: auto; overflow-x: hidden; padding: .5rem; display: flex; flex-direction: column; gap: .5rem; }
+    .pane { flex: 0 0 auto; display: flex; flex-direction: column; border: 1px solid var(--pane-border); border-radius: 4px; overflow: hidden; background: var(--term-bg); transition: opacity .12s, border-color .12s; scroll-margin: .5rem; }
+    .pane-head { flex: 0 0 auto; padding: .15rem .6rem; font-size: 11px; color: var(--dim); background: var(--chrome); cursor: pointer; display: flex; gap: .5ch; align-items: baseline; }
+    .pane-head small { opacity: .5; }
+    /* The terminal viewport. terminal.js sets its height to the row count it
+       wants (fixedRows * cell height), so the pane sizes itself -- no calc,
+       no absolute positioning. Scrollback scrolls within this box. */
+    .pane-screen { flex: 0 0 auto; overflow-y: auto; overflow-x: hidden; background: var(--term-bg); }
+    /* Note panes: a <pre> for display, swapped for a <textarea> while editing.
+       Both share the terminal font and the pane background (no white box, no
+       border) so editing blends into the surface. The editor fills the pane
+       width and grows with its content (JS sets height from scrollHeight),
+       with a few-row floor so a new note has room. */
+    .note-body { background: var(--term-bg); }
+    .note-pre, .note-edit {
+      display: block; width: 100%; box-sizing: border-box; margin: 0;
+      padding: .25rem .6rem;
+      background: var(--term-bg); color: var(--term-fg);
+      font-family: var(--term-font); font-size: 14px; line-height: var(--cell-h);
+      white-space: pre-wrap; word-break: break-word;
+      min-height: calc(var(--cell-h) * 3);
+    }
+    .note-edit { border: 0; outline: none; resize: none; overflow: hidden; }
+    /* The active (selected) pane is highlighted. In navigate mode every pane
+       is dimmed (read-only); focus mode lights the active one fully. */
+    .pane.active { border-color: var(--sel-blur); }
+    body.mode-focus .pane.active { border-color: var(--sel); }
+    body.mode-navigate .pane { opacity: .3; }
+    body.mode-navigate .pane.active { opacity: .55; }
+    body.mode-focus .pane { opacity: .4; }
+    body.mode-focus .pane.active { opacity: 1; }
+    .mode-badge { margin-left: auto; font-size: 11px; color: var(--dim); letter-spacing: .04em; text-transform: uppercase; }
+    body.mode-focus .mode-badge { color: var(--sel); }
+    .rightbar { background: var(--chrome); }
+    .statusbar {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: .4rem 1rem;
+      background: var(--chrome); color: var(--fg);
+      border-top: 1px solid var(--pane-border);
+      font-size: 11px; line-height: 1;
+      font-family: var(--term-font);
+    }
+    .status-keys { display: flex; gap: .75rem; align-items: center; }
+    .status-mode { text-transform: uppercase; letter-spacing: .05em; color: var(--dim); }
+    body.mode-focus .status-mode { color: var(--sel); }
+    #status-bindings { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
+    .statusbar .binding { display: inline-flex; gap: .4ch; align-items: center; cursor: pointer; opacity: .75; }
+    .statusbar .binding:hover { opacity: 1; }
+    .statusbar .binding kbd {
+      font-family: var(--term-font); font-size: 10px;
+      background: #1c1c1c; border: 1px solid var(--pane-border);
+      border-radius: 3px; padding: 0 .4ch; line-height: 1.4;
+    }
+    .status-meta { display: flex; gap: 1rem; align-items: center; }
+    /* Right-side canvas pane. Lives in body's third grid column (`auto`), so
+       when :empty the column collapses to 0 and the terminal gets full width.
+       Server pushes content via the same /sse stream (canvas.events). */
+    .canvas {
+      position: relative;
+      width: var(--canvas-w, 32rem); min-height: 0; overflow: auto;
+      background: var(--pane); border-left: 1px solid var(--pane-border);
+      padding: .75rem; box-sizing: border-box;
+      font-size: 12px;
+    }
+    .canvas:empty { display: none; }
+    .canvas pre { margin: 0; white-space: pre; }
+    .canvas-resizer {
+      position: absolute; left: -3px; top: 0; bottom: 0; width: 6px;
+      cursor: col-resize; background: transparent;
+      transition: background .15s;
+    }
+    .canvas-resizer:hover, body.canvas-dragging .canvas-resizer { background: var(--sel); }
+    .canvas-content { height: 100%; }
+    body.canvas-dragging { user-select: none; cursor: col-resize; }
+    body.canvas-dragging .term-wrap, body.canvas-dragging .canvas-content { pointer-events: none; }
+
+    /* Rename modal. */
+    .modal-backdrop {
+      position: fixed; inset: 0; z-index: 1000;
+      background: rgba(0, 0, 0, 0.45);
+      display: flex; align-items: flex-start; justify-content: center;
+      padding-top: 6rem;
+    }
+    .modal-box {
+      width: min(28rem, 90%);
+      background: var(--pane);
+      border: 1px solid var(--pane-border);
+      border-radius: 4px;
+      padding: .75rem 1rem;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    }
+    .modal-heading {
+      font-size: 11px; letter-spacing: .04em; text-transform: uppercase;
+      color: var(--dim); margin-bottom: .35rem;
+    }
+    .modal-input {
+      width: 100%; background: transparent; border: 0; outline: none;
+      color: var(--fg); font: inherit; font-size: 14px;
+      padding: .25rem 0;
+    }
+  </style>
+</head>
+<body
+  data-signals='{"selectedSid":"","connId":"","sid":"","sel":"","termCols":0,"termRows":0,"termTitle":"","focusedDims":"","title":{{ title | default("") | tojson | e }},"docReady":false,"picking":false,"renaming":false,"renameMode":"title","draft":"","label":""}'
+  data-init="@get('/sse')"
+  data-effect="document.title = $title || 'ghostty-web-nu sessions'"
+  data-actions='{
+    "new":       "window.app.newSession()",
+    "close":     "window.app.closeSelected()",
+    "next":      "window.app.cycle(1)",
+    "prev":      "window.app.cycle(-1)",
+    "rename":    "window.app.openRename()",
+    "renameTab": "window.app.openRenameTab()",
+    "cycleHeight":"window.app.cycleHeight()"
+  }'
+  data-keymap='{
+    "alt+t": "new",
+    "alt+d": "close",
+    "alt+j": "next",
+    "alt+k": "prev",
+    "alt+r": "renameTab",
+    "alt+shift+r": "rename",
+    "alt+o": "cycleHeight"
+  }'
+>
+  <!-- Server overwrites this on every event. -->
+  <aside id="sessions-list"><header>Sessions</header></aside>
+
+  <main>
+    <div class="topbar">
+      <span
+        class="title-display"
+        title="Rename (Alt+Shift+R)"
+        data-text="$title || 'untitled'"
+        data-on:click="$draft = $title; $renameMode = 'title'; $renaming = true"></span>
+    </div>
+    <!-- Continuous document of session panes. The server fills #doc on init
+         and appends/removes panes as sessions come and go; each pane opens
+         its own view stream and mounts terminal.js. Selection highlight is
+         reactive via data-class on $selectedSid. -->
+    <div id="doc" class="doc"></div>
+    <footer class="statusbar" aria-label="Status">
+      <!-- Modal status bar: the active mode's name + its clickable key
+           bindings (filled by JS on setMode). Clicking a binding fires the
+           same action a keypress would. -->
+      <span class="status-keys"><span class="status-mode" id="status-mode">navigate</span><span id="status-bindings"></span></span>
+      <span class="status-meta">
+        <span data-text="$focusedDims"></span>
+        <span data-text="$selectedSid ? ('sid ' + $selectedSid.slice(0,8)) : ''" style="opacity:.5;"></span>
+      </span>
+    </footer>
+  </main>
+
+  <!-- Scroll the active pane into view (stacks-style offset) whenever the
+       selection changes. Lives in the static shell so the server never
+       morphs it away; data-effect fires on $selectedSid change. -->
+  <!-- Lead with a bare $selectedSid read so Datastar registers it as a
+       dependency even on the first eval, when the deferred module hasn't
+       defined window.__onSelect yet (a `&&` guard would short-circuit
+       before $selectedSid is read, and the effect would never re-run). -->
+  <div data-effect="$selectedSid; window.__onSelect && window.__onSelect($selectedSid)" style="display:none"></div>
+
+  <!-- Server-pushed canvas pane. Empty -> collapses to 0 width. -->
+  <section id="canvas" class="canvas"></section>
+
+  <!-- Hidden trigger so the JS-only Alt+R action can seed signals through
+       datastar's expression evaluator. -->
+  <button
+    id="rename-tab-trigger"
+    type="button"
+    hidden
+    data-on:click="$draft = el.dataset.label || ''; $renameMode = 'tab'; $renaming = true"></button>
+
+  <!-- Rename modal. -->
+  <div class="modal-backdrop" data-show="$renaming" data-on:click="$renaming = false">
+    <div class="modal-box" data-on:click="evt.stopPropagation()">
+      <div class="modal-heading" data-text="$renameMode === 'tab' ? 'Rename tab' : 'Rename window'"></div>
+      <input
+        type="text"
+        class="modal-input"
+        spellcheck="false"
+        aria-label="rename"
+        data-bind="draft"
+        data-effect="$renaming && requestAnimationFrame(() => { el.focus(); el.setSelectionRange(0, el.value.length); })"
+        data-on:keydown="if (evt.key === 'Enter') { if ($renameMode === 'tab') { $label = $draft; $renaming = false; @post('/pty/label') } else { $title = $draft; $renaming = false; @post('/title') } } else if (evt.key === 'Escape') { $renaming = false }">
+    </div>
+  </div>
+
+  <!-- New-clip type picker (Alt+T / the + button). Terminal spawns a pty
+       clip; Note creates a CAS text clip you land in to edit. -->
+  <div class="modal-backdrop" data-show="$picking" data-on:click="$picking = false">
+    <div class="modal-box picker" data-on:click="evt.stopPropagation()">
+      <div class="modal-heading">New clip</div>
+      <button type="button" class="picker-row" data-on:click="$picking = false; @post('/clip/new?type=terminal')">
+        <iconify-icon icon="lucide:square-terminal"></iconify-icon> Terminal
+      </button>
+      <button type="button" class="picker-row" data-on:click="$picking = false; @post('/clip/new?type=note')">
+        <iconify-icon icon="lucide:file-text"></iconify-icon> Note
+      </button>
+    </div>
+  </div>
+
+  <!-- key-buffer's sid is set imperatively by __focusClip to the focused
+       terminal's pty sid (not the clip id), so no data-attr binding here. -->
+  <key-buffer></key-buffer>
+
+  <script type="module">
+    import { ensureTermFont, mountTerminal } from './terminal.js';
+    await ensureTermFont();
+
+    // Restore the canvas width set by the last drag.
+    {
+      const w = localStorage.getItem('canvas-w');
+      if (w) document.body.style.setProperty('--canvas-w', w);
+    }
+
+    const doc = document.getElementById('doc');
+    const PANE_ROWS = 24;
+
+    // Panes are keyed by clip id. Terminal panes mount terminal.js on their
+    // live grid; note panes wire textarea<->pre editing. Both happen as the
+    // server appends panes; terminal handles are torn down on removal.
+    const mounted = new Map(); // clip id -> terminal handle
+    function mountTerminalPane(pane) {
+      const cid = pane.dataset.clip;
+      if (!cid || mounted.has(cid)) return;
+      const screen = pane.querySelector('.pane-screen');
+      const grid = pane.querySelector('[id^="grid-"]');
+      if (!screen || !grid) return; // [exited] placeholder has no grid
+      const sid = screen.dataset.sid;
+      const term = mountTerminal({
+        screen,
+        grid,
+        fixedRows: PANE_ROWS,
+        onResize: (cols, rows) => {
+          if (!sid) return;
+          fetch('/pty/resize?sid=' + encodeURIComponent(sid), {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ cols, rows }),
+          }).catch(() => {});
+        },
+      });
+      mounted.set(cid, term);
+      term.syncNow();
+    }
+    // Size a note editor to its content height (CSS min-height is the floor).
+    function growNote(ta) {
+      ta.style.height = 'auto';
+      ta.style.height = ta.scrollHeight + 'px';
+    }
+    function wireNotePane(pane) {
+      if (pane.dataset.noteWired) return;
+      pane.dataset.noteWired = '1';
+      const cid = pane.dataset.clip;
+      const pre = pane.querySelector('.note-pre');
+      const ta = pane.querySelector('.note-edit');
+      if (!ta) return;
+      // Blur ends editing: mirror text into the <pre>, swap back to display,
+      // and persist (clip.update -> CAS).
+      ta.addEventListener('blur', () => {
+        pre.textContent = ta.value;
+        ta.style.display = 'none';
+        pre.style.display = '';
+        fetch('/clip/update?clip=' + encodeURIComponent(cid), {
+          method: 'POST', headers: { 'content-type': 'text/plain' }, body: ta.value,
+        }).catch(() => {});
+      });
+      // Grow the editor to fit its content so there is no inner scrollbar --
+      // the note flows with the document. __focusClip sizes it on show too.
+      ta.addEventListener('input', () => growNote(ta));
+      // A freshly created note arrives empty -- focus it (== edit it) straight
+      // away. __onSelect would do this too, but only in focus mode and only
+      // once $selectedSid arrives, which can race the pane's DOM append; the
+      // empty-body case is handled here deterministically on first wire. A
+      // reloaded note has a body, so it stays in display mode until selected.
+      if (ta.value === '') window.__focusClip(cid);
+    }
+    function scanPanes() {
+      doc.querySelectorAll('.pane').forEach((pane) => {
+        if (pane.dataset.kind === 'note') wireNotePane(pane);
+        else mountTerminalPane(pane);
+      });
+      for (const cid of [...mounted.keys()]) {
+        if (!doc.querySelector('#pane-' + CSS.escape(cid))) mounted.delete(cid);
+      }
+    }
+    new MutationObserver(scanPanes).observe(doc, { childList: true });
+    scanPanes();
+
+    // Sidebar copy-sid button (delegated; rows are re-rendered by datastar).
+    document.addEventListener('click', (e) => {
+      const btn = e.target instanceof HTMLElement ? e.target.closest('.copy') : null;
+      if (!btn) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const sid = btn.dataset.sid || '';
+      if (!sid) return;
+      navigator.clipboard?.writeText(sid).then(() => {
+        btn.classList.add('copied');
+        setTimeout(() => btn.classList.remove('copied'), 600);
+      }).catch(() => {});
+    });
+
+    // Drag-to-resize the canvas pane (delegated; .canvas-resizer is
+    // re-created on every #canvas patch).
+    document.addEventListener('mousedown', (e) => {
+      if (!(e.target instanceof HTMLElement) || !e.target.classList.contains('canvas-resizer')) return;
+      e.preventDefault();
+      document.body.classList.add('canvas-dragging');
+      const onMove = (ev) => {
+        const min = 12 * 16, maxTake = window.innerWidth - 24 * 16;
+        const w = Math.max(min, Math.min(maxTake, window.innerWidth - ev.clientX));
+        document.body.style.setProperty('--canvas-w', w + 'px');
+      };
+      const onUp = () => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        document.body.classList.remove('canvas-dragging');
+        const w = document.body.style.getPropertyValue('--canvas-w');
+        if (w) localStorage.setItem('canvas-w', w);
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+
+    // Action registry. data-actions maps id -> JS, data-keymap maps combo ->
+    // id. The capture-phase handler below evaluates the matched action's JS.
+    window.app = {
+      newSession() {
+        // The + button sets $picking; opens the note/terminal type picker.
+        document.querySelector('#sessions-list .new-btn')?.click();
+      },
+      closeSelected() {
+        const cid = currentClip();
+        if (!cid) return;
+        fetch('/clip/close?clip=' + encodeURIComponent(cid), { method: 'POST' }).catch(() => {});
+      },
+      cycle(dir) {
+        const items = [...document.querySelectorAll('#sessions-list li')];
+        if (!items.length) return;
+        const idx = items.findIndex((li) => li.classList.contains('selected'));
+        const next = items[((idx < 0 ? 0 : idx) + dir + items.length) % items.length];
+        next.querySelector('.row')?.click();
+      },
+      openRename() {
+        document.querySelector('.title-display')?.click();
+      },
+      openRenameTab() {
+        const btn = document.querySelector('#sessions-list li.selected .row');
+        if (!btn) return;
+        const label = btn.firstChild?.textContent?.trim() ?? '';
+        const trig = document.getElementById('rename-tab-trigger');
+        if (!trig) return;
+        trig.dataset.label = label;
+        trig.click();
+      },
+      toggleFocus() {
+        // mod+Enter symmetric toggle (the only focus entry/exit): leave focus
+        // if focused (a note blurs and saves on the way out), otherwise focus
+        // the selected clip.
+        if (mode === 'focus') { setMode('navigate'); return; }
+        const cid = currentClip();
+        if (cid) window.__focusClip(cid);
+      },
+      cycleHeight() {
+        // Cycle the active terminal pane's height (rows): default -> compact
+        // -> 2/3 of the document -> full document -> default. terminal.js
+        // resizes the pty to match. Width stays pane-driven; notes auto-grow,
+        // so this is a terminal-only chord.
+        const cid = currentClip();
+        if (!cid) return;
+        const term = mounted.get(cid);
+        if (!term || !term.setFixedRows) return;
+        const cellH = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--cell-h'), 10) || 17;
+        const fullRows = Math.max(6, Math.floor(doc.clientHeight / cellH));
+        const sizes = [PANE_ROWS, 8, Math.max(6, Math.floor(fullRows * 2 / 3)), fullRows];
+        const next = ((heightIdx.get(cid) ?? 0) + 1) % sizes.length;
+        heightIdx.set(cid, next);
+        term.setFixedRows(sizes[next]);
+      },
+    };
+    // Per-clip height-cycle index for cycleHeight().
+    const heightIdx = new Map();
+
+    // The selected clip id, read from the active pane (datastar sets .active
+    // reactively from $selectedSid, which now holds the selected clip id).
+    const currentClip = () => doc.querySelector('.pane.active')?.dataset.clip || '';
+    window.__onSelect = (cid) => {
+      if (cid) {
+        // Reveal the selected pane's bottom (a terminal's prompt sits there).
+        const pane = doc.querySelector('#pane-' + CSS.escape(cid));
+        if (pane) {
+          pane.scrollIntoView({ block: 'end', behavior: 'smooth' });
+          // Focus carries with the selection while in focus mode (so Alt+J/K
+          // moves you from one focused pane straight into the next: a terminal
+          // gets key-buffer/pty, a note opens its editor). Navigate mode is
+          // read-only browsing, so it never auto-focuses.
+          if (mode === 'focus') window.__focusClip(cid);
+        }
+      }
+      if (mode === 'focus' && !cid) setMode('navigate');
+    };
+
+    // Modal interaction: navigate vs focus. In navigate mode the terminal is
+    // greyed and key-buffer is off, so the app keymap (Alt+T/D/J/K/R/O) is live
+    // and nothing leaks to the pty. mod+Enter focuses the selected terminal ->
+    // key-buffer on, keys route to the pty (plain Esc and Enter included), and
+    // mod+Enter returns to navigate.
+    const keybuf = document.querySelector('key-buffer');
+
+    // Modal status bar. Each mode lists its clickable key bindings in the
+    // footer; clicking one runs the same action the key would. Keys are
+    // ASCII labels (project convention) rather than glyphs.
+    const statusMode = document.getElementById('status-mode');
+    const statusBindings = document.getElementById('status-bindings');
+    // App chords (Alt-prefixed) are global, so both modes list them. The
+    // mod+Enter focus toggle is the only focus entry/exit. The mod key is Cmd
+    // on macOS, Ctrl elsewhere -- both are mapped; the label follows the
+    // platform.
+    const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '');
+    const modLabel = isMac ? 'Cmd' : 'Ctrl';
+    const appChords = [
+      { label: 'New', keys: ['Alt', 'T'], run: () => window.app.newSession() },
+      { label: 'Close', keys: ['Alt', 'D'], run: () => window.app.closeSelected() },
+      { label: 'Rename', keys: ['Alt', 'R'], run: () => window.app.openRenameTab() },
+      { label: 'Height', keys: ['Alt', 'O'], run: () => window.app.cycleHeight() },
+    ];
+    const bindingsByMode = {
+      navigate: [
+        ...appChords,
+        { label: 'Focus', keys: [modLabel, 'Enter'], run: () => window.app.toggleFocus() },
+      ],
+      focus: [
+        ...appChords,
+        { label: 'Navigate', keys: [modLabel, 'Enter'], run: () => window.app.toggleFocus() },
+      ],
+    };
+    function renderBindings(m) {
+      statusMode.textContent = m;
+      statusBindings.replaceChildren();
+      for (const b of (bindingsByMode[m] || [])) {
+        const el = document.createElement('span');
+        el.className = 'binding';
+        const lbl = document.createElement('span');
+        lbl.textContent = b.label;
+        el.appendChild(lbl);
+        for (const k of b.keys) {
+          const kbd = document.createElement('kbd');
+          kbd.textContent = k;
+          el.appendChild(kbd);
+        }
+        el.addEventListener('mousedown', (e) => { e.preventDefault(); b.run(); });
+        statusBindings.appendChild(el);
+      }
+    }
+
+    let mode = 'navigate';
+    function setMode(m) {
+      mode = m;
+      document.body.classList.toggle('mode-focus', m === 'focus');
+      document.body.classList.toggle('mode-navigate', m === 'navigate');
+      // Leaving focus always silences key-buffer and ends any note edit (its
+      // blur handler renders the <pre> and persists). Entering focus does NOT
+      // force key-buffer on here -- __focusClip enables it only for a terminal
+      // pane, since a focused note routes keys to its textarea instead.
+      if (m === 'navigate') {
+        keybuf.setAttribute('enabled', 'false');
+        if (document.activeElement?.classList.contains('note-edit')) document.activeElement.blur();
+      }
+      renderBindings(m);
+    }
+    setMode('navigate');
+
+    // Focus a clip by id -- the one entry point for "go into this pane".
+    // Terminal: point key-buffer at the pane's pty (its .pane-screen carries
+    // data-sid), enable it, and enter focus mode so typing lands immediately.
+    // Note: focusing a note IS editing it -- show the textarea, silence
+    // key-buffer (the textarea owns keys), focus it, and still enter focus
+    // mode so Alt+J/K carries on to the next pane and mod+Enter leaves.
+    window.__focusClip = (cid) => {
+      if (!cid) return;
+      const pane = doc.querySelector('#pane-' + CSS.escape(cid));
+      if (!pane) return;
+      if (pane.dataset.kind === 'note') {
+        keybuf.setAttribute('enabled', 'false');
+        const ta = pane.querySelector('.note-edit'), pre = pane.querySelector('.note-pre');
+        if (ta) {
+          ta.style.display = '';
+          if (pre) pre.style.display = 'none';
+          ta.focus();
+          // Land the caret at the end so you continue the note where it left
+          // off rather than at the top.
+          ta.setSelectionRange(ta.value.length, ta.value.length);
+          growNote(ta);
+        }
+        setMode('focus');
+        return;
+      }
+      const sid = pane.querySelector('.pane-screen')?.dataset.sid;
+      if (!sid) return;
+      keybuf.setAttribute('sid', sid);
+      keybuf.setAttribute('enabled', 'true');
+      setMode('focus');
+    };
+
+    // Clicking truly outside a pane (topbar, canvas, empty doc area) drops
+    // back to navigate mode. Exempt surfaces: a pane (its own handler focuses
+    // it), the sidebar (selecting a clip carries focus, like Alt+J/K -- and
+    // cycle() drives selection via a synthetic sidebar click), the rename
+    // modal/picker (keeps their inputs working), and the status bar.
+    document.addEventListener('click', (e) => {
+      if (e.target.closest('.pane') || e.target.closest('#sessions-list') ||
+          e.target.closest('.modal-backdrop') || e.target.closest('.statusbar')) return;
+      if (mode === 'focus') setMode('navigate');
+    });
+
+    // Combo normalization. macOS substitutes a glyph for e.key when Alt is
+    // held (option+d -> the partial-derivative sign); fall back to e.code
+    // (KeyD -> "d") so alt+letter combos still match.
+    function comboKey(e) {
+      const parts = [];
+      if (e.metaKey) parts.push('cmd');
+      if (e.ctrlKey) parts.push('ctrl');
+      if (e.altKey) parts.push('alt');
+      if (e.shiftKey) parts.push('shift');
+      let k = e.key;
+      if (e.altKey && e.code && e.code.startsWith('Key')) {
+        k = e.code.slice(3).toLowerCase();
+      } else if (k.length === 1 && /[a-zA-Z]/.test(k)) {
+        k = k.toLowerCase();
+      } else if (k === ' ') {
+        k = 'space';
+      }
+      parts.push(k.toLowerCase());
+      return parts.join('+');
+    }
+    function readJson(name) {
+      const raw = document.body.dataset[name];
+      if (!raw) return {};
+      try { return JSON.parse(raw); } catch { return {}; }
+    }
+    // Capture-phase keymap. A matched combo calls stopPropagation so it never
+    // reaches key-buffer's window (bubble-phase) listener. App chords are
+    // Alt-prefixed (ADR 0004) and fire in EVERY mode -- navigate, a focused
+    // terminal, or while editing a note -- so clip management (Alt+T/D/J/K/R/O)
+    // never requires leaving what you're in. Non-Alt keys are context-scoped:
+    //   editing a note -- the textarea owns them (Enter = newline, Escape ends
+    //                      the edit by blurring; the blur handler renders the
+    //                      <pre> and persists).
+    //   focused terminal -- everything (plain Esc and Enter included) goes to
+    //                        the pty; mod+Enter is the only exit.
+    //   navigate         -- no non-Alt bindings today (mod+Enter focuses).
+    // The modal-input guard keeps the rename field's own Enter/Esc/typing.
+    function runAction(id) {
+      const js = readJson('actions')[id];
+      if (!js) return;
+      try { new Function(js)(); } catch (err) { console.error('action', id, err); }
+    }
+    document.addEventListener('keydown', (e) => {
+      if (document.activeElement?.classList.contains('modal-input')) return;
+      const combo = comboKey(e);
+      const editingNote = document.activeElement?.classList.contains('note-edit');
+
+      // mod+Enter: the only focus toggle, in any mode (Cmd on macOS, Ctrl else
+      // -- both mapped). key-buffer drops Meta combos and a plain terminal
+      // can't tell Ctrl+Enter from Enter, so intercepting it costs the pty
+      // nothing. While editing a note this commits and leaves (setMode blurs
+      // -> saves). Plain Esc and Enter are left entirely to the focused pty.
+      if (combo === 'cmd+enter' || combo === 'ctrl+enter') {
+        e.preventDefault();
+        e.stopPropagation();
+        window.app.toggleFocus();
+        return;
+      }
+      // Alt app-chords: active in every mode. Save a note being edited first
+      // (blur renders the <pre> and persists) so Alt+J/K leaves it clean.
+      const altId = e.altKey ? readJson('keymap')[combo] : null;
+      if (altId) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (editingNote) document.activeElement.blur();
+        runAction(altId);
+        return;
+      }
+      // Non-Alt keys from here.
+      if (editingNote) {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          document.activeElement.blur();
+        }
+        return; // textarea owns the rest, including Enter for a newline
+      }
+      if (mode === 'focus') return; // focused terminal: pty owns everything
+      const id = readJson('keymap')[combo]; // navigate: any non-Alt binding
+      if (!id) return;
+      e.preventDefault();
+      e.stopPropagation();
+      runAction(id);
+    }, { capture: true });
+  </script>
+</body>
+</html>

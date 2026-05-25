@@ -4,3 +4,5 @@ store
 www/assets/_/
 __pycache__/
 .claude/
+
+/app/.store

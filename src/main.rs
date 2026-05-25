@@ -94,7 +94,9 @@ struct Args {
     )]
     expose: Option<String>,
 
-    /// Development mode: relaxes security defaults (e.g. omits Secure flag on cookies)
+    /// Development mode: run the bundled app (app/serve.nu) from the source
+    /// tree with hot-reload, on a default address + store; also relaxes
+    /// security defaults (e.g. omits the Secure flag on cookies).
     #[clap(long, global = true)]
     dev: bool,
 
@@ -515,7 +517,7 @@ fn setup_ctrlc_handler(
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let args = Args::parse();
+    let mut args = Args::parse();
 
     // Set up logging handler based on log format (both spawn dedicated threads)
     let rx = init_broadcast();
@@ -728,11 +730,39 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         std::process::exit(exit_code);
     }
 
+    // Dev mode: run the bundled app straight from the source tree with
+    // hot-reload, no Rust rebuild. `--dev` is a bare flag -- the app lives at
+    // a build-time-known location (CARGO_MANIFEST_DIR/app), so there is
+    // nothing to specify. It fills in the conveniences the app needs: serve
+    // the Datastar bundle, watch+reload the request closure, a default store
+    // under the source tree, and a default address. (The embedded/no-arg
+    // production path will run the same app from baked-in bytes.)
+    if args.dev {
+        args.datastar = true;
+        if args.commands.is_none() {
+            if args.script.is_none() {
+                args.script =
+                    Some(concat!(env!("CARGO_MANIFEST_DIR"), "/app/serve.nu").to_string());
+            }
+            args.watch = true;
+        }
+        if args.addr.is_none() {
+            args.addr = Some("127.0.0.1:5099".to_string());
+        }
+        #[cfg(feature = "cross-stream")]
+        if args.store.is_none() {
+            args.store = Some(PathBuf::from(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/app/.store"
+            )));
+        }
+    }
+
     // Server mode (default)
     let Some(addr) = args.addr else {
-        eprintln!("Usage: http-nu <ADDR> [OPTIONS]");
-        eprintln!("       http-nu eval [OPTIONS]");
-        eprintln!("\nRun `http-nu --help` for more information.");
+        eprintln!("Usage: stacks2099 [ADDR] [OPTIONS]");
+        eprintln!("       stacks2099 --dev            # run the bundled app from source, hot-reload");
+        eprintln!("\nRun `stacks2099 --help` for more information.");
         std::process::exit(1);
     };
 
