@@ -16,7 +16,9 @@
       --chrome: #252525;
     }
     html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--fg); font: 14px var(--term-font); }
-    body { display: grid; grid-template-columns: 14rem 1fr auto; height: 100dvh; }
+    /* Top row holds sidebar | main | canvas; the bottom row is the status bar
+       spanning all three columns (full window width). */
+    body { display: grid; grid-template-columns: 14rem 1fr auto; grid-template-rows: 1fr auto; height: 100dvh; }
     aside { background: var(--pane); border-right: 1px solid var(--pane-border); overflow-y: auto; min-height: 0; }
     aside header { padding: .4rem .5rem .4rem .75rem; border-bottom: 1px solid var(--pane-border); font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: var(--dim); display: flex; align-items: center; justify-content: space-between; }
     aside header .new-btn { background: transparent; color: inherit; border: 1px solid var(--pane-border); border-radius: 3px; padding: 0 .5rem; font: inherit; cursor: pointer; line-height: 1.4; }
@@ -40,8 +42,8 @@
     /* Inline SVG icons (vendored lucide). Size to the text, nudge to the
        baseline, and leave a little space before the label. */
     .row-icon, .picker-row .icon { width: 1em; height: 1em; vertical-align: -0.15em; margin-right: .5ch; flex: 0 0 auto; }
-    /* main is a grid: topbar | (terminal + rightbar) | statusbar. */
-    main { display: grid; grid-template-rows: auto 1fr auto; min-height: 0; overflow: hidden; }
+    /* main is a grid: topbar | doc. The status bar lives at body level now. */
+    main { display: grid; grid-template-rows: auto 1fr; min-height: 0; overflow: hidden; }
     .topbar {
       background: var(--chrome); padding: .15rem .75rem;
       display: flex; align-items: center;
@@ -88,6 +90,7 @@
     body.mode-focus .mode-badge { color: var(--sel); }
     .rightbar { background: var(--chrome); }
     .statusbar {
+      grid-column: 1 / -1; /* span sidebar + main + canvas */
       display: flex; justify-content: space-between; align-items: center;
       padding: .4rem 1rem;
       background: var(--chrome); color: var(--fg);
@@ -194,16 +197,6 @@
          its own view stream and mounts terminal.js. Selection highlight is
          reactive via data-class on $selectedSid. -->
     <div id="doc" class="doc"></div>
-    <footer class="statusbar" aria-label="Status">
-      <!-- Modal status bar: the active mode's name + its clickable key
-           bindings (filled by JS on setMode). Clicking a binding fires the
-           same action a keypress would. -->
-      <span class="status-keys"><span class="status-mode" id="status-mode">navigate</span><span id="status-bindings"></span></span>
-      <span class="status-meta">
-        <span data-text="$focusedDims"></span>
-        <span data-text="$selectedSid ? ('sid ' + $selectedSid.slice(0,8)) : ''" style="opacity:.5;"></span>
-      </span>
-    </footer>
   </main>
 
   <!-- Scroll the active pane into view (stacks-style offset) whenever the
@@ -217,6 +210,18 @@
 
   <!-- Server-pushed canvas pane. Empty -> collapses to 0 width. -->
   <section id="canvas" class="canvas"></section>
+
+  <!-- Status bar spans the full width of the window's bottom (under the
+       sidebar and canvas too), so it is a body-level row, not nested in main.
+       Modal: the active mode's name + its clickable key bindings (filled by JS
+       on setMode); clicking a binding fires the same action a keypress would. -->
+  <footer class="statusbar" aria-label="Status">
+    <span class="status-keys"><span class="status-mode" id="status-mode">navigate</span><span id="status-bindings"></span></span>
+    <span class="status-meta">
+      <span data-text="$focusedDims"></span>
+      <span data-text="$selectedSid ? ('sid ' + $selectedSid.slice(0,8)) : ''" style="opacity:.5;"></span>
+    </span>
+  </footer>
 
   <!-- Hidden trigger so the JS-only Alt+R action can seed signals through
        datastar's expression evaluator. -->
