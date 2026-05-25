@@ -97,7 +97,7 @@ def save-focused-sid [sid: string]: nothing -> nothing {
 def default-stack-id []: nothing -> string {
   let s = (.cat | where {|f| $f.topic == "stack.add" } | get 0?)
   if ($s | is-empty) {
-    let f = (null | .append "stack.add" --meta {name: "stack", sort: "manual"} --ttl forever)
+    let f = (null | .append "stack.add" --meta {sort: "manual"} --ttl forever)
     $f.id
   } else {
     $s.id
@@ -339,6 +339,26 @@ def view-of [proj: record]: nothing -> record {
 # pty is still spawning waits for the next tick rather than rendering dead).
 def mountable [clips: list]: nothing -> list {
   $clips | where {|c| $c.kind == "content" or (sid-for-clip $c.id) != "" } | get id
+}
+
+# The stack id owning a clip (or null). Used to resolve "the current stack" for
+# command-line adds from the persisted last-focused clip.
+def clip-stack-of [proj: record, cid: string]: nothing -> any {
+  let owner = ($proj.stacks | where {|s| ($s.clips | any {|c| $c.id == $cid }) } | get 0?)
+  if ($owner | is-empty) { null } else { $owner.id }
+}
+
+# Resolve a target stack for an add. `want` may be a stack id, a stack name, or
+# "" -- in which case fall back to the last-focused clip's stack, else the
+# default stack. Unknown ids/names also fall back (never silently misfile).
+def resolve-stack [proj: record, want: string]: nothing -> string {
+  if $want != "" {
+    if ($proj.stacks | any {|s| $s.id == $want }) { return $want }
+    let byname = ($proj.stacks | where {|s| ($s.name? | default "") == $want } | get 0?)
+    if ($byname | is-not-empty) { return $byname.id }
+  }
+  let fstack = (clip-stack-of $proj (load-focused-sid))
+  if $fstack != null { $fstack } else { (default-stack-id) }
 }
 
 {|req|
@@ -593,18 +613,35 @@ def mountable [clips: list]: nothing -> list {
     }
 
     [POST, "/clip/add"] => {
-      # Create a content clip of ?mime_type= with the raw posted body (e.g. a
-      # pasted image) in ?stack= (the client mirrors $selectedStack), then
-      # select it. Body is binary, so the target stack rides in the query, not
-      # a datastar-signals body.
-      let mime = ($req.query.mime_type? | default "application/octet-stream")
-      let qstack = ($req.query.stack? | default "")
-      let stack = if $qstack == "" { (default-stack-id) } else { $qstack }
+      # Add an asset to a stack from the raw request body -- the primary
+      # command-line entry point. Mime comes from ?mime_type= or the
+      # Content-Type header (so `curl -H 'content-type: image/png'` just
+      # works); the target stack from ?stack= (id OR name), else the current
+      # (last-focused) stack, else the default. Returns the new clip id.
+      #
+      #   curl --data-binary @diagram.png -H 'content-type: image/png' :5099/clip/add
+      #   cat notes.md | curl --data-binary @- -H 'content-type: text/markdown' :5099/clip/add
+      #   curl --data-binary @logo.svg -H 'content-type: image/svg+xml' ':5099/clip/add?stack=design'
+      let ct = (($req.headers | get "content-type" | default "") | split row ";" | get 0 | str trim | str downcase)
+      let mime = ($req.query.mime_type? | default (if $ct == "" { "application/octet-stream" } else { $ct }))
+      let proj = (.cat | projection project)
+      let stack = (resolve-stack $proj ($req.query.stack? | default ""))
       let cid = ($body | add-clip $stack "content" $mime)
       save-focused-sid $cid
       {} | .bus pub "clip.events"
       {id: $cid} | .bus pub "clip.select"
-      null | metadata set { merge {'http.response': {status: 204}} }
+      $cid | metadata set { merge {'http.response': {status: 201}} }
+    }
+
+    [GET, "/api/state"] => {
+      # Discovery for command-line tooling: stack ids/names + the current
+      # (last-focused) stack, so scripts can target ?stack=<id|name>.
+      let proj = (.cat | projection project)
+      {
+        focusedClip: (load-focused-sid)
+        focusedStack: (clip-stack-of $proj (load-focused-sid))
+        stacks: ($proj.stacks | each {|s| {id: $s.id, name: ($s.name? | default null), clips: ($s.clips | length)} })
+      } | to json | metadata set --content-type "application/json"
     }
 
     [POST, "/clip/update"] => {
