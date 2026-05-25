@@ -8,6 +8,53 @@ use std::time::Duration;
 
 use arc_swap::ArcSwap;
 use clap::Parser;
+use include_dir::{include_dir, Dir};
+
+/// The app (serve.nu + www) baked into the binary at compile time. In the
+/// default (production) mode we materialize this to a per-user dir and run it,
+/// so the binary is self-contained -- no files alongside it. `--dev` ignores
+/// this and runs the same tree live from source instead.
+static APP_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/app");
+
+/// Per-user base dir for stacks2099 state (the embedded app is unpacked here,
+/// and the default store lives under it). XDG_DATA_HOME, else ~/.local/share,
+/// else the temp dir.
+fn data_dir() -> PathBuf {
+    if let Ok(x) = std::env::var("XDG_DATA_HOME") {
+        if !x.is_empty() {
+            return PathBuf::from(x).join("stacks2099");
+        }
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        if !home.is_empty() {
+            return PathBuf::from(home).join(".local/share/stacks2099");
+        }
+    }
+    std::env::temp_dir().join("stacks2099")
+}
+
+/// Write the embedded app tree to `dest`, overwriting (idempotent). Cheap --
+/// a handful of small files plus the woff2 fonts -- so we re-extract on every
+/// production launch and never serve a stale asset after an upgrade.
+fn extract_app(dest: &std::path::Path) -> std::io::Result<()> {
+    fn walk(dir: &Dir<'_>, dest: &std::path::Path) -> std::io::Result<()> {
+        for entry in dir.entries() {
+            match entry {
+                include_dir::DirEntry::Dir(d) => walk(d, dest)?,
+                include_dir::DirEntry::File(f) => {
+                    let out = dest.join(f.path());
+                    if let Some(parent) = out.parent() {
+                        std::fs::create_dir_all(parent)?;
+                    }
+                    std::fs::write(out, f.contents())?;
+                }
+            }
+        }
+        Ok(())
+    }
+    std::fs::create_dir_all(dest)?;
+    walk(&APP_DIR, dest)
+}
 use http_nu::{
     engine::{script_to_engine, HttpNuOptions},
     handler::{handle, AppConfig},
@@ -45,20 +92,6 @@ struct Args {
     #[clap(long = "plugin", global = true, value_parser)]
     plugins: Vec<PathBuf>,
 
-    /// Script file to run, or '-' to read from stdin
-    #[clap(value_parser)]
-    script: Option<String>,
-
-    /// Run script from command line instead of file
-    #[clap(short = 'c', long = "commands", conflicts_with_all = ["watch", "script"])]
-    commands: Option<String>,
-
-    /// Watch for script changes and reload automatically.
-    /// For file scripts: watches the script's directory for any changes.
-    /// For stdin (-): reads null-terminated scripts for hot reload.
-    #[clap(short = 'w', long = "watch")]
-    watch: bool,
-
     /// Log format: human (live-updating) or jsonl (structured)
     #[clap(long, default_value = "human")]
     log_format: LogFormat,
@@ -73,17 +106,6 @@ struct Args {
     #[clap(long, requires = "store", help_heading = "cross.stream")]
     services: bool,
 
-    /// Load handler closure from a store topic (use with -w to live-reload on changes)
-    #[cfg(feature = "cross-stream")]
-    #[clap(
-        long,
-        requires = "store",
-        conflicts_with_all = ["script", "commands"],
-        value_name = "TOPIC",
-        help_heading = "cross.stream"
-    )]
-    topic: Option<String>,
-
     /// Expose API on additional address ([HOST]:PORT or iroh://)
     #[cfg(feature = "cross-stream")]
     #[clap(
@@ -94,15 +116,12 @@ struct Args {
     )]
     expose: Option<String>,
 
-    /// Development mode: run the bundled app (app/serve.nu) from the source
-    /// tree with hot-reload, on a default address + store; also relaxes
-    /// security defaults (e.g. omits the Secure flag on cookies).
+    /// Development mode: run the app (app/serve.nu) from the source tree with
+    /// hot-reload instead of the copy baked into the binary; also relaxes
+    /// security defaults (e.g. omits the Secure flag on cookies). ADDR and
+    /// --store are still required.
     #[clap(long, global = true)]
     dev: bool,
-
-    /// Serve the embedded Datastar JS bundle at /datastar@<version>.js
-    #[clap(long)]
-    datastar: bool,
 
     /// Trust proxies from these CIDR ranges for X-Forwarded-For parsing
     #[clap(long = "trust-proxy", value_name = "CIDR")]
@@ -258,6 +277,9 @@ async fn file_source(path: &str, watch: bool, base_engine: Engine, tx: mpsc::Sen
 
 /// Read script from stdin, convert to engine, send through `tx`. If `watch` is true,
 /// spawn a reader that reads null-terminated scripts for hot reload.
+// Unused now that stacks2099 only runs the bundled app (no stdin/`-` source),
+// but kept intact rather than excised from the http-nu glue.
+#[allow(dead_code)]
 async fn stdin_source(watch: bool, base_engine: Engine, tx: mpsc::Sender<Engine>) {
     if watch {
         std::thread::spawn(move || {
@@ -517,7 +539,7 @@ fn setup_ctrlc_handler(
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let mut args = Args::parse();
+    let args = Args::parse();
 
     // Set up logging handler based on log format (both spawn dedicated threads)
     let rx = init_broadcast();
@@ -730,41 +752,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         std::process::exit(exit_code);
     }
 
-    // Dev mode: run the bundled app straight from the source tree with
-    // hot-reload, no Rust rebuild. `--dev` is a bare flag -- the app lives at
-    // a build-time-known location (CARGO_MANIFEST_DIR/app), so there is
-    // nothing to specify. It fills in the conveniences the app needs: serve
-    // the Datastar bundle, watch+reload the request closure, a default store
-    // under the source tree, and a default address. (The embedded/no-arg
-    // production path will run the same app from baked-in bytes.)
-    if args.dev {
-        args.datastar = true;
-        if args.commands.is_none() {
-            if args.script.is_none() {
-                args.script =
-                    Some(concat!(env!("CARGO_MANIFEST_DIR"), "/app/serve.nu").to_string());
-            }
-            args.watch = true;
+    // stacks2099 runs the workspace app -- nothing else. Under --dev it runs
+    // from the source tree (hot-reload, relaxed cookie security); otherwise it
+    // runs the copy baked into the binary, unpacked to a per-user cache dir.
+    // You choose where it listens (ADDR) and where state lives (--store); both
+    // are required.
+    let script_path: String = if args.dev {
+        concat!(env!("CARGO_MANIFEST_DIR"), "/app/serve.nu").to_string()
+    } else {
+        let app = data_dir().join("app");
+        if let Err(e) = extract_app(&app) {
+            eprintln!("Failed to unpack the bundled app to {}: {e}", app.display());
+            std::process::exit(1);
         }
-        if args.addr.is_none() {
-            args.addr = Some("127.0.0.1:5099".to_string());
-        }
-        #[cfg(feature = "cross-stream")]
-        if args.store.is_none() {
-            args.store = Some(PathBuf::from(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/app/.store"
-            )));
-        }
-    }
+        app.join("serve.nu").display().to_string()
+    };
+    let watch = args.dev; // --dev implies hot-reload; production never watches
+    let datastar = true; // the app always needs the Datastar bundle
 
-    // Server mode (default)
-    let Some(addr) = args.addr else {
-        eprintln!("Usage: stacks2099 [ADDR] [OPTIONS]");
-        eprintln!("       stacks2099 --dev            # run the bundled app from source, hot-reload");
-        eprintln!("\nRun `stacks2099 --help` for more information.");
+    let Some(addr) = args.addr.clone() else {
+        eprintln!("Error: an ADDR ([HOST]:PORT) is required.");
+        eprintln!("Usage: stacks2099 <ADDR> --store <DIR>");
+        eprintln!("       stacks2099 --dev <ADDR> --store <DIR>   # run from source, hot-reload");
         std::process::exit(1);
     };
+    #[cfg(feature = "cross-stream")]
+    if args.store.is_none() {
+        eprintln!("Error: --store <DIR> is required (where the event log lives).");
+        eprintln!("Usage: stacks2099 <ADDR> --store <DIR>");
+        eprintln!("       stacks2099 --dev <ADDR> --store <DIR>   # run from source, hot-reload");
+        std::process::exit(1);
+    }
 
     // Create channel for engines
     let (tx, rx) = mpsc::channel::<Engine>(1);
@@ -786,19 +804,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     #[cfg(not(feature = "cross-stream"))]
     let store: Option<Store> = None;
 
-    // Build $HTTP_NU options from CLI args
+    // Build $HTTP_NU options
     let http_nu_options = HttpNuOptions {
         dev: args.dev,
-        datastar: args.datastar,
-        watch: args.watch,
+        datastar,
+        watch,
         tls: args.tls.as_ref().map(|p| p.display().to_string()),
         #[cfg(feature = "cross-stream")]
         store: args.store.as_ref().map(|p| p.display().to_string()),
         #[cfg(not(feature = "cross-stream"))]
         store: None,
-        #[cfg(feature = "cross-stream")]
-        topic: args.topic.clone(),
-        #[cfg(not(feature = "cross-stream"))]
         topic: None,
         #[cfg(feature = "cross-stream")]
         expose: args.expose.clone(),
@@ -819,52 +834,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         &http_nu_options,
     )?;
 
-    // Source: --topic (direct store read, with optional watch for live-reload)
-    #[cfg(feature = "cross-stream")]
-    let tx = if let (Some(ref topic), Some(ref store)) = (&args.topic, &store) {
-        store
-            .topic_source(topic, args.watch, base_engine.clone(), tx)
-            .await;
-        None
-    } else {
-        Some(tx)
-    };
-    #[cfg(not(feature = "cross-stream"))]
-    let tx = Some(tx);
-
-    // Source: file, stdin, or --commands
-    if let Some(tx) = tx {
-        match (&args.script, &args.commands) {
-            (Some(_), Some(_)) => unreachable!(), // clap conflicts_with
-            (None, Some(_)) if args.watch => unreachable!(), // clap conflicts_with
-            (None, None) => {
-                eprintln!("Error: provide a script file, --commands, or --topic");
-                std::process::exit(1);
-            }
-            (None, Some(cmd)) => {
-                if let Some(engine) = script_to_engine(&base_engine, cmd, None) {
-                    tx.send(engine).await.expect("channel closed unexpectedly");
-                }
-            }
-            (Some(path), None) if path == "-" => {
-                stdin_source(args.watch, base_engine.clone(), tx).await;
-            }
-            (Some(path), None) => {
-                file_source(path, args.watch, base_engine.clone(), tx).await;
-            }
-        }
-    }
+    // Handler source: always the bundled app (file, watched under --dev).
+    file_source(&script_path, watch, base_engine.clone(), tx).await;
 
     let startup_options = StartupOptions {
-        watch: args.watch,
+        watch,
         tls: args.tls.as_ref().map(|p| p.display().to_string()),
         #[cfg(feature = "cross-stream")]
         store: args.store.as_ref().map(|p| p.display().to_string()),
         #[cfg(not(feature = "cross-stream"))]
         store: None,
-        #[cfg(feature = "cross-stream")]
-        topic: args.topic.clone(),
-        #[cfg(not(feature = "cross-stream"))]
         topic: None,
         #[cfg(feature = "cross-stream")]
         expose: args.expose.clone(),
@@ -874,7 +853,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         services: args.services,
         #[cfg(not(feature = "cross-stream"))]
         services: false,
-        datastar: args.datastar,
+        datastar,
     };
 
     serve(
@@ -884,7 +863,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         interrupt,
         AppConfig {
             trusted_proxies: args.trust_proxies,
-            datastar: args.datastar,
+            datastar,
             dev: args.dev,
         },
         std::time::Instant::now(),

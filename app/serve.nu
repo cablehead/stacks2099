@@ -169,14 +169,24 @@ def clip-display-label [c: record]: nothing -> string {
 
 # Left-pane clip list, in creation order. Selection is keyed by clip id
 # ($selectedSid holds the selected clip's id). Re-rendered on clip.events.
+# Inline SVG (vendored lucide icons) for a clip type, so the UI needs no
+# iconify CDN script and no api.iconify.design runtime fetches.
+def icon-svg [type: string]: nothing -> string {
+  let a = "class='row-icon' xmlns='http://www.w3.org/2000/svg' width='1em' height='1em' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'"
+  if $type == "note" {
+    $"<svg ($a)><path d='M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z'/><path d='M14 2v4a2 2 0 0 0 2 2h4'/><path d='M10 9H8'/><path d='M16 13H8'/><path d='M16 17H8'/></svg>"
+  } else {
+    $"<svg ($a)><path d='m7 11 2-2-2-2'/><path d='M11 13h4'/><rect width='18' height='18' x='3' y='3' rx='2'/></svg>"
+  }
+}
+
 def render-list [clips: list, selected: string]: nothing -> string {
   let items = $clips | each {|c|
     let label = (clip-display-label $c)
     let cls = if $c.id == $selected { "selected" } else { "" }
-    let icon = if ($c.type == "note") { "lucide:file-text" } else { "lucide:square-terminal" }
     let onclick = $"$sid = '($c.id)'; @post\('/nav'\)"
     let onclose = $"@post\('/clip/close?clip=($c.id)'\)"
-    $"<li class='($cls)'><button type='button' class='row' data-on:click=\"($onclick)\"><iconify-icon icon='($icon)' class='row-icon'></iconify-icon>($label)<small>($c.id | str substring 0..8)</small></button><button type='button' class='close' data-on:click=\"($onclose)\" title='Close'>×</button></li>"
+    $"<li class='($cls)'><button type='button' class='row' data-on:click=\"($onclick)\">(icon-svg $c.type)($label)<small>($c.id | str substring 0..8)</small></button><button type='button' class='close' data-on:click=\"($onclose)\" title='Close'>×</button></li>"
   } | str join ""
   $"<aside id='sessions-list'><header>Clips <button type='button' class='new-btn' data-on:click=\"$picking = true\" title='New clip'>+</button></header><ul>($items)</ul></aside>"
 }

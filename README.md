@@ -14,14 +14,23 @@ in sync.
 
 ## Run
 
+You choose where it listens (`ADDR`) and where its state lives (`--store`);
+both are required.
+
 ```bash
-cargo run -- --dev
+stacks2099 127.0.0.1:5099 --store ./store      # runs the app baked into the binary
 ```
 
-Serves on <http://127.0.0.1:5099>. `--dev` runs the bundled app
-(`app/serve.nu` + `app/www`) straight from the source tree with hot-reload --
-edit the request closure, templates, CSS, or JS and refresh; no Rust rebuild.
+For development, `--dev` runs the app (`app/serve.nu` + `app/www`) straight
+from the source tree with hot-reload -- edit the request closure, templates,
+CSS, or JS and refresh; no Rust rebuild:
+
+```bash
+cargo run -- --dev 127.0.0.1:5099 --store ./dev-store
+```
+
 Only changing the Rust (the pty projection, new builtins) needs `cargo build`.
+`--dev` implies `--watch`, so you never pass both.
 
 ## Model
 

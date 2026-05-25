@@ -4,7 +4,6 @@
   <meta charset="utf-8">
   <title>{{ title or "ghostty-web-nu sessions" }}</title>
   <script type="module" src="{{ datastar_js_path }}"></script>
-  <script src="https://cdn.jsdelivr.net/npm/iconify-icon@2/dist/iconify-icon.min.js"></script>
   <script type="module" src="/key-buffer.js"></script>
   <link rel="stylesheet" href="/stellar.css">
   <link rel="stylesheet" href="/md.css">
@@ -36,9 +35,11 @@
     aside li .copy { flex: 0 0 auto; width: 1.75rem; display: flex; align-items: center; justify-content: center; background: transparent; color: inherit; border: 0; padding: 0; font: inherit; cursor: pointer; opacity: 0; transition: opacity .1s; }
     aside li:hover .copy, aside li.selected .copy { opacity: .6; }
     aside li .copy:hover { opacity: 1; background: #222; }
-    aside li .copy iconify-icon { font-size: 13px; }
     aside li .copy.copied { opacity: 1; color: var(--sel); }
     aside li small { display: block; font-size: 11px; opacity: .6; }
+    /* Inline SVG icons (vendored lucide). Size to the text, nudge to the
+       baseline, and leave a little space before the label. */
+    .row-icon, .picker-row .icon { width: 1em; height: 1em; vertical-align: -0.15em; margin-right: .5ch; flex: 0 0 auto; }
     /* main is a grid: topbar | (terminal + rightbar) | statusbar. */
     main { display: grid; grid-template-rows: auto 1fr auto; min-height: 0; overflow: hidden; }
     .topbar {
@@ -246,10 +247,10 @@
     <div class="modal-box picker" data-on:click="evt.stopPropagation()">
       <div class="modal-heading">New clip</div>
       <button type="button" class="picker-row" data-on:click="$picking = false; @post('/clip/new?type=terminal')">
-        <iconify-icon icon="lucide:square-terminal"></iconify-icon> Terminal
+        <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 11 2-2-2-2"/><path d="M11 13h4"/><rect width="18" height="18" x="3" y="3" rx="2"/></svg> Terminal
       </button>
       <button type="button" class="picker-row" data-on:click="$picking = false; @post('/clip/new?type=note')">
-        <iconify-icon icon="lucide:file-text"></iconify-icon> Note
+        <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg> Note
       </button>
     </div>
   </div>
