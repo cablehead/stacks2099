@@ -64,8 +64,9 @@ stacked top to bottom).
 - **Clips** live in the [cross.stream](https://cross.stream) event log
   (`clip.add` / `clip.update` / `clip.patch` / `clip.delete`) and render by
   `mime_type`: a terminal grid, an editable note (`text/*`), an inline image
-  (`image/*`), or a read-only / downloadable blob. The page is a pure
-  projection of those frames over one SSE stream.
+  (`image/*`), a live **embed** (`text/uri-list`, or any URL note via its
+  "Embed" toggle, rendered as an `<iframe>`), or a read-only / downloadable
+  blob. The page is a pure projection of those frames over one SSE stream.
 - **Terminal clips** bind to an embedded-Nushell pty. The binary re-execs
   itself to run the shell, so there is no external `nu` to find; placement
   survives a restart (the pty respawns, zellij-style).
@@ -82,6 +83,12 @@ stack. From the command line, POST any asset to the running server:
 curl --data-binary @diagram.png -H 'content-type: image/png' localhost:5099/clip/add
 cat notes.md | curl --data-binary @- -H 'content-type: text/markdown' localhost:5099/clip/add
 curl --data-binary @logo.svg -H 'content-type: image/svg+xml' 'localhost:5099/clip/add?stack=design'
+```
+
+Embed a live URL (e.g. a dev server you're watching) as an iframe clip:
+
+```bash
+echo http://localhost:3000 | curl --data-binary @- -H 'content-type: text/uri-list' localhost:5099/clip/add
 ```
 
 `?stack=` takes a stack id or name; omit it for the current stack. `GET

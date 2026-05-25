@@ -143,6 +143,23 @@ def clip-body [c: record]: nothing -> string {
   if (($c.hash? | default "") == "") { "" } else { (.cas $c.hash) }
 }
 
+# Is `s` a single http(s) URL? Used to offer an "Embed" view on URL notes.
+def is-url [s: string]: nothing -> bool {
+  let t = ($s | str trim)
+  (($t | str starts-with "http://") or ($t | str starts-with "https://")) and (not ($t | str contains " ")) and (($t | lines | length) == 1)
+}
+
+# The URL an embed clip points at: first non-comment line of its body
+# (text/uri-list is one URI per line, # comments; a plain URL note is one line).
+def embed-url [c: record]: nothing -> string {
+  (clip-body $c)
+  | lines
+  | where {|l| (($l | str trim | str length) > 0) and (not ($l | str trim | str starts-with "#")) }
+  | get 0?
+  | default ""
+  | str trim
+}
+
 # Resolve the live pty sid bound to a terminal clip (meta.clip_id tag), or ""
 # if none is alive. The bootstrap respawns one per terminal clip, so a
 # terminal clip normally resolves; a clip whose child exited stays "" until
@@ -176,9 +193,13 @@ def html-escape [s: string]: nothing -> string {
 #   file      anything else -> read-only preview / download
 def clip-render-type [c: record]: nothing -> string {
   if $c.kind == "terminal" { return "terminal" }
+  # An explicit embed view, or a uri-list, renders as a live <iframe>.
+  if (($c.view? | default "") == "embed") { return "embed" }
   let m = ($c.mime_type? | default "text/plain")
   if ($m | str starts-with "image/") {
     "image"
+  } else if $m == "text/uri-list" {
+    "embed"
   } else if $m in ["text/plain" "text/markdown"] {
     "note"
   } else {
@@ -193,6 +214,7 @@ def clip-display-label [c: record]: nothing -> string {
   match (clip-render-type $c) {
     "terminal" => "nu"
     "image" => "image"
+    "embed" => "embed"
     "file" => ($c.mime_type? | default "file")
     _ => "note"
   }
@@ -204,6 +226,7 @@ def icon-svg [rtype: string]: nothing -> string {
   match $rtype {
     "terminal" => $"<svg ($a)><path d='m7 11 2-2-2-2'/><path d='M11 13h4'/><rect width='18' height='18' x='3' y='3' rx='2'/></svg>"
     "image" => $"<svg ($a)><rect width='18' height='18' x='3' y='3' rx='2' ry='2'/><circle cx='9' cy='9' r='2'/><path d='m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21'/></svg>"
+    "embed" => $"<svg ($a)><circle cx='12' cy='12' r='10'/><path d='M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20'/><path d='M2 12h20'/></svg>"
     "file" => $"<svg ($a)><path d='M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z'/><path d='M14 2v4a2 2 0 0 0 2 2h4'/></svg>"
     _ => $"<svg ($a)><path d='M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z'/><path d='M14 2v4a2 2 0 0 0 2 2h4'/><path d='M10 9H8'/><path d='M16 13H8'/><path d='M16 17H8'/></svg>"
   }
@@ -216,9 +239,19 @@ def render-content [c: record]: nothing -> string {
   let v = ($c.hash? | default "")
   match (clip-render-type $c) {
     "image" => $"<div class='clip-media'><img class='clip-img' src='/clip/blob?clip=($c.id)&v=($v)' alt='image clip'></div>"
+    "embed" => {
+      let url = (embed-url $c)
+      let src = ((html-escape $url) | str replace -a "'" "%27")
+      let bar = $"<div class='embed-bar'><a class='embed-url' href='($src)' target='_blank' rel='noopener'>(html-escape $url)</a><button type='button' class='mini-btn' data-on:click=\"@post\('/clip/view?clip=($c.id)&view=raw'\)\">raw</button></div>"
+      $"<div class='clip-embed-wrap'>($bar)<iframe class='clip-embed' src='($src)' referrerpolicy='no-referrer'></iframe></div>"
+    }
     "note" => {
       let esc = (html-escape (clip-body $c))
-      $"<div class='note-body'><pre class='note-pre'>($esc)</pre><textarea class='note-edit' spellcheck='false' style='display:none'>($esc)</textarea></div>"
+      # A note whose whole body is a URL offers an "Embed" view (live iframe).
+      let embed_btn = if (is-url (clip-body $c)) {
+        $"<div class='note-actions'><button type='button' class='mini-btn' data-on:click=\"@post\('/clip/view?clip=($c.id)&view=embed'\)\">Embed ↗</button></div>"
+      } else { "" }
+      $"<div class='note-body'><pre class='note-pre'>($esc)</pre><textarea class='note-edit' spellcheck='false' style='display:none'>($esc)</textarea>($embed_btn)</div>"
     }
     _ => {
       let m = ($c.mime_type? | default "")
@@ -484,6 +517,17 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
               })
               let rendered2 = (($st.rendered | where {|id| $id in $all_ids }) | append $to_add | uniq)
 
+              # A clip.patch changing a clip's content type (view/mime)
+              # re-renders its pane in place -- the add/remove above only
+              # tracks presence, not a render-type flip (e.g. raw <-> embed).
+              let repane = if ($topic == "clip.patch") and ((($ev.meta?.view? | default null) != null) or (($ev.meta?.mime_type? | default null) != null)) {
+                let rid = ($ev.meta?.id? | default "")
+                let rc = ($clips | where id == $rid | get 0?)
+                if ($rc | is-not-empty) and ($rid in $rendered2) {
+                  (render-pane $rc | to datastar-patch-elements --selector $"#pane-($rid)")
+                } else { null }
+              } else { null }
+
               # Reactive selection highlight + client focus.
               let sel_patch = if $sel != $st.sel { ({selectedSid: $sel} | to datastar-patch-signals) } else { null }
 
@@ -507,7 +551,7 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
               let out = ([$stacks_patch $clips_patch]
                 | append $add_patches
                 | append $rm_patches
-                | append [$sel_patch $selstk_patch $dims_patch $canvas_patch $title_patch]
+                | append [$repane $sel_patch $selstk_patch $dims_patch $canvas_patch $title_patch]
                 | where {|x| $x != null })
               {out: $out, next: {proj: $proj, ready: true, rendered: $rendered2, title: $title, canvas: $canvas, sel: $sel, sel_stack: $sel_stack, dims: $dims}}
             }
@@ -631,6 +675,17 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
       {} | .bus pub "clip.events"
       {id: $cid} | .bus pub "clip.select"
       $cid | metadata set { merge {'http.response': {status: 201}} }
+    }
+
+    [POST, "/clip/view"] => {
+      # Toggle a clip's view between 'embed' (live <iframe>) and 'raw' (render
+      # by mime). Persisted as clip.patch {view}; propagates via `.cat -f`.
+      let cid = ($req.query.clip? | default "")
+      let view = ($req.query.view? | default "")
+      if $cid != "" and ($view in ["embed" "raw"]) {
+        null | .append "clip.patch" --meta {id: $cid, view: $view} --ttl forever | ignore
+      }
+      null | metadata set { merge {'http.response': {status: 204}} }
     }
 
     [GET, "/api/state"] => {
