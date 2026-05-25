@@ -67,19 +67,20 @@ Only changing the Rust (the pty projection, new builtins) needs `cargo build`.
 ## Keys
 
 Two modes. **Navigate** browses (read-only, dimmed); **focus** drives the
-selected pane (a terminal gets your keystrokes, a note opens its editor). App
-chords are `Alt`-prefixed and fire in every mode; see
+selected pane (a terminal gets your keystrokes, a note opens its editor).
+`mod+Enter` toggles between them. App chords are `Alt`-prefixed and fire in
+every mode; plain `Enter`/`Esc` go to the focused pty. See
 [docs/adr/0004-keyspace.md](docs/adr/0004-keyspace.md).
 
-| Chord           | Action                                   |
-| --------------- | ---------------------------------------- |
-| `mod+Enter`     | Toggle focus (Cmd on macOS, Ctrl else)   |
-| `Alt+T`         | New clip (note / terminal picker)        |
-| `Alt+D`         | Close current clip                       |
-| `Alt+J` / `Alt+K` | Next / previous clip                   |
-| `Alt+R`         | Rename current clip                      |
-| `Alt+O`         | Cycle current terminal pane height       |
-| `Alt+Esc`       | Leave focus                              |
+| Chord             | Action                                  |
+| ----------------- | --------------------------------------- |
+| `mod+Enter`       | Toggle focus (Cmd on macOS, Ctrl else)  |
+| `Alt+T`           | New clip (note / terminal picker)       |
+| `Alt+D`           | Close current clip                      |
+| `Alt+J` / `Alt+K` | Next / previous clip                    |
+| `Alt+R`           | Rename current clip                     |
+| `Alt+Shift+R`     | Rename window title                     |
+| `Alt+O`           | Cycle current terminal pane height      |
 
 The status bar lists the active mode's chords and they are clickable.
 
