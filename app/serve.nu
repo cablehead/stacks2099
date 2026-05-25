@@ -121,8 +121,10 @@ def delete-clip [cid: string]: nothing -> nothing {
   null | .append "clip.delete" --meta {id: $cid} --ttl forever | ignore
 }
 
-def set-note-body [cid: string, body: string]: nothing -> nothing {
-  $body | .append "clip.update" --meta {id: $cid} --ttl forever | ignore
+# Replace a clip's body (clip.update -> CAS). Body piped in as any bytes -- a
+# note's text on blur, or an asset re-posted from the CLI. Mime is unchanged.
+def set-clip-body [cid: string]: any -> nothing {
+  $in | .append "clip.update" --meta {id: $cid} --ttl forever | ignore
 }
 
 def set-clip-label [cid: string, label: string]: nothing -> nothing {
@@ -517,13 +519,15 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
               })
               let rendered2 = (($st.rendered | where {|id| $id in $all_ids }) | append $to_add | uniq)
 
-              # A clip.patch changing a clip's content type (view/mime)
-              # re-renders its pane in place -- the add/remove above only
-              # tracks presence, not a render-type flip (e.g. raw <-> embed).
-              let repane = if ($topic == "clip.patch") and ((($ev.meta?.view? | default null) != null) or (($ev.meta?.mime_type? | default null) != null)) {
+              # Re-render a clip's pane in place when its content or type
+              # changes -- the add/remove above only tracks presence. A note's
+              # body edit (clip.update on a note) is skipped: its editor owns
+              # the text and the editing client already reflects it.
+              let repane = if ($topic in ["clip.update" "clip.patch"]) {
                 let rid = ($ev.meta?.id? | default "")
                 let rc = ($clips | where id == $rid | get 0?)
-                if ($rc | is-not-empty) and ($rid in $rendered2) {
+                let editing_note = ($rc | is-not-empty) and ($topic == "clip.update") and ((clip-render-type $rc) == "note")
+                if ($rc | is-not-empty) and ($rid in $rendered2) and (not $editing_note) {
                   (render-pane $rc | to datastar-patch-elements --selector $"#pane-($rid)")
                 } else { null }
               } else { null }
@@ -700,10 +704,13 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
     }
 
     [POST, "/clip/update"] => {
-      # Persist a note's body (clip.update -> CAS). Sent on blur.
+      # Replace an existing clip's body (clip.update -> CAS): a note's text on
+      # blur, or any asset re-posted from the CLI --
+      #   curl --data-binary @diagram.png 'localhost:5099/clip/update?clip=<id>'
+      # Mime is unchanged; the clip's pane refreshes live (a note being edited
+      # is the exception -- its editor owns the text).
       let cid = ($req.query.clip? | default "")
-      let body = ($body | default "")
-      if $cid != "" { set-note-body $cid $body }
+      if $cid != "" { $body | set-clip-body $cid }
       null | metadata set { merge {'http.response': {status: 204}} }
     }
 
