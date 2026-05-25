@@ -142,7 +142,7 @@ fn enrich_engine(
 
 #[cfg(feature = "cross-stream")]
 fn placeholder_closure(topic: &str, store_path: &str) -> String {
-    include_str!("../examples/topic-placeholder.nu")
+    include_str!("topic-placeholder.nu")
         .replace("__TOPIC__", topic)
         .replace("__STORE_PATH__", store_path)
 }
