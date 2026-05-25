@@ -168,19 +168,68 @@ def html-escape [s: string]: nothing -> string {
   $s | str replace -a '&' '&amp;' | str replace -a '<' '&lt;' | str replace -a '>' '&gt;'
 }
 
-# A clip's display label: its set label, else a kind default.
-def clip-display-label [c: record]: nothing -> string {
-  let l = ($c.label? | default "")
-  if ($l | is-not-empty) { $l } else if ($c.kind == "terminal") { "nu" } else { "note" }
+# A clip's render type, derived from kind + mime_type. This is the seed of
+# the Phase 4 content-type dispatch (mime -> renderer); for now four buckets:
+#   terminal  live pty grid
+#   note      editable text (text/plain, text/markdown)
+#   image     image/*  -> <img> preview
+#   file      anything else -> read-only preview / download
+def clip-render-type [c: record]: nothing -> string {
+  if $c.kind == "terminal" { return "terminal" }
+  let m = ($c.mime_type? | default "text/plain")
+  if ($m | str starts-with "image/") {
+    "image"
+  } else if $m in ["text/plain" "text/markdown"] {
+    "note"
+  } else {
+    "file"
+  }
 }
 
-# Inline SVG (vendored lucide icons) for a clip kind.
-def icon-svg [kind: string]: nothing -> string {
+# A clip's display label: its set label, else a render-type default.
+def clip-display-label [c: record]: nothing -> string {
+  let l = ($c.label? | default "")
+  if ($l | is-not-empty) { return $l }
+  match (clip-render-type $c) {
+    "terminal" => "nu"
+    "image" => "image"
+    "file" => ($c.mime_type? | default "file")
+    _ => "note"
+  }
+}
+
+# Inline SVG (vendored lucide icons) for a render type.
+def icon-svg [rtype: string]: nothing -> string {
   let a = "class='row-icon' xmlns='http://www.w3.org/2000/svg' width='1em' height='1em' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'"
-  if $kind == "terminal" {
-    $"<svg ($a)><path d='m7 11 2-2-2-2'/><path d='M11 13h4'/><rect width='18' height='18' x='3' y='3' rx='2'/></svg>"
-  } else {
-    $"<svg ($a)><path d='M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z'/><path d='M14 2v4a2 2 0 0 0 2 2h4'/><path d='M10 9H8'/><path d='M16 13H8'/><path d='M16 17H8'/></svg>"
+  match $rtype {
+    "terminal" => $"<svg ($a)><path d='m7 11 2-2-2-2'/><path d='M11 13h4'/><rect width='18' height='18' x='3' y='3' rx='2'/></svg>"
+    "image" => $"<svg ($a)><rect width='18' height='18' x='3' y='3' rx='2' ry='2'/><circle cx='9' cy='9' r='2'/><path d='m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21'/></svg>"
+    "file" => $"<svg ($a)><path d='M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z'/><path d='M14 2v4a2 2 0 0 0 2 2h4'/></svg>"
+    _ => $"<svg ($a)><path d='M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z'/><path d='M14 2v4a2 2 0 0 0 2 2h4'/><path d='M10 9H8'/><path d='M16 13H8'/><path d='M16 17H8'/></svg>"
+  }
+}
+
+# Render a content clip's body by render type. Images use a blob URL (binary
+# can't ride in the HTML string); text/markdown stay editable notes; text/html
+# is trusted raw; other text is shown read-only; binary offers a download.
+def render-content [c: record]: nothing -> string {
+  let v = ($c.hash? | default "")
+  match (clip-render-type $c) {
+    "image" => $"<div class='clip-media'><img class='clip-img' src='/clip/blob?clip=($c.id)&v=($v)' alt='image clip'></div>"
+    "note" => {
+      let esc = (html-escape (clip-body $c))
+      $"<div class='note-body'><pre class='note-pre'>($esc)</pre><textarea class='note-edit' spellcheck='false' style='display:none'>($esc)</textarea></div>"
+    }
+    _ => {
+      let m = ($c.mime_type? | default "")
+      if $m == "text/html" {
+        (clip-body $c)
+      } else if ($m | str starts-with "text/") or $m == "application/json" {
+        $"<pre class='clip-pre'>(html-escape (clip-body $c))</pre>"
+      } else {
+        $"<div class='clip-media'><a class='clip-file' href='/clip/blob?clip=($c.id)&v=($v)' download>($m | default 'download')</a></div>"
+      }
+    }
   }
 }
 
@@ -189,7 +238,7 @@ def render-clip-row [c: record, selected: string]: nothing -> string {
   let cls = if $c.id == $selected { "selected" } else { "" }
   let onclick = $"$sid = '($c.id)'; @post\('/nav'\)"
   let onclose = $"@post\('/clip/close?clip=($c.id)'\)"
-  $"<li class='($cls)'><button type='button' class='row' data-on:click=\"($onclick)\">(icon-svg $c.kind)($label)<small>($c.id | str substring 0..8)</small></button><button type='button' class='close' data-on:click=\"($onclose)\" title='Close'>×</button></li>"
+  $"<li class='($cls)'><button type='button' class='row' data-on:click=\"($onclick)\">(icon-svg (clip-render-type $c))($label)<small>($c.id | str substring 0..8)</small></button><button type='button' class='close' data-on:click=\"($onclose)\" title='Close'>×</button></li>"
 }
 
 # A stack row: click switches (stack.select), double-click renames (reuses the
@@ -232,6 +281,7 @@ def render-pane [c: record]: nothing -> string {
   let label = (clip-display-label $c)
   let head = $"<header class='pane-head'>($label)<small>($cid | str substring 0..8)</small></header>"
   let onsel = $"$sid = '($cid)'; @post\('/nav'\); window.__focusClip && window.__focusClip\('($cid)'\)"
+  let rtype = (clip-render-type $c)
   let body = if $c.kind == "terminal" {
     let sid = (sid-for-clip $cid)
     if $sid == "" {
@@ -241,10 +291,12 @@ def render-pane [c: record]: nothing -> string {
       $"<div id='screen-($cid)' class='pane-screen' data-sid='($sid)' data-effect=\"($view)\"><div id='grid-($cid)'></div></div>"
     }
   } else {
-    let esc = (html-escape (clip-body $c))
-    $"<div class='note-body'><pre class='note-pre'>($esc)</pre><textarea class='note-edit' spellcheck='false' style='display:none'>($esc)</textarea></div>"
+    (render-content $c)
   }
-  $"<section class='pane' id='pane-($cid)' data-clip='($cid)' data-kind='($c.kind)' data-class:active=\"$selectedSid == '($cid)'\" data-on:click=\"($onsel)\">($head)($body)</section>"
+  # data-render tells the client how to mount: terminal grid, editable note, or
+  # a static preview (image/file/html) it leaves alone.
+  let render_attr = match $rtype { "terminal" => "terminal", "note" => "note", _ => "static" }
+  $"<section class='pane' id='pane-($cid)' data-clip='($cid)' data-kind='($c.kind)' data-render='($render_attr)' data-class:active=\"$selectedSid == '($cid)'\" data-on:click=\"($onsel)\">($head)($body)</section>"
 }
 
 # Full continuous document, every clip's pane stacked in render order.
@@ -524,6 +576,34 @@ def mountable [clips: list]: nothing -> list {
         }
         null | .append "stack.delete" --meta {id: $sid} --ttl forever | ignore
       }
+      null | metadata set { merge {'http.response': {status: 204}} }
+    }
+
+    [GET, "/clip/blob"] => {
+      # Serve a clip's CAS body with its mime_type -- used by <img src> for
+      # image clips and download links for other binaries.
+      let cid = ($req.query.clip? | default "")
+      let proj = (.cat | projection project)
+      let c = ($proj.stacks | each {|s| $s.clips } | flatten | where id == $cid | get 0?)
+      if ($c | is-empty) or (($c.hash? | default "") == "") {
+        "not found" | metadata set { merge {'http.response': {status: 404}} }
+      } else {
+        .cas $c.hash | metadata set --content-type ($c.mime_type? | default "application/octet-stream")
+      }
+    }
+
+    [POST, "/clip/add"] => {
+      # Create a content clip of ?mime_type= with the raw posted body (e.g. a
+      # pasted image) in ?stack= (the client mirrors $selectedStack), then
+      # select it. Body is binary, so the target stack rides in the query, not
+      # a datastar-signals body.
+      let mime = ($req.query.mime_type? | default "application/octet-stream")
+      let qstack = ($req.query.stack? | default "")
+      let stack = if $qstack == "" { (default-stack-id) } else { $qstack }
+      let cid = ($body | add-clip $stack "content" $mime)
+      save-focused-sid $cid
+      {} | .bus pub "clip.events"
+      {id: $cid} | .bus pub "clip.select"
       null | metadata set { merge {'http.response': {status: 204}} }
     }
 

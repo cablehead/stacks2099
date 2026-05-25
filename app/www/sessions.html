@@ -78,6 +78,15 @@
       min-height: calc(var(--cell-h) * 3);
     }
     .note-edit { border: 0; outline: none; resize: none; overflow: hidden; }
+    /* Content previews: images, read-only text, file links. */
+    .clip-media { padding: .4rem .6rem; background: var(--term-bg); }
+    .clip-img { display: block; max-width: 100%; height: auto; border-radius: 3px; }
+    .clip-file { color: var(--sel-fg); }
+    .clip-pre {
+      margin: 0; padding: .25rem .6rem; background: var(--term-bg); color: var(--term-fg);
+      font-family: var(--term-font); font-size: 14px; line-height: var(--cell-h);
+      white-space: pre-wrap; word-break: break-word; max-height: 30rem; overflow: auto;
+    }
     /* The active (selected) pane is highlighted. In navigate mode every pane
        is dimmed (read-only); focus mode lights the active one fully. */
     .pane.active { border-color: var(--sel-blur); }
@@ -209,6 +218,9 @@
        defined window.__onSelect yet (a `&&` guard would short-circuit
        before $selectedSid is read, and the effect would never re-run). -->
   <div data-effect="$selectedSid; window.__onSelect && window.__onSelect($selectedSid)" style="display:none"></div>
+  <!-- Mirror the selected stack id to JS so the (non-datastar) paste handler
+       can target the current stack when adding an image clip. -->
+  <div data-effect="window.__selectedStack = $selectedStack" style="display:none"></div>
 
   <!-- Server-pushed canvas pane. Empty -> collapses to 0 width. -->
   <section id="canvas" class="canvas"></section>
@@ -340,8 +352,10 @@
     }
     function scanPanes() {
       doc.querySelectorAll('.pane').forEach((pane) => {
-        if (pane.dataset.kind === 'note') wireNotePane(pane);
-        else mountTerminalPane(pane);
+        // data-render: 'terminal' mounts the grid, 'note' wires the editor,
+        // 'static' (image/file/html previews) needs no client mounting.
+        if (pane.dataset.render === 'terminal') mountTerminalPane(pane);
+        else if (pane.dataset.render === 'note') wireNotePane(pane);
       });
       for (const cid of [...mounted.keys()]) {
         if (!doc.querySelector('#pane-' + CSS.escape(cid))) mounted.delete(cid);
@@ -384,6 +398,22 @@
       };
       document.addEventListener('mousemove', onMove);
       document.addEventListener('mouseup', onUp);
+    });
+
+    // Paste an image anywhere -> add it as an image clip in the current stack.
+    // Only images are intercepted; text paste falls through to the terminal /
+    // note editor as usual.
+    window.addEventListener('paste', async (e) => {
+      const item = [...(e.clipboardData?.items || [])].find((it) => it.type.startsWith('image/'));
+      if (!item) return;
+      e.preventDefault();
+      const file = item.getAsFile();
+      if (!file) return;
+      const buf = await file.arrayBuffer();
+      const stack = window.__selectedStack || '';
+      await fetch('/clip/add?mime_type=' + encodeURIComponent(file.type) + '&stack=' + encodeURIComponent(stack), {
+        method: 'POST', headers: { 'content-type': file.type }, body: buf,
+      }).catch(() => {});
     });
 
     // Action registry. data-actions maps id -> JS, data-keymap maps combo ->
