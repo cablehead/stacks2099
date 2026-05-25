@@ -3,7 +3,7 @@ members = [".", "tests/test_plugin"]
 
 [package]
 name = "stacks2099"
-version = "0.1.0"
+version = "0.1.1-dev"
 edition = "2021"
 rust-version = "1.88.0"
 description = "Server-projected terminal + notes workspace in a single Nushell-powered binary."
