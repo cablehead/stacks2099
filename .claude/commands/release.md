@@ -8,7 +8,7 @@ description: Release process - version bump, tag, GitHub Actions build, Homebrew
 
 stacks2099 is an application binary, not a published crate -- there is no
 `cargo publish`. Pushing a tag triggers `.github/workflows/release.yml`, which
-builds Linux / macOS (arm64 + intel) / Windows and publishes a GitHub Release.
+builds Linux / macOS (arm64) / Windows and publishes a GitHub Release.
 We then point the Homebrew tap at the new macOS build.
 
 ## Pre-flight
@@ -45,9 +45,8 @@ gh run list --workflow=release.yml --limit 1
 gh run watch <run-id> --exit-status
 ```
 
-All four targets must go green:
-`x86_64-unknown-linux-gnu`, `aarch64-apple-darwin`, `x86_64-apple-darwin`,
-`x86_64-pc-windows-msvc`.
+All three targets must go green:
+`x86_64-unknown-linux-gnu`, `aarch64-apple-darwin`, `x86_64-pc-windows-msvc`.
 
 ### 4. Verify the release
 
@@ -55,7 +54,7 @@ All four targets must go green:
 gh release view v$ARGUMENTS
 ```
 
-Confirm all four archives are attached. Release notes are auto-generated
+Confirm all three archives are attached. Release notes are auto-generated
 (`generate_release_notes`); refine with `gh release edit v$ARGUMENTS --notes ...`
 if needed.
 

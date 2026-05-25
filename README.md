@@ -12,6 +12,27 @@ all projected from an append-only event log.
 No WASM, no client-side VT emulator. The terminal is just HTML the server keeps
 in sync.
 
+## Install
+
+macOS (Apple Silicon):
+
+```bash
+brew install cablehead/tap/stacks2099
+```
+
+Linux and Windows: grab a binary from the
+[releases](https://github.com/cablehead/stacks2099/releases).
+
+From source (any platform with a Rust toolchain):
+
+```bash
+cargo build --release      # -> target/release/stacks2099
+```
+
+The binary is self-contained -- the app (Nushell handler, assets, fonts) and
+the Nushell engine, store, and Datastar bundle are all baked in. There is no
+external `nu` to install and nothing fetched from a CDN at runtime.
+
 ## Run
 
 You choose where it listens (`ADDR`) and where its state lives (`--store`);

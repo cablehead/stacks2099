@@ -1,6 +1,6 @@
 name: release
 
-# Build release binaries for Linux, macOS (arm64 + intel), and Windows.
+# Build release binaries for Linux, macOS (arm64), and Windows.
 # Pushing a tag like v0.1.0 builds all targets and attaches them to a GitHub
 # Release. workflow_dispatch lets you build the matrix on demand without a tag
 # (no release is published in that case).
@@ -24,8 +24,6 @@ jobs:
             target: x86_64-unknown-linux-gnu
           - os: macos-14
             target: aarch64-apple-darwin
-          - os: macos-13
-            target: x86_64-apple-darwin
           - os: windows-latest
             target: x86_64-pc-windows-msvc
     steps:

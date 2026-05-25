@@ -2,20 +2,28 @@
 members = [".", "tests/test_plugin"]
 
 [package]
-name = "http-nu"
-version = "0.16.1-dev"
+name = "stacks2099"
+version = "0.1.0"
 edition = "2021"
 rust-version = "1.88.0"
-description = "The surprisingly performant, Nushell-scriptable, cross.stream-powered, Datastar-ready HTTP server that fits in your back pocket."
+description = "Server-projected terminal + notes workspace in a single Nushell-powered binary."
 license = "MIT"
-repository = "https://github.com/cablehead/http-nu"
-homepage = "https://github.com/cablehead/http-nu"
-keywords = ["http", "nushell", "server", "cli", "http-server"]
-categories = ["web-programming", "command-line-utilities"]
+repository = "https://github.com/cablehead/stacks2099"
+homepage = "https://github.com/cablehead/stacks2099"
+keywords = ["terminal", "nushell", "datastar", "cli"]
+categories = ["command-line-utilities"]
 
 [[bin]]
 name = "stacks2099"
 path = "src/main.rs"
+
+# The lib crate keeps the name `http_nu` so the forked engine code (and the one
+# `use http_nu::` in main.rs) is unchanged -- only the package/binary are
+# stacks2099. The nu-module namespace (`http-nu/router`, ...) and `$HTTP_NU`
+# const are likewise left as engine internals.
+[lib]
+name = "http_nu"
+path = "src/lib.rs"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
