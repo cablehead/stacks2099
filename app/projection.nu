@@ -122,7 +122,7 @@ export def reconcile-selection []: record -> record {
 def stack-add [state: record frame: record] {
   let stack = {
     id: $frame.id
-    name: ($frame.meta?.name? | default "Untitled")
+    name: ($frame.meta?.name?)   # null until renamed; UI falls back to the id
     sort: ($frame.meta?.sort? | default "auto")
     clips: []
     lastTouched: $frame.id

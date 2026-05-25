@@ -197,12 +197,15 @@ def render-clip-row [c: record, selected: string]: nothing -> string {
 # dblclick handler reads it off the element rather than via string interpolation.
 def render-stack-row [s: record, selected: string]: nothing -> string {
   let cls = if $s.id == $selected { "selected" } else { "" }
-  let nm = (html-escape ($s.name? | default "stack"))
-  let nm_attr = ($nm | str replace -a "'" '&#39;')
+  # Stored name may be null; display falls back to the scru128 id. data-name
+  # carries the *real* name (empty when unset) so rename starts from blank.
+  let real = ($s.name? | default "")
+  let display = (html-escape (if ($real | is-empty) { $s.id } else { $real }))
+  let nm_attr = ((html-escape $real) | str replace -a "'" '&#39;')
   let onclick = $"@post\('/stack/select?stack=($s.id)'\)"
   let ondbl = "$draft = el.dataset.name; $renameStackId = el.dataset.stack; $renameMode = 'stack'; $renaming = true"
   let onclose = $"@post\('/stack/close?stack=($s.id)'\)"
-  $"<li class='($cls)'><button type='button' class='row' data-stack='($s.id)' data-name='($nm_attr)' data-on:click=\"($onclick)\" data-on:dblclick=\"($ondbl)\">($nm)</button><button type='button' class='close' data-on:click=\"($onclose)\" title='Delete stack'>×</button></li>"
+  $"<li class='($cls)'><button type='button' class='row' data-stack='($s.id)' data-name='($nm_attr)' data-on:click=\"($onclick)\" data-on:dblclick=\"($ondbl)\">($display)</button><button type='button' class='close' data-on:click=\"($onclose)\" title='Delete stack'>×</button></li>"
 }
 
 # Far-left column: the stacks switcher. Stacks render most-recently-touched
@@ -481,8 +484,9 @@ def mountable [clips: list]: nothing -> list {
     }
 
     [POST, "/stack/new"] => {
-      # Create a new (manual-sort) stack and switch to it.
-      let f = (null | .append "stack.add" --meta {name: "stack", sort: "manual"} --ttl forever)
+      # Create a new (manual-sort) stack and switch to it. No name -- the UI
+      # shows the stack's scru128 id until it's renamed.
+      let f = (null | .append "stack.add" --meta {sort: "manual"} --ttl forever)
       {id: $f.id} | .bus pub "stack.select"
       null | metadata set { merge {'http.response': {status: 204}} }
     }
