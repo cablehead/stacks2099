@@ -64,11 +64,11 @@ replays it. The UI is three columns: **stacks** | **clips** | **content** (the
 selected stack's clips, stacked top to bottom).
 
 - A **clip** is any byte sequence with a mime type, rendered by what it is: an
-  editable **note** (`text/*`), an inline **image** (`image/*`), a live
-  **embed** (`text/uri-list` or any URL note, shown as an `<iframe>`), a live
-  **terminal**, or -- for anything else -- a read-only / downloadable preview.
-  An unknown mime type still holds and previews; rendering it nicely is a later
-  add, not a prerequisite.
+  editable **note** (`text/*`, with a rendered view for markdown), an inline
+  **image** (`image/*`), a live **embed** (`text/uri-list` or any URL note,
+  shown as an `<iframe>`), a live **terminal**, or -- for anything else -- a
+  read-only / downloadable preview. An unknown mime type still holds and
+  previews; rendering it nicely is a later add, not a prerequisite.
 - A **stack** groups clips into a context. Click to switch, double-click to
   rename, `+` to create.
 - **Terminal clips** bind to an embedded-Nushell pty. The binary re-execs
