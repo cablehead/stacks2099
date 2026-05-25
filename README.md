@@ -118,10 +118,21 @@ The status bar lists the active mode's chords and they are clickable.
 
 ## Built on
 
-A fork of [http-nu](https://github.com/cablehead/http-nu), which embeds the
-Nushell engine, the cross.stream store, and the Datastar bundle. This fork adds
-the `pty view` projection (wezterm-term -> HTML grid). The result is one
-self-contained binary.
+A fork of [http-nu](https://github.com/cablehead/http-nu) -- one self-contained
+binary embedding the [Nushell](https://www.nushell.sh) engine, the
+[cross.stream](https://github.com/cablehead/xs) (`xs`) event log, and the
+[Datastar](https://data-star.dev) bundle. Clips and request handlers are
+Nushell; the app leans on a handful of builtins:
+
+- `pty open` / `pty view` -- terminals, modelled by
+  [wezterm-term](https://github.com/wezterm/wezterm) and projected to an HTML
+  cell grid.
+- `.cat` / `.append` / `.cas` / `.bus` -- the `xs` event log (and its
+  in-process bus) this fork is built around.
+- `.mj` ([minijinja](https://github.com/mitsuhiko/minijinja)) for templates,
+  `.highlight` ([syntect](https://github.com/trishume/syntect)) for syntax
+  highlighting, `.md` ([pulldown-cmark](https://github.com/pulldown-cmark/pulldown-cmark))
+  for markdown.
 
 ## Status
 
