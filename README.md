@@ -1,13 +1,14 @@
 # stacks2099
 
-A server-projected terminal + notes workspace in a single
+A server-projected terminal + content workspace in a single
 [Nushell](https://www.nushell.sh)-powered binary.
 
-Stacks of clips. A clip is a **live terminal** -- rendered server-side from
-[wezterm-term](https://github.com/wezterm/wezterm) as an HTML cell grid and
-morphed into the browser over [Datastar](https://data-star.dev) SSE -- or a
-**note**. The browser holds no state: selection, mode, and the visible HTML are
-all projected from an append-only event log.
+**Stacks** group **clips**. A clip is a **live terminal** -- rendered
+server-side from [wezterm-term](https://github.com/wezterm/wezterm) as an HTML
+cell grid and morphed into the browser over [Datastar](https://data-star.dev)
+SSE -- an editable **note**, an **image**, or any content typed by MIME. The
+browser holds no state: selection, layout, and the visible HTML are all
+projected from an append-only event log.
 
 No WASM, no client-side VT emulator. The terminal is just HTML the server keeps
 in sync.
@@ -55,14 +56,36 @@ Only changing the Rust (the pty projection, new builtins) needs `cargo build`.
 
 ## Model
 
+Three columns: **stacks** | **clips** | **content** (the current stack's clips,
+stacked top to bottom).
+
+- **Stacks** group clips (`stack.add` / `stack.update` / `stack.delete`). Click
+  to switch, double-click to rename, `+` to create.
 - **Clips** live in the [cross.stream](https://cross.stream) event log
-  (`clip.add` / `clip.update` / `clip.patch` / `clip.delete`). The page is a
-  pure projection of those frames, patched over one SSE stream.
+  (`clip.add` / `clip.update` / `clip.patch` / `clip.delete`) and render by
+  `mime_type`: a terminal grid, an editable note (`text/*`), an inline image
+  (`image/*`), or a read-only / downloadable blob. The page is a pure
+  projection of those frames over one SSE stream.
 - **Terminal clips** bind to an embedded-Nushell pty. The binary re-execs
   itself to run the shell, so there is no external `nu` to find; placement
   survives a restart (the pty respawns, zellij-style).
-- **Note clips** are content-addressed text -- edit in place, render as `<pre>`
-  on blur.
+- **Content clips** are content-addressed: text edits in place; images and
+  other assets stream from `/clip/blob`.
+
+## Add assets
+
+Paste an image into the page (`Cmd`/`Ctrl+V`) to drop it into the current
+stack. From the command line, POST any asset to the running server:
+
+```bash
+# mime from the Content-Type header; lands in the current stack; prints the clip id
+curl --data-binary @diagram.png -H 'content-type: image/png' localhost:5099/clip/add
+cat notes.md | curl --data-binary @- -H 'content-type: text/markdown' localhost:5099/clip/add
+curl --data-binary @logo.svg -H 'content-type: image/svg+xml' 'localhost:5099/clip/add?stack=design'
+```
+
+`?stack=` takes a stack id or name; omit it for the current stack. `GET
+/api/state` lists stacks for scripting.
 
 ## Keys
 
