@@ -205,14 +205,19 @@ def render-stack-row [s: record, selected: string]: nothing -> string {
   $"<li class='($cls)'><button type='button' class='row' data-stack='($s.id)' data-name='($nm_attr)' data-on:click=\"($onclick)\" data-on:dblclick=\"($ondbl)\">($nm)</button><button type='button' class='close' data-on:click=\"($onclose)\" title='Delete stack'>×</button></li>"
 }
 
-# The sidebar: a stacks switcher over the selected stack's clip list. Stacks
-# render most-recently-touched first (matching projection's selection order).
-def render-sidebar [proj: record]: nothing -> string {
+# Far-left column: the stacks switcher. Stacks render most-recently-touched
+# first (matching projection's selection order).
+def render-stacks [proj: record]: nothing -> string {
   let sel_stack = ($proj.selectedStackId | default "")
+  let items = ($proj.stacks | sort-by lastTouched | reverse | each {|s| render-stack-row $s $sel_stack } | str join "")
+  $"<aside id='stacks-list'><header>Stacks <button type='button' class='new-btn' data-on:click=\"@post\('/stack/new'\)\" title='New stack'>+</button></header><ul class='stacks'>($items)</ul></aside>"
+}
+
+# Middle column: the selected stack's clip list (a navigator over the #doc).
+def render-clips [proj: record]: nothing -> string {
   let v = (view-of $proj)
-  let stack_items = ($proj.stacks | sort-by lastTouched | reverse | each {|s| render-stack-row $s $sel_stack } | str join "")
-  let clip_items = ($v.clips | each {|c| render-clip-row $c $v.sel } | str join "")
-  $"<aside id='sessions-list'><header>Stacks <button type='button' class='new-btn' data-on:click=\"@post\('/stack/new'\)\" title='New stack'>+</button></header><ul class='stacks'>($stack_items)</ul><header>Clips <button type='button' class='new-btn' data-on:click=\"$picking = true\" title='New clip'>+</button></header><ul class='clips'>($clip_items)</ul></aside>"
+  let items = ($v.clips | each {|c| render-clip-row $c $v.sel } | str join "")
+  $"<aside id='clips-list'><header>Clips <button type='button' class='new-btn' data-on:click=\"$picking = true\" title='New clip'>+</button></header><ul class='clips'>($items)</ul></aside>"
 }
 
 # Render one continuous-document pane for a clip, keyed by clip id. A terminal
@@ -348,7 +353,8 @@ def mountable [clips: list]: nothing -> list {
             let canvas = (load-canvas $sel)
 
             let sel_stack = ($proj.selectedStackId | default "")
-            let list_patch = (render-sidebar $proj | to datastar-patch-elements --selector "#sessions-list")
+            let stacks_patch = (render-stacks $proj | to datastar-patch-elements --selector "#stacks-list")
+            let clips_patch = (render-clips $proj | to datastar-patch-elements --selector "#clips-list")
             let doc_patch = if (not $doc_ready) {
               (render-doc $clips | to datastar-patch-elements --selector "#doc")
             } else { null }
@@ -357,7 +363,7 @@ def mountable [clips: list]: nothing -> list {
             let title_patch = ({title: $title} | to datastar-patch-signals)
             let canvas_patch = (render-canvas $canvas | to datastar-patch-elements --selector "#canvas")
 
-            let out = ([$sel_patch $dims_patch $title_patch $list_patch $canvas_patch $doc_patch] | where {|x| $x != null })
+            let out = ([$sel_patch $dims_patch $title_patch $stacks_patch $clips_patch $canvas_patch $doc_patch] | where {|x| $x != null })
             {out: $out, next: {proj: $proj, ready: true, rendered: (mountable $clips), title: $title, canvas: $canvas, sel: $sel, sel_stack: $sel_stack, dims: $dims}}
 
           } else if ($topic | str starts-with "xs.") {
@@ -380,9 +386,12 @@ def mountable [clips: list]: nothing -> list {
               let all_ids = ($clips | get id)
 
               let sel_stack = ($proj.selectedStackId | default "")
-              # Sidebar: re-render only when a projection frame changed it.
-              let list_patch = if $is_proj {
-                (render-sidebar $proj | to datastar-patch-elements --selector "#sessions-list")
+              # Sidebars: re-render only when a projection frame changed them.
+              let stacks_patch = if $is_proj {
+                (render-stacks $proj | to datastar-patch-elements --selector "#stacks-list")
+              } else { null }
+              let clips_patch = if $is_proj {
+                (render-clips $proj | to datastar-patch-elements --selector "#clips-list")
               } else { null }
               let selstk_patch = if $sel_stack != $st.sel_stack { ({selectedStack: $sel_stack} | to datastar-patch-signals) } else { null }
 
@@ -420,7 +429,7 @@ def mountable [clips: list]: nothing -> list {
               } else { $st.title }
               let title_patch = if $title != $st.title { ({title: $title} | to datastar-patch-signals) } else { null }
 
-              let out = ([$list_patch]
+              let out = ([$stacks_patch $clips_patch]
                 | append $add_patches
                 | append $rm_patches
                 | append [$sel_patch $selstk_patch $dims_patch $canvas_patch $title_patch]

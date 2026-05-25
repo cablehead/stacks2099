@@ -18,7 +18,7 @@
     html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--fg); font: 14px var(--term-font); }
     /* Top row holds sidebar | main | canvas; the bottom row is the status bar
        spanning all three columns (full window width). */
-    body { display: grid; grid-template-columns: 14rem 1fr auto; grid-template-rows: 1fr auto; height: 100dvh; }
+    body { display: grid; grid-template-columns: 14rem 16rem 1fr auto; grid-template-rows: 1fr auto; height: 100dvh; }
     aside { background: var(--pane); border-right: 1px solid var(--pane-border); overflow-y: auto; min-height: 0; }
     aside header { padding: .4rem .5rem .4rem .75rem; border-bottom: 1px solid var(--pane-border); font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: var(--dim); display: flex; align-items: center; justify-content: space-between; }
     aside header .new-btn { background: transparent; color: inherit; border: 1px solid var(--pane-border); border-radius: 3px; padding: 0 .5rem; font: inherit; cursor: pointer; line-height: 1.4; }
@@ -181,8 +181,10 @@
     "alt+o": "cycleHeight"
   }'
 >
-  <!-- Server overwrites this on every event. -->
-  <aside id="sessions-list"><header>Sessions</header></aside>
+  <!-- Three-pane: stacks | clips | content (#doc). Server overwrites the two
+       asides on every event. -->
+  <aside id="stacks-list"><header>Stacks</header></aside>
+  <aside id="clips-list"><header>Clips</header></aside>
 
   <main>
     <div class="topbar">
@@ -389,7 +391,7 @@
     window.app = {
       newSession() {
         // The + button sets $picking; opens the note/terminal type picker.
-        document.querySelector('#sessions-list .new-btn')?.click();
+        document.querySelector('#clips-list .new-btn')?.click();
       },
       closeSelected() {
         const cid = currentClip();
@@ -397,7 +399,7 @@
         fetch('/clip/close?clip=' + encodeURIComponent(cid), { method: 'POST' }).catch(() => {});
       },
       cycle(dir) {
-        const items = [...document.querySelectorAll('#sessions-list li')];
+        const items = [...document.querySelectorAll('#clips-list li')];
         if (!items.length) return;
         const idx = items.findIndex((li) => li.classList.contains('selected'));
         const next = items[((idx < 0 ? 0 : idx) + dir + items.length) % items.length];
@@ -407,7 +409,7 @@
         document.querySelector('.title-display')?.click();
       },
       openRenameTab() {
-        const btn = document.querySelector('#sessions-list li.selected .row');
+        const btn = document.querySelector('#clips-list li.selected .row');
         if (!btn) return;
         const label = btn.firstChild?.textContent?.trim() ?? '';
         const trig = document.getElementById('rename-tab-trigger');
@@ -570,7 +572,7 @@
     // cycle() drives selection via a synthetic sidebar click), the rename
     // modal/picker (keeps their inputs working), and the status bar.
     document.addEventListener('click', (e) => {
-      if (e.target.closest('.pane') || e.target.closest('#sessions-list') ||
+      if (e.target.closest('.pane') || e.target.closest('#clips-list') || e.target.closest('#stacks-list') ||
           e.target.closest('.modal-backdrop') || e.target.closest('.statusbar')) return;
       if (mode === 'focus') setMode('navigate');
     });
