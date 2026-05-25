@@ -1,17 +1,19 @@
 # stacks2099
 
-A server-projected terminal + content workspace in a single
-[Nushell](https://www.nushell.sh)-powered binary.
+Stacks is a clip manager -- a tool for capturing and working with your current
+context, your "locus of attention." A **clip** is any byte sequence with a mime
+type: a note, an image, a JSON blob, a screenshot, a README. Clips gather into
+**stacks**, one per task or train of thought.
 
-**Stacks** group **clips**. A clip is a **live terminal** -- rendered
-server-side from [wezterm-term](https://github.com/wezterm/wezterm) as an HTML
-cell grid and morphed into the browser over [Datastar](https://data-star.dev)
-SSE -- an editable **note**, an **image**, or any content typed by MIME. The
-browser holds no state: selection, layout, and the visible HTML are all
-projected from an append-only event log.
+stacks2099 takes that idea **live**: a clip can also be a running terminal or an
+embedded URL -- so a stack holds not just static captures but the working
+context itself, the shells you're in and the site you're building.
 
-No WASM, no client-side VT emulator. The terminal is just HTML the server keeps
-in sync.
+The browser holds no state. Selection, layout, and the visible HTML are all
+projected on the server from an append-only event log and patched over
+[Datastar](https://data-star.dev) SSE -- terminals included, rendered from
+[wezterm-term](https://github.com/wezterm/wezterm) as HTML (no WASM, no
+client-side VT emulator).
 
 ## Install
 
@@ -44,34 +46,34 @@ stacks2099 127.0.0.1:5099 --store ./store      # runs the app baked into the bin
 ```
 
 For development, `--dev` runs the app (`app/serve.nu` + `app/www`) straight
-from the source tree with hot-reload -- edit the request closure, templates,
-CSS, or JS and refresh; no Rust rebuild:
+from the source tree with hot-reload -- edit the request closure, the
+`sessions.html` template, CSS, or JS and refresh; no Rust rebuild:
 
 ```bash
 cargo run -- --dev 127.0.0.1:5099 --store ./dev-store
 ```
 
 Only changing the Rust (the pty projection, new builtins) needs `cargo build`.
-`--dev` implies `--watch`, so you never pass both.
 
 ## Model
 
-Three columns: **stacks** | **clips** | **content** (the current stack's clips,
-stacked top to bottom).
+Everything -- clips, stacks, selection, the window title -- is frames in an
+append-only [cross.stream](https://cross.stream) log. The page is a pure
+projection of that log, so every client sees the same state and a restart
+replays it. The UI is three columns: **stacks** | **clips** | **content** (the
+selected stack's clips, stacked top to bottom).
 
-- **Stacks** group clips (`stack.add` / `stack.update` / `stack.delete`). Click
-  to switch, double-click to rename, `+` to create.
-- **Clips** live in the [cross.stream](https://cross.stream) event log
-  (`clip.add` / `clip.update` / `clip.patch` / `clip.delete`) and render by
-  `mime_type`: a terminal grid, an editable note (`text/*`), an inline image
-  (`image/*`), a live **embed** (`text/uri-list`, or any URL note via its
-  "Embed" toggle, rendered as an `<iframe>`), or a read-only / downloadable
-  blob. The page is a pure projection of those frames over one SSE stream.
+- A **clip** is any byte sequence with a mime type, rendered by what it is: an
+  editable **note** (`text/*`), an inline **image** (`image/*`), a live
+  **embed** (`text/uri-list` or any URL note, shown as an `<iframe>`), a live
+  **terminal**, or -- for anything else -- a read-only / downloadable preview.
+  An unknown mime type still holds and previews; rendering it nicely is a later
+  add, not a prerequisite.
+- A **stack** groups clips into a context. Click to switch, double-click to
+  rename, `+` to create.
 - **Terminal clips** bind to an embedded-Nushell pty. The binary re-execs
-  itself to run the shell, so there is no external `nu` to find; placement
-  survives a restart (the pty respawns, zellij-style).
-- **Content clips** are content-addressed: text edits in place; images and
-  other assets stream from `/clip/blob`.
+  itself to run the shell, so there is no external `nu` to find, and placement
+  survives a restart -- the pty respawns where it was, zellij-style.
 
 ## Add assets
 
