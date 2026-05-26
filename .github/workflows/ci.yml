@@ -41,12 +41,12 @@ jobs:
       continue-on-error: true
       uses: hustcer/setup-nu@v3
       with:
-        version: "0.109.1"
+        version: "0.112.1"
     - name: Install Nushell (retry)
       if: steps.nu.outcome == 'failure'
       uses: hustcer/setup-nu@v3
       with:
-        version: "0.109.1"
+        version: "0.112.1"
 
     - name: Install Rust
       shell: bash
