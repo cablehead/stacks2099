@@ -12,7 +12,7 @@ fn workspace_bin(name: &str) -> PathBuf {
 
 #[test]
 fn test_eval_commands_flag() {
-    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
+    Command::new(assert_cmd::cargo::cargo_bin!("stacks2099"))
         .args(["eval", "-c", "1 + 2"])
         .assert()
         .success()
@@ -24,7 +24,7 @@ fn test_eval_file() {
     let mut file = NamedTempFile::new().unwrap();
     writeln!(file, "3 + 4").unwrap();
 
-    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
+    Command::new(assert_cmd::cargo::cargo_bin!("stacks2099"))
         .args(["eval", file.path().to_str().unwrap()])
         .assert()
         .success()
@@ -33,7 +33,7 @@ fn test_eval_file() {
 
 #[test]
 fn test_eval_stdin() {
-    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
+    Command::new(assert_cmd::cargo::cargo_bin!("stacks2099"))
         .args(["eval", "-"])
         .write_stdin("5 + 6")
         .assert()
@@ -43,7 +43,7 @@ fn test_eval_stdin() {
 
 #[test]
 fn test_eval_mj_compile() {
-    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
+    Command::new(assert_cmd::cargo::cargo_bin!("stacks2099"))
         .args(["eval", "-c", r#".mj compile --inline "test" | describe"#])
         .assert()
         .success()
@@ -52,7 +52,7 @@ fn test_eval_mj_compile() {
 
 #[test]
 fn test_eval_mj_compile_and_render() {
-    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
+    Command::new(assert_cmd::cargo::cargo_bin!("stacks2099"))
         .args([
             "eval",
             "-c",
@@ -65,7 +65,7 @@ fn test_eval_mj_compile_and_render() {
 
 #[test]
 fn test_eval_print() {
-    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
+    Command::new(assert_cmd::cargo::cargo_bin!("stacks2099"))
         .args(["--log-format", "jsonl", "eval", "-c", r#"print "hello""#])
         .assert()
         .success()
@@ -75,7 +75,7 @@ fn test_eval_print() {
 
 #[test]
 fn test_http_nu_const_defaults() {
-    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
+    Command::new(assert_cmd::cargo::cargo_bin!("stacks2099"))
         .args(["eval", "-c", "$HTTP_NU.dev"])
         .assert()
         .success()
@@ -84,7 +84,7 @@ fn test_http_nu_const_defaults() {
 
 #[test]
 fn test_http_nu_const_dev_flag() {
-    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
+    Command::new(assert_cmd::cargo::cargo_bin!("stacks2099"))
         .args(["--dev", "eval", "-c", "$HTTP_NU.dev"])
         .assert()
         .success()
@@ -93,7 +93,7 @@ fn test_http_nu_const_dev_flag() {
 
 #[test]
 fn test_http_nu_const_is_immutable() {
-    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
+    Command::new(assert_cmd::cargo::cargo_bin!("stacks2099"))
         .args(["eval", "-c", "$HTTP_NU = {}"])
         .assert()
         .failure();
@@ -101,7 +101,7 @@ fn test_http_nu_const_is_immutable() {
 
 #[test]
 fn test_eval_syntax_error() {
-    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
+    Command::new(assert_cmd::cargo::cargo_bin!("stacks2099"))
         .args(["eval", "-c", "1 +"])
         .assert()
         .failure();
@@ -109,7 +109,7 @@ fn test_eval_syntax_error() {
 
 #[test]
 fn test_eval_no_input() {
-    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
+    Command::new(assert_cmd::cargo::cargo_bin!("stacks2099"))
         .args(["eval"])
         .assert()
         .failure()
@@ -120,7 +120,7 @@ fn test_eval_no_input() {
 
 #[test]
 fn test_eval_both_file_and_commands() {
-    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
+    Command::new(assert_cmd::cargo::cargo_bin!("stacks2099"))
         .args(["eval", "-c", "1", "file.nu"])
         .assert()
         .failure()
@@ -130,7 +130,7 @@ fn test_eval_both_file_and_commands() {
 #[test]
 fn test_eval_with_plugin() {
     let plugin_path = workspace_bin("nu_plugin_test");
-    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
+    Command::new(assert_cmd::cargo::cargo_bin!("stacks2099"))
         .args([
             "eval",
             "--plugin",
@@ -149,7 +149,7 @@ fn test_eval_include_path() {
     let module_path = dir.path().join("mymod.nu");
     std::fs::write(&module_path, "export def hello [] { 'world' }").unwrap();
 
-    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
+    Command::new(assert_cmd::cargo::cargo_bin!("stacks2099"))
         .args([
             "-I",
             dir.path().to_str().unwrap(),
@@ -169,7 +169,7 @@ fn test_eval_include_path_multiple() {
     std::fs::write(dir1.path().join("mod1.nu"), "export def a [] { 1 }").unwrap();
     std::fs::write(dir2.path().join("mod2.nu"), "export def b [] { 2 }").unwrap();
 
-    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
+    Command::new(assert_cmd::cargo::cargo_bin!("stacks2099"))
         .args([
             "-I",
             dir1.path().to_str().unwrap(),
@@ -187,11 +187,11 @@ fn test_eval_include_path_multiple() {
 #[test]
 fn test_mj_file_with_external_refs() {
     // .mj "file" with extends/include - works because loader is set up
-    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
+    Command::new(assert_cmd::cargo::cargo_bin!("stacks2099"))
         .args([
             "eval",
             "-c",
-            r#"{name: "World"} | .mj "examples/templates/page.html""#,
+            r#"{name: "World"} | .mj "tests/fixtures/templates/page.html""#,
         ])
         .assert()
         .success()
@@ -203,8 +203,8 @@ fn test_mj_file_with_external_refs() {
 #[test]
 fn test_mj_inline_is_self_contained() {
     // Inline mode has no loader -- {% include %} references fail
-    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
-        .current_dir("examples/templates")
+    Command::new(assert_cmd::cargo::cargo_bin!("stacks2099"))
+        .current_dir("tests/fixtures/templates")
         .args([
             "eval",
             "-c",
@@ -218,11 +218,11 @@ fn test_mj_inline_is_self_contained() {
 #[test]
 fn test_mj_compile_file_with_external_refs() {
     // .mj compile "file" + render - loader is preserved in cache
-    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
+    Command::new(assert_cmd::cargo::cargo_bin!("stacks2099"))
         .args([
             "eval",
             "-c",
-            r#"let t = .mj compile "examples/templates/page.html"; {name: "World"} | .mj render $t"#,
+            r#"let t = .mj compile "tests/fixtures/templates/page.html"; {name: "World"} | .mj render $t"#,
         ])
         .assert()
         .success()
@@ -234,8 +234,8 @@ fn test_mj_compile_file_with_external_refs() {
 #[test]
 fn test_mj_compile_inline_is_self_contained() {
     // Compile + render in inline mode has no loader -- {% include %} fails
-    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
-        .current_dir("examples/templates")
+    Command::new(assert_cmd::cargo::cargo_bin!("stacks2099"))
+        .current_dir("tests/fixtures/templates")
         .args([
             "eval",
             "-c",
@@ -249,7 +249,7 @@ fn test_mj_compile_inline_is_self_contained() {
 #[test]
 fn test_mj_topic_without_store_fails() {
     // --topic requires --store; without it the command should fail
-    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
+    Command::new(assert_cmd::cargo::cargo_bin!("stacks2099"))
         .args(["eval", "-c", r#"{} | .mj --topic "some.topic""#])
         .assert()
         .failure()
@@ -258,7 +258,7 @@ fn test_mj_topic_without_store_fails() {
 
 #[test]
 fn test_mj_compile_topic_without_store_fails() {
-    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
+    Command::new(assert_cmd::cargo::cargo_bin!("stacks2099"))
         .args(["eval", "-c", r#".mj compile --topic "some.topic""#])
         .assert()
         .failure()
@@ -268,7 +268,7 @@ fn test_mj_compile_topic_without_store_fails() {
 #[test]
 fn test_mj_rejects_combined_modes() {
     // Cannot combine --inline and --topic
-    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
+    Command::new(assert_cmd::cargo::cargo_bin!("stacks2099"))
         .args(["eval", "-c", r#"{} | .mj --inline "hi" --topic "t""#])
         .assert()
         .failure()
@@ -278,7 +278,7 @@ fn test_mj_rejects_combined_modes() {
 #[test]
 fn test_mj_compile_rejects_combined_modes() {
     // Cannot combine file and --topic
-    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
+    Command::new(assert_cmd::cargo::cargo_bin!("stacks2099"))
         .args(["eval", "-c", r#".mj compile "file.html" --topic "t""#])
         .assert()
         .failure()
@@ -291,7 +291,7 @@ fn test_eval_store_append_and_cat() {
     let store_path = dir.path().to_str().unwrap();
 
     // Append a frame and read it back
-    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
+    Command::new(assert_cmd::cargo::cargo_bin!("stacks2099"))
         .args([
             "eval",
             "--store",
@@ -309,7 +309,7 @@ fn test_eval_store_sets_http_nu_const() {
     let dir = TempDir::new().unwrap();
     let store_path = dir.path().to_str().unwrap();
 
-    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
+    Command::new(assert_cmd::cargo::cargo_bin!("stacks2099"))
         .args([
             "eval",
             "--store",
