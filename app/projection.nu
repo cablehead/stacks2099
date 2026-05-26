@@ -53,9 +53,27 @@ def slot-after-removal [ids: list removed: any]: nothing -> any {
 
 export def sorted-clips [stack: record]: nothing -> list {
   if $stack.sort == "manual" {
-    $stack.clips | sort-by {|c| [($c.position? | default "") $c.id] }
+    $stack.clips | sort-by {|c| [($c.position? | default 0) $c.id] }
   } else {
     $stack.clips | sort-by lastTouched | reverse
+  }
+}
+
+# A position key strictly between lo and hi (integer keys with gaps). null lo
+# or hi are open bounds (move to top / bottom). Returns null when two adjacent
+# keys leave no integer gap -- the caller then renumbers (rebalances) the stack.
+export def position-between [lo: any, hi: any]: nothing -> any {
+  let step = 65536
+  if ($lo == null) and ($hi == null) {
+    $step
+  } else if ($lo == null) {
+    if $hi <= 1 { null } else { $hi // 2 }
+  } else if ($hi == null) {
+    $lo + $step
+  } else if (($hi - $lo) <= 1) {
+    null
+  } else {
+    ($lo + $hi) // 2
   }
 }
 

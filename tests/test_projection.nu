@@ -126,11 +126,20 @@ assert ($auto_ids == ["c2" "c1"]) "auto sort = lastTouched desc (newest first)"
 
 let man = (fold [
   (frame "stack.add" "sm" {sort: "manual"})
-  (frame "clip.add" "c1" {stack_id: "sm", position: "b"} "h1")
-  (frame "clip.add" "c2" {stack_id: "sm", position: "a"} "h2")
+  (frame "clip.add" "c1" {stack_id: "sm", position: 200} "h1")
+  (frame "clip.add" "c2" {stack_id: "sm", position: 100} "h2")
 ])
 let man_ids = (sorted-clips ($man.stacks | first) | get id)
-assert ($man_ids == ["c2" "c1"]) "manual sort = position asc (c2@a before c1@b)"
+assert ($man_ids == ["c2" "c1"]) "manual sort = position asc (c2@100 before c1@200)"
+
+# --- position-between (fractional ordering keys) ---------------------------
+assert ((position-between null null) > 0) "first key when the stack is empty"
+assert ((position-between 100 300) == 200) "midpoint of two keys"
+assert ((position-between 100 null) > 100) "append: after lo"
+let lo_key = (position-between null 100)
+assert ($lo_key > 0 and $lo_key < 100) "prepend: before hi"
+assert ((position-between 100 101) == null) "adjacent keys leave no gap -> null (rebalance)"
+assert ((position-between null 1) == null) "no room below hi=1 -> null"
 
 # --- selection: clip.select / stack.select ---------------------------------
 # clip.select reads the selected stack, so a stack must be selected first
