@@ -173,8 +173,8 @@ Nushell; the app leans on a handful of builtins:
 - `pty open` / `pty view` -- terminals, modelled by
   [wezterm-term](https://github.com/wezterm/wezterm) and projected to an HTML
   cell grid.
-- `.cat` / `.append` / `.cas` / `.bus` -- the `xs` event log (and its
-  in-process bus) this fork is built around.
+- `.cat` / `.append` / `.cas` -- the `xs` event log this fork is built around.
+  `.bus` (pub/sub) is http-nu's own in-process event bus, not xs.
 - `.mj` ([minijinja](https://github.com/mitsuhiko/minijinja)) for templates,
   `.highlight` ([syntect](https://github.com/trishume/syntect)) for syntax
   highlighting, `.md` ([pulldown-cmark](https://github.com/pulldown-cmark/pulldown-cmark))
