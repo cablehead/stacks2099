@@ -64,13 +64,16 @@ replays it. The UI is three columns: **stacks** | **clips** | **content** (the
 selected stack's clips, stacked top to bottom).
 
 - A **clip** is any byte sequence with a mime type, rendered by what it is: an
-  editable **note** (`text/*`, with a rendered view for markdown), an inline
-  **image** (`image/*`), a live **embed** (`text/uri-list` or any URL note,
-  shown as an `<iframe>`), a live **terminal**, or -- for anything else -- a
-  read-only / downloadable preview. An unknown mime type still holds and
-  previews; rendering it nicely is a later add, not a prerequisite.
+  editable **note** (`text/*`), an inline **image** (`image/*`), a live
+  **terminal**, a live **embed** (a URL in an `<iframe>`), or -- for anything
+  else -- a read-only / downloadable preview. An unknown mime type still holds
+  and previews; rendering it nicely is a later add, not a prerequisite.
+- Some clips offer **alternate views**, toggled from a button on the pane: a
+  markdown note flips **edit ⇄ rendered**; a note whose body is a URL flips
+  **edit ⇄ embedded** (the live iframe). A `text/uri-list` clip starts
+  embedded.
 - A **stack** groups clips into a context. Click to switch, double-click to
-  rename, `+` to create.
+  rename, `+` to create, `×` to delete.
 - **Terminal clips** bind to an embedded-Nushell pty. The binary re-execs
   itself to run the shell, so there is no external `nu` to find, and placement
   survives a restart -- the pty respawns where it was, zellij-style.
@@ -93,8 +96,15 @@ Embed a live URL (e.g. a dev server you're watching) as an iframe clip:
 echo http://localhost:3000 | curl --data-binary @- -H 'content-type: text/uri-list' localhost:5099/clip/add
 ```
 
+Re-post to an existing clip to replace its bytes -- its pane refreshes in
+place, so a regenerated asset updates live:
+
+```bash
+curl --data-binary @diagram.png 'localhost:5099/clip/update?clip=<id>'
+```
+
 `?stack=` takes a stack id or name; omit it for the current stack. `GET
-/api/state` lists stacks for scripting.
+/api/state` lists stacks (ids, names, clip counts) for scripting.
 
 ## Keys
 
