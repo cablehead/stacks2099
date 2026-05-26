@@ -38,3 +38,40 @@ jobs:
 
     - name: Run checks
       run: ./scripts/check.sh
+
+  e2e:
+    name: Browser e2e
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install Chrome
+      id: chrome
+      uses: browser-actions/setup-chrome@v1
+      with:
+        chrome-version: stable
+
+    - name: Install Rust
+      run: |
+        rustup update stable
+        rustup default stable
+
+    - uses: Swatinem/rust-cache@v2
+
+    - name: Build
+      run: cargo build
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 20
+
+    - name: Install e2e deps
+      run: npm ci
+      working-directory: tests-browser
+
+    - name: Run browser e2e
+      run: npm test
+      working-directory: tests-browser
+      env:
+        CHROMIUM_PATH: ${{ steps.chrome.outputs.chrome-path }}
+        STACKS2099_BIN: ${{ github.workspace }}/target/debug/stacks2099

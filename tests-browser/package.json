@@ -1,0 +1,12 @@
+{
+  "name": "stacks2099-tests-browser",
+  "private": true,
+  "type": "module",
+  "description": "End-to-end browser tests: drive a real chromium against an isolated stacks2099 instance. The unit-testable logic lives in tests/test_projection.nu; this covers what only a browser can assert (live SSE render, the pty grid, image/embed/markdown panes).",
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "playwright-core": "^1.59.1"
+  }
+}
