@@ -20,7 +20,7 @@
 #   clip.delete {id}
 #   ghostty.title {val}                            window title; latest wins
 #   ghostty.canvas {sid}                           per-clip canvas html; body = CAS
-#   ghostty.focused {sid}                          last-focused clip (out-of-proc /canvas)
+#   stacks2099.focus {sid}                         last-focused clip (ttl last:1; out-of-proc /canvas)
 # Ephemeral bus topics:
 #   clip.select {id}|{action}                      global selection cursor
 #   clip.events {}                                 "re-evaluate panes" nudge (post-spawn)
@@ -80,14 +80,15 @@ def save-canvas [sid: string, html: string]: nothing -> nothing {
 }
 
 # Last clip the user selected, so out-of-process /canvas posters land on the
-# clip in front. `ghostty.focused` frames; latest wins.
+# clip in front. `stacks2099.focus` frames, ttl last:1 -- the store keeps only
+# the most recent, so this latest-wins value never accumulates in the log.
 def load-focused-sid []: nothing -> string {
-  let f = (.last "ghostty.focused")
+  let f = (.last "stacks2099.focus")
   if ($f | is-empty) { "" } else { ($f.meta.sid? | default "") }
 }
 
 def save-focused-sid [sid: string]: nothing -> nothing {
-  null | .append "ghostty.focused" --meta {sid: $sid} --ttl forever | ignore
+  null | .append "stacks2099.focus" --meta {sid: $sid} --ttl last:1 | ignore
 }
 
 # --- stacks / clips ----------------------------------------------------------
