@@ -32,22 +32,22 @@ From source (any platform with a Rust toolchain):
 cargo build --release      # -> target/release/stacks2099
 ```
 
-The binary is self-contained -- the app (Nushell handler, assets, fonts) and
-the Nushell engine, store, and Datastar bundle are all baked in. There is no
+The binary is self-contained -- the app (Nushell handler, assets, fonts) and the
+Nushell engine, store, and Datastar bundle are all baked in. There is no
 external `nu` to install and nothing fetched from a CDN at runtime.
 
 ## Run
 
-You choose where it listens (`ADDR`) and where its state lives (`--store`);
-both are required.
+You choose where it listens (`ADDR`) and where its state lives (`--store`); both
+are required.
 
 ```bash
 stacks2099 127.0.0.1:5099 --store ./store      # runs the app baked into the binary
 ```
 
-For development, `--dev` runs the app (`app/serve.nu` + `app/www`) straight
-from the source tree with hot-reload -- edit the request closure, the
-`sessions.html` template, CSS, or JS and refresh; no Rust rebuild:
+For development, `--dev` runs the app (`app/serve.nu` + `app/www`) straight from
+the source tree with hot-reload -- edit the request closure, the `sessions.html`
+template, CSS, or JS and refresh; no Rust rebuild:
 
 ```bash
 cargo run -- --dev 127.0.0.1:5099 --store ./dev-store
@@ -70,18 +70,17 @@ selected stack's clips, stacked top to bottom).
   and previews; rendering it nicely is a later add, not a prerequisite.
 - Some clips offer **alternate views**, toggled from a button on the pane: a
   markdown note flips **edit ⇄ rendered**; a note whose body is a URL flips
-  **edit ⇄ embedded** (the live iframe). A `text/uri-list` clip starts
-  embedded.
+  **edit ⇄ embedded** (the live iframe). A `text/uri-list` clip starts embedded.
 - A **stack** groups clips into a context. Click to switch, double-click to
   rename, `+` to create, `×` to delete.
-- **Terminal clips** bind to an embedded-Nushell pty. The binary re-execs
-  itself to run the shell, so there is no external `nu` to find, and placement
-  survives a restart -- the pty respawns where it was, zellij-style.
+- **Terminal clips** bind to an embedded-Nushell pty. The binary re-execs itself
+  to run the shell, so there is no external `nu` to find, and placement survives
+  a restart -- the pty respawns where it was, zellij-style.
 
 ## Add assets
 
-Paste an image into the page (`Cmd`/`Ctrl+V`) to drop it into the current
-stack. From the command line, POST any asset to the running server:
+Paste an image into the page (`Cmd`/`Ctrl+V`) to drop it into the current stack.
+From the command line, POST any asset to the running server:
 
 ```bash
 # mime from the Content-Type header; lands in the current stack; prints the clip id
@@ -96,15 +95,15 @@ Embed a live URL (e.g. a dev server you're watching) as an iframe clip:
 echo http://localhost:3000 | curl --data-binary @- -H 'content-type: text/uri-list' localhost:5099/clip/add
 ```
 
-Re-post to an existing clip to replace its bytes -- its pane refreshes in
-place, so a regenerated asset updates live:
+Re-post to an existing clip to replace its bytes -- its pane refreshes in place,
+so a regenerated asset updates live:
 
 ```bash
 curl --data-binary @diagram.png 'localhost:5099/clip/update?clip=<id>'
 ```
 
-`?stack=` takes a stack id or name; omit it for the current stack. `GET
-/api/state` lists stacks (ids, names, clip counts) for scripting.
+`?stack=` takes a stack id or name; omit it for the current stack. `/api/state`
+lists the stacks (ids, names, clip counts) for scripting.
 
 ## API and events
 
@@ -126,21 +125,21 @@ cat notes.md | xs append ./store clip.add --ttl forever \
 In a store-connected Nushell (`xs` gives you one) the builtin form is
 `<body> | .append <topic> --meta {...}` -- exactly what each route runs.
 
-| Action            | HTTP                          | Frame appended |
-| ----------------- | ----------------------------- | -------------- |
-| New stack         | `POST /stack/new`             | `stack.add {sort}` |
-| Rename stack      | `POST /stack/rename`          | `stack.update {id, name}` |
-| Delete stack      | `POST /stack/close?stack=`    | `stack.delete {id}` |
-| Add clip          | `POST /clip/add`              | `clip.add {stack_id, kind, mime_type}` + body |
-| Update clip       | `POST /clip/update?clip=`     | `clip.update {id}` + body |
-| Rename clip       | `POST /pty/label`             | `clip.patch {id, label}` |
-| Set view          | `POST /clip/view?clip=&view=` | `clip.patch {id, view}` |
-| Close clip        | `POST /clip/close?clip=`      | `clip.delete {id}` |
-| Select / switch   | `POST /nav`, `/stack/select`  | bus `clip.select` / `stack.select` |
+| Action          | HTTP                          | Frame appended                                |
+| --------------- | ----------------------------- | --------------------------------------------- |
+| New stack       | `POST /stack/new`             | `stack.add {sort}`                            |
+| Rename stack    | `POST /stack/rename`          | `stack.update {id, name}`                     |
+| Delete stack    | `POST /stack/close?stack=`    | `stack.delete {id}`                           |
+| Add clip        | `POST /clip/add`              | `clip.add {stack_id, kind, mime_type}` + body |
+| Update clip     | `POST /clip/update?clip=`     | `clip.update {id}` + body                     |
+| Rename clip     | `POST /pty/label`             | `clip.patch {id, label}`                      |
+| Set view        | `POST /clip/view?clip=&view=` | `clip.patch {id, view}`                       |
+| Close clip      | `POST /clip/close?clip=`      | `clip.delete {id}`                            |
+| Select / switch | `POST /nav`, `/stack/select`  | bus `clip.select` / `stack.select`            |
 
-The topics and fields *are* the protocol -- defined in `app/projection.nu`.
-Terminal clips are the exception: their pty is spawned by `POST
-/clip/new?type=terminal`, so create those through the API.
+The topics and fields _are_ the protocol -- defined in `app/projection.nu`.
+Terminal clips are the exception: their pty is spawned by a `POST` to
+`/clip/new?type=terminal`, so create those through the API.
 
 ## Keys
 
@@ -150,15 +149,15 @@ selected pane (a terminal gets your keystrokes, a note opens its editor).
 every mode; plain `Enter`/`Esc` go to the focused pty. See
 [docs/adr/0004-keyspace.md](docs/adr/0004-keyspace.md).
 
-| Chord             | Action                                  |
-| ----------------- | --------------------------------------- |
-| `mod+Enter`       | Toggle focus (Cmd on macOS, Ctrl else)  |
-| `Alt+T`           | New clip (note / terminal picker)       |
-| `Alt+D`           | Close current clip                      |
-| `Alt+J` / `Alt+K` | Next / previous clip                    |
-| `Alt+R`           | Rename current clip                     |
-| `Alt+Shift+R`     | Rename window title                     |
-| `Alt+O`           | Cycle current terminal pane height      |
+| Chord             | Action                                 |
+| ----------------- | -------------------------------------- |
+| `mod+Enter`       | Toggle focus (Cmd on macOS, Ctrl else) |
+| `Alt+T`           | New clip (note / terminal picker)      |
+| `Alt+D`           | Close current clip                     |
+| `Alt+J` / `Alt+K` | Next / previous clip                   |
+| `Alt+R`           | Rename current clip                    |
+| `Alt+Shift+R`     | Rename window title                    |
+| `Alt+O`           | Cycle current terminal pane height     |
 
 The status bar lists the active mode's chords and they are clickable.
 
@@ -177,8 +176,9 @@ Nushell; the app leans on a handful of builtins:
   `.bus` (pub/sub) is http-nu's own in-process event bus, not xs.
 - `.mj` ([minijinja](https://github.com/mitsuhiko/minijinja)) for templates,
   `.highlight` ([syntect](https://github.com/trishume/syntect)) for syntax
-  highlighting, `.md` ([pulldown-cmark](https://github.com/pulldown-cmark/pulldown-cmark))
-  for markdown.
+  highlighting, `.md`
+  ([pulldown-cmark](https://github.com/pulldown-cmark/pulldown-cmark)) for
+  markdown.
 
 ## Status
 
