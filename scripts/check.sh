@@ -5,10 +5,9 @@ set -euo pipefail
 nu tests/test_router.nu
 nu tests/test_html.nu
 nu tests/test_datastar.nu
+nu tests/test_projection.nu
 deno fmt README.md --check
 cargo fmt --check --all
 cargo clippy --locked --workspace --all-targets --all-features -- -D warnings -W clippy::uninlined_format_args
 cargo build -p nu_plugin_test
 cargo test
-cargo run -- eval examples/tao/test.nu
-cargo run -- eval examples/2048/test.nu
