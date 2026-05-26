@@ -106,6 +106,42 @@ curl --data-binary @diagram.png 'localhost:5099/clip/update?clip=<id>'
 `?stack=` takes a stack id or name; omit it for the current stack. `GET
 /api/state` lists stacks (ids, names, clip counts) for scripting.
 
+## API and events
+
+The HTTP routes are thin wrappers: each appends a frame to the log (selection
+aside -- that rides the in-process bus). The store serves an `xs` API on its
+socket, so you can write the same frames yourself; the API is just sugar over
+the event log.
+
+```bash
+# add a markdown clip via the HTTP API
+curl --data-binary @notes.md -H 'content-type: text/markdown' localhost:5099/clip/add
+
+# the identical effect, appended straight to the log with the xs client
+# (STACK_ID from `curl localhost:5099/api/state`):
+cat notes.md | xs append ./store clip.add --ttl forever \
+  --meta '{"stack_id":"STACK_ID","kind":"content","mime_type":"text/markdown"}'
+```
+
+In a store-connected Nushell (`xs` gives you one) the builtin form is
+`<body> | .append <topic> --meta {...}` -- exactly what each route runs.
+
+| Action            | HTTP                          | Frame appended |
+| ----------------- | ----------------------------- | -------------- |
+| New stack         | `POST /stack/new`             | `stack.add {sort}` |
+| Rename stack      | `POST /stack/rename`          | `stack.update {id, name}` |
+| Delete stack      | `POST /stack/close?stack=`    | `stack.delete {id}` |
+| Add clip          | `POST /clip/add`              | `clip.add {stack_id, kind, mime_type}` + body |
+| Update clip       | `POST /clip/update?clip=`     | `clip.update {id}` + body |
+| Rename clip       | `POST /pty/label`             | `clip.patch {id, label}` |
+| Set view          | `POST /clip/view?clip=&view=` | `clip.patch {id, view}` |
+| Close clip        | `POST /clip/close?clip=`      | `clip.delete {id}` |
+| Select / switch   | `POST /nav`, `/stack/select`  | bus `clip.select` / `stack.select` |
+
+The topics and fields *are* the protocol -- defined in `app/projection.nu`.
+Terminal clips are the exception: their pty is spawned by `POST
+/clip/new?type=terminal`, so create those through the API.
+
 ## Keys
 
 Two modes. **Navigate** browses (read-only, dimmed); **focus** drives the
