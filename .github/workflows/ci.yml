@@ -8,33 +8,54 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_NET_RETRY: "10"        # retry crate downloads instead of failing the build
 
 jobs:
   test:
     name: Test - ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    continue-on-error: true
     strategy:
+      fail-fast: false
       matrix:
         os: [windows-latest, macos-latest, ubuntu-latest]
 
     steps:
     - uses: actions/checkout@v4
 
+    # The setup actions occasionally fail to download (GitHub infra). Retry
+    # once each: first attempt tolerates failure, second runs only if it failed.
     - name: Install Deno
+      id: deno
+      continue-on-error: true
+      uses: denoland/setup-deno@v2
+      with:
+        deno-version: v2.x
+    - name: Install Deno (retry)
+      if: steps.deno.outcome == 'failure'
       uses: denoland/setup-deno@v2
       with:
         deno-version: v2.x
 
     - name: Install Nushell
+      id: nu
+      continue-on-error: true
+      uses: hustcer/setup-nu@v3
+      with:
+        version: "0.109.1"
+    - name: Install Nushell (retry)
+      if: steps.nu.outcome == 'failure'
       uses: hustcer/setup-nu@v3
       with:
         version: "0.109.1"
 
     - name: Install Rust
+      shell: bash
       run: |
-        rustup update stable
-        rustup default stable
+        for i in 1 2 3; do
+          rustup update stable && rustup default stable && exit 0
+          echo "rustup attempt $i failed; retrying in 5s" && sleep 5
+        done
+        exit 1
 
     - name: Run checks
       run: ./scripts/check.sh
@@ -52,9 +73,13 @@ jobs:
         chrome-version: stable
 
     - name: Install Rust
+      shell: bash
       run: |
-        rustup update stable
-        rustup default stable
+        for i in 1 2 3; do
+          rustup update stable && rustup default stable && exit 0
+          echo "rustup attempt $i failed; retrying in 5s" && sleep 5
+        done
+        exit 1
 
     - uses: Swatinem/rust-cache@v2
 
@@ -66,7 +91,13 @@ jobs:
         node-version: 20
 
     - name: Install e2e deps
-      run: npm ci
+      shell: bash
+      run: |
+        for i in 1 2 3; do
+          npm ci && exit 0
+          echo "npm ci attempt $i failed; retrying in 5s" && sleep 5
+        done
+        exit 1
       working-directory: tests-browser
 
     - name: Run browser e2e
