@@ -1,0 +1,38 @@
+## Git Commit Style Preferences
+
+**NEVER commit unless explicitly asked by the user.**
+
+When committing: review `git diff`
+
+- Use conventional commit format: `type: subject line`
+- Keep subject line concise and descriptive
+- **NEVER include marketing language, promotional text, or AI attribution**
+- **NEVER add "Generated with Claude Code", "Co-Authored-By: Claude", or similar
+  spam**
+- Follow existing project patterns from git log
+- Prefer just a subject and no body, unless the change is particularly complex
+
+## Tone and Communication
+
+- ASCII only. No em dashes, smart quotes, or other unicode punctuation. Use
+  "--" only in code contexts, not as prose punctuation.
+- No wasted words. No fluff. Each word should add value to the reader.
+- Calm, matter-of-fact technical tone.
+
+## Code Quality
+
+Always run `./scripts/check.sh` before committing -- it runs the nu unit tests
+(`tests/test_*.nu`), `deno fmt README.md --check`, `cargo fmt`, clippy, and
+`cargo test`. Browser e2e lives in `tests-browser/` (`npm test`). Use `cargo
+fmt` and `deno fmt README.md` to fix formatting.
+
+## Release Process
+
+Use `/release [version]` to execute the release workflow (version bump, tag,
+GitHub Actions build, Homebrew tap).
+
+## Nushell version
+
+When bumping the embedded Nushell (the `nu-*` crate versions in `Cargo.toml`),
+update `hustcer/setup-nu`'s `version` in `.github/workflows/ci.yml` to match, so
+the `tests/*.nu` suites run on the same engine the binary bundles.
