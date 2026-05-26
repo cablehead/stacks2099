@@ -646,12 +646,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 let path: std::path::PathBuf = dir.into();
                 let path = path.join(kind.path());
                 if path.is_file() {
-                    nu_cli::eval_config_contents(
-                        path,
-                        &mut engine.state,
-                        &mut stack,
-                        false,
-                    );
+                    nu_cli::eval_config_contents(path, &mut engine.state, &mut stack, false);
                 }
             }
         }

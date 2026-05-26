@@ -90,10 +90,22 @@ fn attrs_equiv(a: &CellAttributes, b: &CellAttributes) -> bool {
 /// 256-color cells in the normal path.
 fn palette_to_rgb(i: u8) -> (u8, u8, u8) {
     const PALETTE_16: [(u8, u8, u8); 16] = [
-        (0x00, 0x00, 0x00), (0xcd, 0x00, 0x00), (0x00, 0xcd, 0x00), (0xcd, 0xcd, 0x00),
-        (0x1e, 0x90, 0xff), (0xcd, 0x00, 0xcd), (0x00, 0xcd, 0xcd), (0xe5, 0xe5, 0xe5),
-        (0x4d, 0x4d, 0x4d), (0xff, 0x54, 0x54), (0x54, 0xff, 0x54), (0xff, 0xff, 0x54),
-        (0x54, 0x54, 0xff), (0xff, 0x54, 0xff), (0x54, 0xff, 0xff), (0xff, 0xff, 0xff),
+        (0x00, 0x00, 0x00),
+        (0xcd, 0x00, 0x00),
+        (0x00, 0xcd, 0x00),
+        (0xcd, 0xcd, 0x00),
+        (0x1e, 0x90, 0xff),
+        (0xcd, 0x00, 0xcd),
+        (0x00, 0xcd, 0xcd),
+        (0xe5, 0xe5, 0xe5),
+        (0x4d, 0x4d, 0x4d),
+        (0xff, 0x54, 0x54),
+        (0x54, 0xff, 0x54),
+        (0xff, 0xff, 0x54),
+        (0x54, 0x54, 0xff),
+        (0xff, 0x54, 0xff),
+        (0x54, 0xff, 0xff),
+        (0xff, 0xff, 0xff),
     ];
     if i < 16 {
         return PALETTE_16[i as usize];
@@ -276,7 +288,11 @@ fn render_grid_html(term: &Terminal, target: &str) -> GridFrame {
                 break;
             }
             let s = cell_ref.str();
-            let glyph = if s.is_empty() { " ".to_string() } else { s.to_string() };
+            let glyph = if s.is_empty() {
+                " ".to_string()
+            } else {
+                s.to_string()
+            };
             cells[col] = (glyph, cell_ref.attrs().clone(), false);
         }
         if row_idx == cursor_row && cursor_col < cols {
@@ -411,9 +427,10 @@ fn bump_last_input(sid: &str) {
             return;
         };
         let prev = session.last_input_ms.swap(now, Ordering::Relaxed);
-        let was_top = map.iter().filter(|(k, _)| k.as_str() != sid).all(|(_, s)| {
-            s.last_input_ms.load(Ordering::Relaxed) <= prev
-        });
+        let was_top = map
+            .iter()
+            .filter(|(k, _)| k.as_str() != sid)
+            .all(|(_, s)| s.last_input_ms.load(Ordering::Relaxed) <= prev);
         if was_top {
             None
         } else {
@@ -625,7 +642,9 @@ fn open_exec(
     // at the same master pty fd that user input writes to. Auto-replies for
     // DA1/DA2/DSR queries always go straight to the slave -- the browser is
     // no longer a VT emulator in projection mode.
-    let term_writer = SharedWriter { inner: writer.clone() };
+    let term_writer = SharedWriter {
+        inner: writer.clone(),
+    };
     let term = Terminal::new(
         TerminalSize {
             rows: size.rows as usize,
@@ -1058,9 +1077,7 @@ impl Command for PtyViewCommand {
                     let mut guard = lock.lock().unwrap();
                     let mut emitted_heartbeat = false;
                     while *guard == last_gen {
-                        let (g, timeout) = cv
-                            .wait_timeout(guard, VIEW_HEARTBEAT)
-                            .unwrap();
+                        let (g, timeout) = cv.wait_timeout(guard, VIEW_HEARTBEAT).unwrap();
                         guard = g;
                         if timeout.timed_out() {
                             // Emit an SSE comment so proxies don't drop us.
