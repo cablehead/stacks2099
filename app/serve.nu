@@ -129,6 +129,14 @@ def set-clip-body [cid: string]: any -> nothing {
   $in | .append "clip.update" --meta {id: $cid} --ttl forever | ignore
 }
 
+# Reassign spaced positions to a stack's clips in the given order. Used to
+# "freeze" an auto stack into manual, and to rebalance when a gap runs out.
+def renumber-stack [order: list]: nothing -> nothing {
+  $order | enumerate | each {|it|
+    null | .append "clip.patch" --meta {id: $it.item.id, position: (($it.index + 1) * 65536)} --ttl forever
+  } | ignore
+}
+
 def set-clip-label [cid: string, label: string]: nothing -> nothing {
   null | .append "clip.patch" --meta {id: $cid, label: $label} --ttl forever | ignore
 }
@@ -420,6 +428,7 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
             let dims = (focused-dims $clips $sel)
             let title = (load-title)
             let canvas = (load-canvas $sel)
+            let doc_order = (mountable $clips)
 
             let sel_stack = ($proj.selectedStackId | default "")
             let stacks_patch = (render-stacks $proj | to datastar-patch-elements --selector "#stacks-list")
@@ -427,13 +436,15 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
             let doc_patch = if (not $doc_ready) {
               (render-doc $clips | to datastar-patch-elements --selector "#doc")
             } else { null }
-            let sel_patch = ({selectedSid: $sel, selectedStack: $sel_stack, connId: $conn_id, docReady: true} | to datastar-patch-signals)
+            # docOrder: the sorted pane order the client applies by relocating
+            # existing #doc nodes (preserves live terminal grids).
+            let sel_patch = ({selectedSid: $sel, selectedStack: $sel_stack, connId: $conn_id, docReady: true, docOrder: ($doc_order | to json)} | to datastar-patch-signals)
             let dims_patch = ({focusedDims: $dims} | to datastar-patch-signals)
             let title_patch = ({title: $title} | to datastar-patch-signals)
             let canvas_patch = (render-canvas $canvas | to datastar-patch-elements --selector "#canvas")
 
             let out = ([$sel_patch $dims_patch $title_patch $stacks_patch $clips_patch $canvas_patch $doc_patch] | where {|x| $x != null })
-            {out: $out, next: {proj: $proj, ready: true, rendered: (mountable $clips), title: $title, canvas: $canvas, sel: $sel, sel_stack: $sel_stack, dims: $dims}}
+            {out: $out, next: {proj: $proj, ready: true, rendered: $doc_order, doc_order: $doc_order, title: $title, canvas: $canvas, sel: $sel, sel_stack: $sel_stack, dims: $dims}}
 
           } else if ($topic | str starts-with "xs.") {
             # Heartbeats and other system noise.
@@ -478,6 +489,10 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
               })
               let rendered2 = (($st.rendered | where {|id| $id in $all_ids }) | append $to_add | uniq)
 
+              # Order changed (a move, a sort flip, or a new clip's slot): push
+              # the sorted pane order; the client relocates existing #doc nodes.
+              let docorder_patch = if $want != $st.doc_order { ({docOrder: ($want | to json)} | to datastar-patch-signals) } else { null }
+
               # Re-render a clip's pane in place when its content or type
               # changes -- the add/remove above only tracks presence. A note's
               # body edit (clip.update on a note) is skipped: its editor owns
@@ -514,12 +529,12 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
               let out = ([$stacks_patch $clips_patch]
                 | append $add_patches
                 | append $rm_patches
-                | append [$repane $sel_patch $selstk_patch $dims_patch $canvas_patch $title_patch]
+                | append [$repane $docorder_patch $sel_patch $selstk_patch $dims_patch $canvas_patch $title_patch]
                 | where {|x| $x != null })
-              {out: $out, next: {proj: $proj, ready: true, rendered: $rendered2, title: $title, canvas: $canvas, sel: $sel, sel_stack: $sel_stack, dims: $dims}}
+              {out: $out, next: {proj: $proj, ready: true, rendered: $rendered2, doc_order: $want, title: $title, canvas: $canvas, sel: $sel, sel_stack: $sel_stack, dims: $dims}}
             }
           }
-        } {proj: (projection empty), ready: false, rendered: [], title: "", canvas: "", sel: "", sel_stack: "", dims: ""}
+        } {proj: (projection empty), ready: false, rendered: [], doc_order: [], title: "", canvas: "", sel: "", sel_stack: "", dims: ""}
       | flatten
       | to sse
       | metadata set --content-type "text/event-stream"
@@ -602,6 +617,62 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
           }
         }
         null | .append "stack.delete" --meta {id: $sid} --ttl forever | ignore
+      }
+      null | metadata set { merge {'http.response': {status: 204}} }
+    }
+
+    [POST, "/stack/sort"] => {
+      # Toggle a stack between auto (activity order) and manual (curated). When
+      # switching to manual, freeze the current visual order into positions so
+      # nothing jumps; switching to auto just flips the flag (positions ignored).
+      let sid = ($req.query.stack? | default "")
+      let proj = (.cat | projection project)
+      let stack = ($proj.stacks | where id == $sid | get 0?)
+      if ($stack | is-not-empty) {
+        if $stack.sort == "auto" {
+          renumber-stack (projection sorted-clips $stack)
+          null | .append "stack.update" --meta {id: $sid, sort: "manual"} --ttl forever | ignore
+        } else {
+          null | .append "stack.update" --meta {id: $sid, sort: "auto"} --ttl forever | ignore
+        }
+      }
+      null | metadata set { merge {'http.response': {status: 204}} }
+    }
+
+    [POST, "/clip/move"] => {
+      # Move the selected clip up/down within its stack. The first move in an
+      # auto stack (or a manual one with unset positions) renumbers the whole
+      # stack in the new order; after that each move is one position patch.
+      let signals = $body | from datastar-signals $req
+      let dir = ($req.query.dir? | default "")
+      let cid = ($signals.selectedSid? | default "")
+      let sid_stack = ($signals.selectedStack? | default "")
+      let proj = (.cat | projection project)
+      let stack = ($proj.stacks | where id == $sid_stack | get 0?)
+      if $cid != "" and ($dir in ["up" "down"]) and ($stack | is-not-empty) {
+        let clips = (projection sorted-clips $stack)
+        let idx = ($clips | enumerate | where item.id == $cid | get 0?.index)
+        let tgt = if $idx == null { -1 } else if $dir == "up" { $idx - 1 } else { $idx + 1 }
+        if $idx != null and $tgt >= 0 and $tgt < ($clips | length) {
+          let moved = ($clips | get $idx)
+          let rest = ($clips | drop nth $idx)
+          let new_order = ($rest | first $tgt | append $moved | append ($rest | skip $tgt))
+          let needs_renumber = ($stack.sort != "manual") or ($clips | any {|c| ($c.position? | default null) == null })
+          if $needs_renumber {
+            if $stack.sort != "manual" { null | .append "stack.update" --meta {id: $stack.id, sort: "manual"} --ttl forever | ignore }
+            renumber-stack $new_order
+          } else {
+            let ni = ($new_order | enumerate | where item.id == $cid | get 0.index)
+            let prev = if $ni == 0 { null } else { ($new_order | get ($ni - 1) | get position?) }
+            let next = if $ni == (($new_order | length) - 1) { null } else { ($new_order | get ($ni + 1) | get position?) }
+            let newpos = (projection position-between $prev $next)
+            if $newpos == null {
+              renumber-stack $new_order
+            } else {
+              null | .append "clip.patch" --meta {id: $cid, position: $newpos} --ttl forever | ignore
+            }
+          }
+        }
       }
       null | metadata set { merge {'http.response': {status: 204}} }
     }
