@@ -73,6 +73,10 @@ selected stack's clips, stacked top to bottom).
   **edit ⇄ embedded** (the live iframe). A `text/uri-list` clip starts embedded.
 - A **stack** groups clips into a context. Click to switch, double-click to
   rename, `+` to create, `×` to delete.
+- Clips order **`auto`** (by activity -- newest edits float up) or **`manual`**
+  (curated). The clips-header badge toggles the mode;
+  `Alt+Shift+J`/`Alt+Shift+K` move the selected clip down/up (the first move
+  freezes the current order into `manual`).
 - **Terminal clips** bind to an embedded-Nushell pty. The binary re-execs itself
   to run the shell, so there is no external `nu` to find, and placement survives
   a restart -- the pty respawns where it was, zellij-style.
@@ -125,17 +129,19 @@ cat notes.md | xs append ./store clip.add --ttl forever \
 In a store-connected Nushell (`xs` gives you one) the builtin form is
 `<body> | .append <topic> --meta {...}` -- exactly what each route runs.
 
-| Action          | HTTP                          | Frame appended                                |
-| --------------- | ----------------------------- | --------------------------------------------- |
-| New stack       | `POST /stack/new`             | `stack.add {sort}`                            |
-| Rename stack    | `POST /stack/rename`          | `stack.update {id, name}`                     |
-| Delete stack    | `POST /stack/close?stack=`    | `stack.delete {id}`                           |
-| Add clip        | `POST /clip/add`              | `clip.add {stack_id, kind, mime_type}` + body |
-| Update clip     | `POST /clip/update?clip=`     | `clip.update {id}` + body                     |
-| Rename clip     | `POST /pty/label`             | `clip.patch {id, label}`                      |
-| Set view        | `POST /clip/view?clip=&view=` | `clip.patch {id, view}`                       |
-| Close clip      | `POST /clip/close?clip=`      | `clip.delete {id}`                            |
-| Select / switch | `POST /nav`, `/stack/select`  | bus `clip.select` / `stack.select`            |
+| Action          | HTTP                          | Frame appended                                   |
+| --------------- | ----------------------------- | ------------------------------------------------ |
+| New stack       | `POST /stack/new`             | `stack.add {sort}`                               |
+| Rename stack    | `POST /stack/rename`          | `stack.update {id, name}`                        |
+| Delete stack    | `POST /stack/close?stack=`    | `stack.delete {id}`                              |
+| Add clip        | `POST /clip/add`              | `clip.add {stack_id, kind, mime_type}` + body    |
+| Update clip     | `POST /clip/update?clip=`     | `clip.update {id}` + body                        |
+| Rename clip     | `POST /pty/label`             | `clip.patch {id, label}`                         |
+| Set view        | `POST /clip/view?clip=&view=` | `clip.patch {id, view}`                          |
+| Close clip      | `POST /clip/close?clip=`      | `clip.delete {id}`                               |
+| Move clip       | `POST /clip/move?dir=&clip=`  | `clip.patch {id, position}` (renumber on freeze) |
+| Toggle sort     | `POST /stack/sort?stack=`     | `stack.update {id, sort}`                        |
+| Select / switch | `POST /nav`, `/stack/select`  | bus `clip.select` / `stack.select`               |
 
 The topics and fields _are_ the protocol -- defined in `app/projection.nu`.
 Terminal clips are the exception: their pty is spawned by a `POST` to
@@ -149,15 +155,17 @@ selected pane (a terminal gets your keystrokes, a note opens its editor).
 every mode; plain `Enter`/`Esc` go to the focused pty. See
 [docs/adr/0004-keyspace.md](docs/adr/0004-keyspace.md).
 
-| Chord             | Action                                 |
-| ----------------- | -------------------------------------- |
-| `mod+Enter`       | Toggle focus (Cmd on macOS, Ctrl else) |
-| `Alt+T`           | New clip (note / terminal picker)      |
-| `Alt+D`           | Close current clip                     |
-| `Alt+J` / `Alt+K` | Next / previous clip                   |
-| `Alt+R`           | Rename current clip                    |
-| `Alt+Shift+R`     | Rename window title                    |
-| `Alt+O`           | Cycle current terminal pane height     |
+| Chord                         | Action                                 |
+| ----------------------------- | -------------------------------------- |
+| `mod+Enter`                   | Toggle focus (Cmd on macOS, Ctrl else) |
+| `Alt+T`                       | New clip (note / terminal picker)      |
+| `Alt+D`                       | Close current clip                     |
+| `Alt+J` / `Alt+K`             | Next / previous clip                   |
+| `Alt+Shift+J` / `Alt+Shift+K` | Move clip down / up                    |
+| `Alt+S`                       | Toggle stack sort (auto / manual)      |
+| `Alt+R`                       | Rename current clip                    |
+| `Alt+Shift+R`                 | Rename window title                    |
+| `Alt+O`                       | Cycle current terminal pane height     |
 
 The status bar lists the active mode's chords and they are clickable.
 
