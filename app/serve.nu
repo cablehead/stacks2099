@@ -268,10 +268,16 @@ def render-stacks [proj: record]: nothing -> string {
 }
 
 # Middle column: the selected stack's clip list (a navigator over the #doc).
+# The header shows the stack's sort mode as a toggle (auto = activity order;
+# manual = curated, set by moves).
 def render-clips [proj: record]: nothing -> string {
   let v = (view-of $proj)
+  let stack = ($proj.stacks | where id == $proj.selectedStackId | get 0?)
+  let sort = if ($stack | is-empty) { "auto" } else { ($stack.sort | default "auto") }
+  let sid = ($proj.selectedStackId | default "")
+  let sort_btn = $"<button type='button' class='sort-btn' data-on:click=\"@post\('/stack/sort?stack=($sid)'\)\" title='Sort: ($sort) -- click to toggle'>($sort)</button>"
   let items = ($v.clips | each {|c| render-clip-row $c $v.sel } | str join "")
-  $"<aside id='clips-list'><header>Clips <button type='button' class='new-btn' data-on:click=\"$picking = true\" title='New clip'>+</button></header><ul class='clips'>($items)</ul></aside>"
+  $"<aside id='clips-list'><header>Clips ($sort_btn)<button type='button' class='new-btn' data-on:click=\"$picking = true\" title='New clip'>+</button></header><ul class='clips'>($items)</ul></aside>"
 }
 
 # Render one continuous-document pane for a clip, keyed by clip id. A terminal
@@ -643,10 +649,9 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
       # Move the selected clip up/down within its stack. The first move in an
       # auto stack (or a manual one with unset positions) renumbers the whole
       # stack in the new order; after that each move is one position patch.
-      let signals = $body | from datastar-signals $req
       let dir = ($req.query.dir? | default "")
-      let cid = ($signals.selectedSid? | default "")
-      let sid_stack = ($signals.selectedStack? | default "")
+      let cid = ($req.query.clip? | default "")
+      let sid_stack = ($req.query.stack? | default "")
       let proj = (.cat | projection project)
       let stack = ($proj.stacks | where id == $sid_stack | get 0?)
       if $cid != "" and ($dir in ["up" "down"]) and ($stack | is-not-empty) {

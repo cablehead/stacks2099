@@ -22,6 +22,8 @@
     aside { background: var(--pane); border-right: 1px solid var(--pane-border); overflow-y: auto; min-height: 0; }
     aside header { padding: .4rem .5rem .4rem .75rem; border-bottom: 1px solid var(--pane-border); font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: var(--dim); display: flex; align-items: center; justify-content: space-between; }
     aside header .new-btn { background: transparent; color: inherit; border: 1px solid var(--pane-border); border-radius: 3px; padding: 0 .5rem; font: inherit; cursor: pointer; line-height: 1.4; }
+    aside header .sort-btn { margin-left: auto; margin-right: .4rem; background: transparent; color: var(--dim); border: 1px solid var(--pane-border); border-radius: 3px; padding: 0 .4rem; font: inherit; font-size: 11px; line-height: 1.4; text-transform: none; cursor: pointer; }
+    aside header .sort-btn:hover { background: #222; color: var(--fg); }
     aside header .new-btn:hover { background: #222; color: var(--fg); }
     aside ul { list-style: none; margin: 0; padding: 0; }
     aside li { display: flex; align-items: stretch; border-bottom: 1px solid var(--pane-border); }
@@ -177,7 +179,7 @@
   </style>
 </head>
 <body
-  data-signals='{"selectedSid":"","selectedStack":"","connId":"","sid":"","sel":"","termCols":0,"termRows":0,"termTitle":"","focusedDims":"","title":{{ title | default("") | tojson | e }},"docReady":false,"picking":false,"renaming":false,"renameMode":"title","renameStackId":"","draft":"","label":""}'
+  data-signals='{"selectedSid":"","selectedStack":"","connId":"","sid":"","sel":"","termCols":0,"termRows":0,"termTitle":"","focusedDims":"","title":{{ title | default("") | tojson | e }},"docReady":false,"picking":false,"renaming":false,"renameMode":"title","renameStackId":"","draft":"","label":"","docOrder":"[]"}'
   data-init="@get('/sse')"
   data-effect="document.title = $title || 'ghostty-web-nu sessions'"
   data-actions='{
@@ -185,6 +187,9 @@
     "close":     "window.app.closeSelected()",
     "next":      "window.app.cycle(1)",
     "prev":      "window.app.cycle(-1)",
+    "moveDown":  "window.app.move(\"down\")",
+    "moveUp":    "window.app.move(\"up\")",
+    "toggleSort":"window.app.toggleSort()",
     "rename":    "window.app.openRename()",
     "renameTab": "window.app.openRenameTab()",
     "cycleHeight":"window.app.cycleHeight()"
@@ -194,6 +199,9 @@
     "alt+d": "close",
     "alt+j": "next",
     "alt+k": "prev",
+    "alt+shift+j": "moveDown",
+    "alt+shift+k": "moveUp",
+    "alt+s": "toggleSort",
     "alt+r": "renameTab",
     "alt+shift+r": "rename",
     "alt+o": "cycleHeight"
@@ -230,6 +238,9 @@
   <!-- Mirror the selected stack id to JS so the (non-datastar) paste handler
        can target the current stack when adding an image clip. -->
   <div data-effect="window.__selectedStack = $selectedStack" style="display:none"></div>
+  <!-- Apply the server's docOrder by relocating existing #doc panes (moving a
+       DOM node preserves its live terminal grid + stream). -->
+  <div data-effect="$docOrder; window.__applyDocOrder && window.__applyDocOrder($docOrder)" style="display:none"></div>
 
   <!-- Server-pushed canvas pane. Empty -> collapses to 0 width. -->
   <section id="canvas" class="canvas"></section>
@@ -437,6 +448,19 @@
         if (!cid) return;
         fetch('/clip/close?clip=' + encodeURIComponent(cid), { method: 'POST' }).catch(() => {});
       },
+      move(dir) {
+        // Reorder the selected clip up/down within its stack (Alt+Shift+J/K).
+        const cid = currentClip();
+        if (!cid) return;
+        const stack = window.__selectedStack || '';
+        fetch('/clip/move?dir=' + dir + '&clip=' + encodeURIComponent(cid) + '&stack=' + encodeURIComponent(stack), { method: 'POST' }).catch(() => {});
+      },
+      toggleSort() {
+        // Toggle the selected stack between auto (activity) and manual order.
+        const stack = window.__selectedStack || '';
+        if (!stack) return;
+        fetch('/stack/sort?stack=' + encodeURIComponent(stack), { method: 'POST' }).catch(() => {});
+      },
       cycle(dir) {
         const items = [...document.querySelectorAll('#clips-list li')];
         if (!items.length) return;
@@ -487,6 +511,18 @@
     // The selected clip id, read from the active pane (datastar sets .active
     // reactively from $selectedSid, which now holds the selected clip id).
     const currentClip = () => doc.querySelector('.pane.active')?.dataset.clip || '';
+
+    // Reorder #doc panes to match the server's docOrder. appendChild moves an
+    // existing node (keeping its live terminal grid + stream attached), so
+    // reordering is non-destructive.
+    window.__applyDocOrder = (json) => {
+      let order;
+      try { order = JSON.parse(json || '[]'); } catch { return; }
+      for (const id of order) {
+        const pane = doc.querySelector('#pane-' + CSS.escape(id));
+        if (pane) doc.appendChild(pane);
+      }
+    };
     window.__onSelect = (cid) => {
       if (cid) {
         // Reveal the selected pane's bottom (a terminal's prompt sits there).
@@ -524,6 +560,8 @@
     const appChords = [
       { label: 'New', keys: ['Alt', 'T'], run: () => window.app.newSession() },
       { label: 'Close', keys: ['Alt', 'D'], run: () => window.app.closeSelected() },
+      { label: 'Move', keys: ['Alt', 'Shift', 'J/K'], run: () => window.app.move('down') },
+      { label: 'Sort', keys: ['Alt', 'S'], run: () => window.app.toggleSort() },
       { label: 'Rename', keys: ['Alt', 'R'], run: () => window.app.openRenameTab() },
       { label: 'Height', keys: ['Alt', 'O'], run: () => window.app.cycleHeight() },
     ];
