@@ -6,8 +6,8 @@
 # bootstrap layer); this projection stays pty-agnostic.
 #
 # Persistent topics:
-#   stack.add    meta: {name, sort}                          frame.id = stack id
-#   stack.update meta: {id, name?, sort?}
+#   stack.add    meta: {name, sort, layout}                  frame.id = stack id
+#   stack.update meta: {id, name?, sort?, layout?}
 #   stack.delete meta: {id}
 #   clip.add     meta: {stack_id, kind?, mime_type, position?}   frame.id = clip id
 #   clip.update  meta: {id}                                   body -> new hash; clip id stays stable
@@ -20,7 +20,7 @@
 #
 # State shape:
 #   {
-#     stacks: [{id, name, sort, lastTouched, clips: [{id, kind, hash, mime_type, position, lastTouched, versions}]}]
+#     stacks: [{id, name, sort, layout, lastTouched, clips: [{id, kind, hash, mime_type, position, lastTouched, versions}]}]
 #     selectedStackId: string|null
 #     selectedClipId:  string|null
 #     clipCursors:     {stack_id: clip_id, ...}  # last selected clip per stack
@@ -30,6 +30,10 @@
 # `sort` is "auto" or "manual". `sorted-clips` returns a stack's clips in
 # render order: auto = lastTouched desc (newest activity first, so edits
 # float to the top), manual = position asc.
+#
+# `layout` is how the stack's panes compose: "flow" (vertical document column)
+# or "niri" (horizontal scrollable strip of fixed-width columns). Both consume
+# the same `sorted-clips` order; layout is presentation only.
 
 export def empty []: nothing -> record {
   {stacks: [] selectedStackId: null selectedClipId: null clipCursors: {} selectionExplicit: false frameId: null deleted: []}
@@ -142,6 +146,7 @@ def stack-add [state: record frame: record] {
     id: $frame.id
     name: ($frame.meta?.name?)   # null until renamed; UI falls back to the id
     sort: ($frame.meta?.sort? | default "auto")
+    layout: ($frame.meta?.layout? | default "flow")   # "flow" (column) | "niri" (scrollable strip)
     clips: []
     lastTouched: $frame.id
   }

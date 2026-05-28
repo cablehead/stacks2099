@@ -58,6 +58,11 @@
        whole column scrolls. Each .pane is a fixed-height live terminal whose
        grid.css #screen-<sid> fills the .pane-screen below its header. */
     #doc { min-height: 0; overflow-y: auto; overflow-x: hidden; padding: .5rem; display: flex; flex-direction: column; gap: .5rem; }
+    /* niri layout: the document becomes a horizontal scrollable strip -- each
+       pane a fixed-width (80ch) full-height column you pan across, rather than a
+       stacked row. Same panes (live grids intact), only the container axis flips. */
+    #doc.layout-niri { flex-direction: row; overflow-x: auto; overflow-y: hidden; align-items: stretch; }
+    #doc.layout-niri .pane { flex: 0 0 80ch; width: 80ch; }
     .pane { flex: 0 0 auto; display: flex; flex-direction: column; border: 1px solid var(--pane-border); border-radius: 4px; overflow: hidden; background: var(--term-bg); transition: opacity .12s, border-color .12s; scroll-margin: .5rem; }
     .pane-head { flex: 0 0 auto; padding: .15rem .6rem; font-size: 11px; color: var(--dim); background: var(--chrome); cursor: pointer; display: flex; gap: .5ch; align-items: baseline; }
     .pane-head small { opacity: .5; }
@@ -190,6 +195,7 @@
     "moveDown":  "window.app.move(\"down\")",
     "moveUp":    "window.app.move(\"up\")",
     "toggleSort":"window.app.toggleSort()",
+    "toggleLayout":"window.app.toggleLayout()",
     "rename":    "window.app.openRename()",
     "renameTab": "window.app.openRenameTab()",
     "cycleHeight":"window.app.cycleHeight()"
@@ -202,6 +208,7 @@
     "alt+shift+j": "moveDown",
     "alt+shift+k": "moveUp",
     "alt+s": "toggleSort",
+    "alt+l": "toggleLayout",
     "alt+r": "renameTab",
     "alt+shift+r": "rename",
     "alt+o": "cycleHeight"
@@ -461,6 +468,12 @@
         if (!stack) return;
         fetch('/stack/sort?stack=' + encodeURIComponent(stack), { method: 'POST' }).catch(() => {});
       },
+      toggleLayout() {
+        // Toggle the selected stack between flow (column) and niri (strip).
+        const stack = window.__selectedStack || '';
+        if (!stack) return;
+        fetch('/stack/layout?stack=' + encodeURIComponent(stack), { method: 'POST' }).catch(() => {});
+      },
       cycle(dir) {
         const items = [...document.querySelectorAll('#clips-list li')];
         if (!items.length) return;
@@ -528,7 +541,13 @@
         // Reveal the selected pane's bottom (a terminal's prompt sits there).
         const pane = doc.querySelector('#pane-' + CSS.escape(cid));
         if (pane) {
-          pane.scrollIntoView({ block: 'end', behavior: 'smooth' });
+          // flow: reveal the pane's bottom (a terminal's prompt sits there).
+          // niri: pan the strip so the focused column is centered.
+          if (doc.classList.contains('layout-niri')) {
+            pane.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
+          } else {
+            pane.scrollIntoView({ block: 'end', behavior: 'smooth' });
+          }
           // Focus carries with the selection while in focus mode (so Alt+J/K
           // moves you from one focused pane straight into the next: a terminal
           // gets key-buffer/pty, a note opens its editor). Navigate mode is
@@ -562,6 +581,7 @@
       { label: 'Close', keys: ['Alt', 'D'], run: () => window.app.closeSelected() },
       { label: 'Move', keys: ['Alt', 'Shift', 'J/K'], run: () => window.app.move('down') },
       { label: 'Sort', keys: ['Alt', 'S'], run: () => window.app.toggleSort() },
+      { label: 'Layout', keys: ['Alt', 'L'], run: () => window.app.toggleLayout() },
       { label: 'Rename', keys: ['Alt', 'R'], run: () => window.app.openRenameTab() },
       { label: 'Height', keys: ['Alt', 'O'], run: () => window.app.cycleHeight() },
     ];

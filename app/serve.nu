@@ -307,10 +307,12 @@ def render-pane [c: record]: nothing -> string {
   $"<section class='pane' id='pane-($cid)' data-clip='($cid)' data-kind='($c.kind)' data-render='($render_attr)' data-class:active=\"$selectedSid == '($cid)'\" data-on:click=\"($onsel)\">($head)($body)</section>"
 }
 
-# Full continuous document, every clip's pane stacked in render order.
+# Full continuous document, every clip's pane in render order. The layout-niri
+# class is reactive on $docLayout, so a layout toggle reflows without re-morphing
+# #doc (which would drop live grids) -- it just swaps the container's flex axis.
 def render-doc [clips: list]: nothing -> string {
   let panes = $clips | each {|c| render-pane $c } | str join ""
-  $"<div id='doc' class='doc'>($panes)</div>"
+  $"<div id='doc' class='doc' data-class:layout-niri=\"$docLayout === 'niri'\">($panes)</div>"
 }
 
 # Outer-replace markup for the #canvas pane. Empty html -> bare section
@@ -340,6 +342,12 @@ def view-of [proj: record]: nothing -> record {
   let stack = ($proj.stacks | where id == $proj.selectedStackId | get 0?)
   let clips = if ($stack | is-empty) { [] } else { projection sorted-clips $stack }
   {clips: $clips, sel: ($proj.selectedClipId | default "")}
+}
+
+# The selected stack's pane layout ("flow" | "niri"); drives the #doc class.
+def layout-of [proj: record]: nothing -> string {
+  let stack = ($proj.stacks | where id == $proj.selectedStackId | get 0?)
+  if ($stack | is-empty) { "flow" } else { ($stack.layout? | default "flow") }
 }
 
 # Clip ids that should have a mounted pane right now: content clips always,
@@ -437,6 +445,7 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
             let doc_order = (mountable $clips)
 
             let sel_stack = ($proj.selectedStackId | default "")
+            let layout = (layout-of $proj)
             let stacks_patch = (render-stacks $proj | to datastar-patch-elements --selector "#stacks-list")
             let clips_patch = (render-clips $proj | to datastar-patch-elements --selector "#clips-list")
             let doc_patch = if (not $doc_ready) {
@@ -444,13 +453,13 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
             } else { null }
             # docOrder: the sorted pane order the client applies by relocating
             # existing #doc nodes (preserves live terminal grids).
-            let sel_patch = ({selectedSid: $sel, selectedStack: $sel_stack, connId: $conn_id, docReady: true, docOrder: ($doc_order | to json)} | to datastar-patch-signals)
+            let sel_patch = ({selectedSid: $sel, selectedStack: $sel_stack, connId: $conn_id, docReady: true, docOrder: ($doc_order | to json), docLayout: $layout} | to datastar-patch-signals)
             let dims_patch = ({focusedDims: $dims} | to datastar-patch-signals)
             let title_patch = ({title: $title} | to datastar-patch-signals)
             let canvas_patch = (render-canvas $canvas | to datastar-patch-elements --selector "#canvas")
 
             let out = ([$sel_patch $dims_patch $title_patch $stacks_patch $clips_patch $canvas_patch $doc_patch] | where {|x| $x != null })
-            {out: $out, next: {proj: $proj, ready: true, rendered: $doc_order, doc_order: $doc_order, title: $title, canvas: $canvas, sel: $sel, sel_stack: $sel_stack, dims: $dims}}
+            {out: $out, next: {proj: $proj, ready: true, rendered: $doc_order, doc_order: $doc_order, title: $title, canvas: $canvas, sel: $sel, sel_stack: $sel_stack, dims: $dims, layout: $layout}}
 
           } else if ($topic | str starts-with "xs.") {
             # Heartbeats and other system noise.
@@ -499,6 +508,10 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
               # the sorted pane order; the client relocates existing #doc nodes.
               let docorder_patch = if $want != $st.doc_order { ({docOrder: ($want | to json)} | to datastar-patch-signals) } else { null }
 
+              # Layout flip (flow <-> niri): toggle the #doc class reactively.
+              let layout = (layout-of $proj)
+              let layout_patch = if $layout != $st.layout { ({docLayout: $layout} | to datastar-patch-signals) } else { null }
+
               # Re-render a clip's pane in place when its content or type
               # changes -- the add/remove above only tracks presence. A note's
               # body edit (clip.update on a note) is skipped: its editor owns
@@ -535,12 +548,12 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
               let out = ([$stacks_patch $clips_patch]
                 | append $add_patches
                 | append $rm_patches
-                | append [$repane $docorder_patch $sel_patch $selstk_patch $dims_patch $canvas_patch $title_patch]
+                | append [$repane $docorder_patch $layout_patch $sel_patch $selstk_patch $dims_patch $canvas_patch $title_patch]
                 | where {|x| $x != null })
-              {out: $out, next: {proj: $proj, ready: true, rendered: $rendered2, doc_order: $want, title: $title, canvas: $canvas, sel: $sel, sel_stack: $sel_stack, dims: $dims}}
+              {out: $out, next: {proj: $proj, ready: true, rendered: $rendered2, doc_order: $want, title: $title, canvas: $canvas, sel: $sel, sel_stack: $sel_stack, dims: $dims, layout: $layout}}
             }
           }
-        } {proj: (projection empty), ready: false, rendered: [], doc_order: [], title: "", canvas: "", sel: "", sel_stack: "", dims: ""}
+        } {proj: (projection empty), ready: false, rendered: [], doc_order: [], title: "", canvas: "", sel: "", sel_stack: "", dims: "", layout: "flow"}
       | flatten
       | to sse
       | metadata set --content-type "text/event-stream"
@@ -641,6 +654,19 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
         } else {
           null | .append "stack.update" --meta {id: $sid, sort: "auto"} --ttl forever | ignore
         }
+      }
+      null | metadata set { merge {'http.response': {status: 204}} }
+    }
+
+    [POST, "/stack/layout"] => {
+      # Toggle a stack's pane layout between flow (vertical document column) and
+      # niri (horizontal scrollable strip). Presentation only -- no reorder.
+      let sid = ($req.query.stack? | default "")
+      let proj = (.cat | projection project)
+      let stack = ($proj.stacks | where id == $sid | get 0?)
+      if ($stack | is-not-empty) {
+        let next = if ($stack.layout? | default "flow") == "niri" { "flow" } else { "niri" }
+        null | .append "stack.update" --meta {id: $sid, layout: $next} --ttl forever | ignore
       }
       null | metadata set { merge {'http.response': {status: 204}} }
     }
