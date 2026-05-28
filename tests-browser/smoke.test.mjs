@@ -136,7 +136,8 @@ test("terminal row ids stay stable across scrollback purge", () => withApp(async
   const markerIdAfter = await idOfText(marker);
   assert.equal(markerIdAfter, markerIdBefore, `${marker} must keep its row id across a purge`);
 
-  const num = (id) => Number.parseInt(id.replace(/^r-/, ""), 10);
+  // Row ids are scoped to their grid: `{target}-r-{stable}` (e.g. `grid-foo-r-42`).
+  const num = (id) => Number.parseInt(id.replace(/^.*-r-/, ""), 10);
   const topIdAfter = await topRowId();
   assert.ok(
     num(topIdAfter) > num(topIdBefore),

@@ -225,19 +225,25 @@ fn html_escape(s: &str, out: &mut String) {
     }
 }
 
-/// Render one row's HTML into `out` as `<div class="row" id="r-{stable}">...</div>`.
-/// Cells are run-length encoded into `<span class="...">` runs sharing the
-/// same attribute set; default-attr runs are emitted bare to save bytes.
-/// Used by both the full-frame render (first SSE patch) and the per-row
-/// diff emit (subsequent patches).
+/// Render one row's HTML into `out` as
+/// `<div class="row" id="{target}-r-{stable}">...</div>`. Cells are
+/// run-length encoded into `<span class="...">` runs sharing the same
+/// attribute set; default-attr runs are emitted bare to save bytes.
+///
+/// The id is scoped to the grid target so multiple panes' rows can't
+/// collide on the same id -- which would otherwise let a diff patch's
+/// default-outer `document.getElementById` match the wrong pane's row and
+/// bleed content across terminals. Used by both the full-frame render
+/// (first SSE patch) and the per-row diff emit (subsequent patches).
 fn render_row_into(
     out: &mut String,
+    target: &str,
     line: &wezterm_term::Line,
     cols: usize,
     stable: StableRowIndex,
     default_attrs: &CellAttributes,
 ) {
-    let _ = write!(out, "<div class=\"row\" id=\"r-{stable}\">");
+    let _ = write!(out, "<div class=\"row\" id=\"{target}-r-{stable}\">");
     let mut cells: Vec<(String, CellAttributes)> = (0..cols)
         .map(|_| (" ".to_string(), default_attrs.clone()))
         .collect();
@@ -334,7 +340,7 @@ fn render_grid_html(term: &Terminal, target: &str) -> String {
     render_cursor_into(&mut out, target, cursor_row, cursor_col);
     for (row_idx, line) in lines.iter().enumerate() {
         let stable = stable_base + row_idx as StableRowIndex;
-        render_row_into(&mut out, line, cols, stable, &default_attrs);
+        render_row_into(&mut out, target, line, cols, stable, &default_attrs);
     }
     out.push_str("</div>");
     out
@@ -1213,7 +1219,7 @@ fn render_full_from_snap(snap: &ViewSnapshot, target: &str) -> String {
     render_cursor_into(&mut out, target, snap.cursor_row, snap.cursor_col);
     for (idx, line) in snap.lines.iter().enumerate() {
         let stable = snap.stable_base + idx as StableRowIndex;
-        render_row_into(&mut out, line, snap.cols, stable, &default_attrs);
+        render_row_into(&mut out, target, line, snap.cols, stable, &default_attrs);
     }
     out.push_str("</div>");
     out
@@ -1234,14 +1240,15 @@ fn emit_diff(
     let default_attrs = CellAttributes::default();
 
     // Rows that purged off the top since last frame -- comma-joined so one
-    // SSE event removes them all at once.
+    // SSE event removes them all at once. The id is grid-scoped
+    // (`{target}-r-{stable}`) so two panes can't fight over the same id.
     if snap.stable_base > last_stable_base {
         let mut selector = String::new();
         for id in last_stable_base..snap.stable_base {
             if !selector.is_empty() {
                 selector.push(',');
             }
-            let _ = write!(selector, "#r-{id}");
+            let _ = write!(selector, "#{target}-r-{id}");
         }
         emit_patch(buffer, Some(&selector), Some("remove"), &[]);
     }
@@ -1255,7 +1262,7 @@ fn emit_diff(
             let idx = (id - snap.stable_base) as usize;
             if let Some(line) = snap.lines.get(idx) {
                 let mut s = String::with_capacity(snap.cols * 2 + 64);
-                render_row_into(&mut s, line, snap.cols, id, &default_attrs);
+                render_row_into(&mut s, target, line, snap.cols, id, &default_attrs);
                 htmls.push(s);
             }
         }
@@ -1274,7 +1281,7 @@ fn emit_diff(
             let idx = (id - snap.stable_base) as usize;
             if let Some(line) = snap.lines.get(idx) {
                 let mut s = String::with_capacity(snap.cols * 2 + 64);
-                render_row_into(&mut s, line, snap.cols, id, &default_attrs);
+                render_row_into(&mut s, target, line, snap.cols, id, &default_attrs);
                 htmls.push(s);
             }
         }
@@ -1639,9 +1646,10 @@ mod tests {
 
     /// Parse `render_grid_html` output into (row id, trimmed text) pairs in
     /// document order. Strips all tags so cell spans collapse to their text.
+    /// Tests pass `target = "grid"` so row ids look like `id="grid-r-{N}"`.
     fn rows_of(html: &str) -> Vec<(isize, String)> {
         let mut out = Vec::new();
-        let marker = "<div class=\"row\" id=\"r-";
+        let marker = "<div class=\"row\" id=\"grid-r-";
         let mut rest = html;
         while let Some(pos) = rest.find(marker) {
             rest = &rest[pos + marker.len()..];
