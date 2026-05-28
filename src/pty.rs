@@ -1297,6 +1297,15 @@ fn emit_diff(
 /// outer/replace) matches by element id, so a default-mode patch with no
 /// selector morphs each top-level element in `elements` into its same-id
 /// counterpart in the DOM.
+///
+/// All elements are concatenated onto a **single** `data: elements <...>`
+/// line. Per the SSE spec multiple `data:` lines in the same event get
+/// joined with `\n` by the browser, and datastar's parser feeds the result
+/// to `DOMParser` -- which would turn that `\n` between top-level siblings
+/// into a text node child of the fragment. With `white-space: pre` on the
+/// grid, that text node renders as a literal blank line between every
+/// appended/morphed row. Rendered rows never contain a literal newline
+/// (we don't pretty-print), so a single concatenated line is safe.
 fn emit_patch(
     buffer: &mut Vec<u8>,
     selector: Option<&str>,
@@ -1314,22 +1323,27 @@ fn emit_patch(
         buffer.extend_from_slice(m.as_bytes());
         buffer.push(b'\n');
     }
-    for el in elements {
-        // The HTML never contains a literal newline (we don't pretty-print
-        // it), so a single `data: elements <...>` line is correct.
-        // Defensive: if a newline ever leaks in, split it into multiple
-        // data lines so SSE framing stays valid.
-        if el.contains('\n') {
-            for line in el.split('\n') {
-                buffer.extend_from_slice(b"data: elements ");
-                buffer.extend_from_slice(line.as_bytes());
-                buffer.push(b'\n');
+    if !elements.is_empty() {
+        buffer.extend_from_slice(b"data: elements ");
+        for el in elements {
+            // Defensive: a literal newline inside a single element gets
+            // turned into a `\ndata: elements ` continuation so the
+            // browser's SSE join puts it back as a `\n` *inside* that
+            // element, not a separator between elements.
+            if el.contains('\n') {
+                let mut first = true;
+                for line in el.split('\n') {
+                    if !first {
+                        buffer.extend_from_slice(b"\ndata: elements ");
+                    }
+                    first = false;
+                    buffer.extend_from_slice(line.as_bytes());
+                }
+            } else {
+                buffer.extend_from_slice(el.as_bytes());
             }
-        } else {
-            buffer.extend_from_slice(b"data: elements ");
-            buffer.extend_from_slice(el.as_bytes());
-            buffer.push(b'\n');
         }
+        buffer.push(b'\n');
     }
     buffer.push(b'\n');
 }
