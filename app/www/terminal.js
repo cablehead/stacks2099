@@ -43,11 +43,20 @@ export function mountTerminal({ screen, grid, onResize, fixedRows }) {
   function dims() {
     // Width from the container's content box (clientWidth excludes the
     // reserved scrollbar gutter). Height from the parent so reading it
-    // doesn't feed back through the explicit height we set on screen.
+    // doesn't feed back through the explicit height we set on screen --
+    // but the parent (.pane) also contains the header, so we subtract
+    // siblings preceding `screen` to get the space actually available to it.
     // With fixedRows the pane is a constant height (continuous-document
-    // panes); otherwise rows fill the available height.
+    // panes); otherwise rows fill the available height (niri layout).
     const availW = screen.clientWidth || screen.parentElement?.clientWidth || window.innerWidth;
-    const availH = screen.parentElement?.clientHeight || window.innerHeight;
+    const parent = screen.parentElement;
+    let headOffset = 0;
+    if (parent) {
+      for (let s = parent.firstElementChild; s && s !== screen; s = s.nextElementSibling) {
+        headOffset += s.offsetHeight || 0;
+      }
+    }
+    const availH = (parent?.clientHeight || window.innerHeight) - headOffset;
     return {
       // Low floor so a deliberately narrow pane (Alt+O width cycle) gets a
       // correspondingly narrow pty rather than overflowing a clamped width.
