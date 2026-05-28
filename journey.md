@@ -118,11 +118,11 @@ byte stream is a mix of three kinds of byte.
 
 - Printables: bytes (or UTF-8 sequences) that produce a character you'd
   see. Put the glyph at the cursor, advance the cursor.
-- C0 controls: low-ASCII control bytes. LF (\x0A) drops the cursor down
-  a row, CR (\x0D) jumps it to column 0, BS (\x08) backs it up one,
-  BEL (\x07) rings the bell. These don't paint anything; they're cursor
+- C0 controls: low-ASCII control bytes. LF (`\x0A`) drops the cursor down
+  a row, CR (`\x0D`) jumps it to column 0, BS (`\x08`) backs it up one,
+  BEL (`\x07`) rings the bell. These don't paint anything; they're cursor
   moves and side effects.
-- Escape sequences: anything starting with \x1b. Most of the protocol
+- Escape sequences: anything starting with `\x1b`. Most of the protocol
   lives here -- attribute changes (colours, bold), cursor jumps, clear
   screen, mode switches (alternate screen, mouse reporting), queries
   the program wants the terminal to answer.
@@ -133,14 +133,14 @@ byte stream is a mix of three kinds of byte.
 Some of those escape sequences are queries -- the program asks the
 terminal a question and waits for the answer. The common ones:
 
-- DA1, "Primary Device Attributes" -- \x1b[c, "what kind of terminal
+- DA1, "Primary Device Attributes" -- `\x1b[c`, "what kind of terminal
   are you?"
-- DA2, "Secondary Device Attributes" -- \x1b[>c, "what version?"
-- DSR, "Device Status Report" -- \x1b[6n is the one I see most,
+- DA2, "Secondary Device Attributes" -- `\x1b[>c`, "what version?"
+- DSR, "Device Status Report" -- `\x1b[6n` is the one I see most,
   "where's the cursor right now?". The terminal writes back
-  \x1b[<row>;<col>R.
-- OSC queries -- \x1b]10;?\x07 asks for the foreground colour, \x1b]11
-  for background, \x1b]4;<n>;? for palette entry n. Plus a growing
+  `\x1b[<row>;<col>R`.
+- OSC queries -- `\x1b]10;?\x07` asks for the foreground colour, `\x1b]11`
+  for background, `\x1b]4;<n>;?` for palette entry n. Plus a growing
   family for cursor colour, clipboard, titles, capability negotiation.
 
 How these work: the program writes the query into its stdout (the pty
