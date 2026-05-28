@@ -26,6 +26,10 @@ Always run `./scripts/check.sh` before committing -- it runs the nu unit tests
 `cargo test`. Browser e2e lives in `tests-browser/` (`npm test`). Use `cargo
 fmt` and `deno fmt README.md` to fix formatting.
 
+To see the live UI, screenshot a running instance with `node
+tests-browser/shoot.mjs` (defaults to the `--dev` server at 127.0.0.1:5099). See
+`tests-browser/README.md`.
+
 ## Release Process
 
 Use `/release [version]` to execute the release workflow (version bump, tag,
