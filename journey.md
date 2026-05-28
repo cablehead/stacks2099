@@ -1,10 +1,11 @@
 stacks2099 doesn't have a terminal emulator in the browser. The pty
-runs on the server, wezterm-term parses its bytes into a cell grid, the
-grid renders to HTML, Datastar morphs it into the DOM. This is how I
-got there.
+runs on the server, where stacks2099 (our custom binary) drives
+wezterm-term as a library to parse its bytes into a cell grid, the grid
+renders to HTML, Datastar morphs it into the DOM. This is how I got
+there.
 
-Thanks to Benny for the prompt that turned this from a Discord answer
-into a doc.
+Thanks to Benny for the prompt that turned this from a [Datastar
+Discord](https://discord.gg/bnRNgZjgPh) answer into a doc.
 
 https://github.com/user-attachments/assets/3a1d739d-2e56-41a4-a562-f05af1a770b2
 
