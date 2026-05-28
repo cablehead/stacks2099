@@ -7,7 +7,7 @@ Thanks to Benny for the prompt that turned this from a Discord answer
 into a doc.
 
 
-## Stage 1: xterm.js plus a pty proxy, no buffer
+## xterm.js plus a pty proxy, no buffer
 
 This is the pretty standard starting place for sticking a terminal in a
 web page. It's where I started, anyway. xterm.js on the client side -- a
@@ -78,8 +78,8 @@ sequenceDiagram
     end
 ```
 
-Step 3 -- the snapshot bytes from a replay buffer -- doesn't exist yet
-in this stage. So on reconnect, what does your fresh xterm.js see? It
+Step 3 -- the snapshot bytes from a replay buffer -- doesn't exist
+here yet. So on reconnect, what does your fresh xterm.js see? It
 hasn't seen the history of bytes that the previous xterm.js parsed to
 paint its virtual grid of what the screen looks like. You get a blank
 screen. You press a key, that sends bytes through the pty to the
@@ -89,7 +89,7 @@ building up a history of new bytes to get the virtual screen repainted
 into something coherent.
 
 
-## Stage 2: same architecture, plus a replay buffer
+## Adding a replay buffer
 
 So my next step was wire up step 3 -- buffer the most recent bytes
 sent to the terminal (the bytes that paint "l" and "s", the cursor
@@ -103,20 +103,14 @@ output on the screen. Type ls, you'd see the output for a flash, then
 the screen would clear and you'd just see the prompt at the top of the
 screen.
 
-My hunch was the stream was getting out of sync. The buffer is a ring
-buffer; you're picking it up at some arbitrary point, potentially
-halfway through an escape sequence.
+My hunch was the stream was getting out of sync. The replay buffer is
+a ring buffer, so you're picking it up at some arbitrary point,
+potentially halfway through an escape sequence.
 
 
-## Stage 3: swap xterm.js for ghostty-wasm
+## Three kinds of byte
 
-Around now, ghostty-web just became pretty stable / usable. xterm.js
-got swapped out for it.
-
-
-## Aside: three kinds of byte
-
-Back to "paint l, paint s, newline, carriage return" from stage 2 -- a
+Back to "paint l, paint s, newline, carriage return" from earlier -- a
 useful simplification but it blurs what's in the stream. A terminal
 byte stream is a mix of three kinds of byte.
 
@@ -132,7 +126,7 @@ byte stream is a mix of three kinds of byte.
   the program wants the terminal to answer.
 
 
-## Aside: terminal queries (DA, DSR, and friends)
+## Terminal queries (DA, DSR, and friends)
 
 Some of those escape sequences are queries -- the program asks the
 terminal a question and waits for the answer. The common ones:
@@ -152,12 +146,12 @@ slave). The terminal picks up the escape, builds a reply, writes it to
 the pty master (which the program reads as stdin). The program blocks
 on a read until the reply lands, or gives up on a timeout.
 
-In stages 1 through 3 the only thing that knows how to answer is the
-browser. With a browser attached, you're fine. Without one, the queries
-pile up with no one to answer them.
+So far the only thing that knows how to answer is the browser. With a
+browser attached, you're fine. Without one, the queries pile up with no
+one to answer them.
 
 
-## Aside: how does tmux do this?
+## How does tmux do this?
 
 At this point I went and read tmux's source.
 
@@ -184,14 +178,14 @@ the result of those bytes -- the grid -- and regenerating bytes on
 demand to reproduce it.
 
 
-## Stage 4: a small VT100 proxy on the server
+## A small VT100 proxy on the server
 
 So then it was like, OK, we need something on the server that knows how
 to parse the stream of bytes, so we can at least frame the replay. I
 dropped the vt100 crate on the server. Bytes were tee'd to it so it
 built up a virtual screen grid. On reconnect, push that screen to the
-client, then start feeding it fresh bytes from nu so it could
-maintain its grid incrementally from there.
+client, then start feeding it fresh bytes from nu so it could maintain
+its grid incrementally from there.
 
 Two jobs:
 
@@ -199,11 +193,15 @@ Two jobs:
    instead of a byte replay.
 2. Handles pty queries (DA/DSR/OSC) when no client is attached.
 
+(Around this time ghostty-web became pretty stable / usable, so
+xterm.js got swapped out for it on the client -- drop-in replacement,
+not an architectural change.)
+
 This worked a good bit better. But would still fall into inconsistent
 states.
 
 
-## Stage 5: swap the toy VT100 for wezterm-term
+## Swapping vt100 for wezterm-term
 
 vt100 is an OK virtual terminal lib but doesn't handle a lot of what
 ghostty does (mouse modes, OSC 8 hyperlinks, color queries, image
@@ -216,7 +214,7 @@ than vt100 did.
 That was a good bit better again.
 
 
-## Stage 6: project the grid
+## Projecting the grid
 
 But then I was like: why have 2x production-grade emulators?
 
