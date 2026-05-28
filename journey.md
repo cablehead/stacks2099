@@ -158,8 +158,8 @@ one to answer them.
 ## What a terminal builds up
 
 A terminal emulator doesn't keep the byte stream around. As it parses,
-it folds those bytes into a small, fixed pile of state, and that state,
-not the bytes, is what "the screen" actually is.
+it [folds those bytes into a small, fixed pile of state](https://mitchellh.com/writing/libghostty-is-coming),
+and that state, not the bytes, is what "the screen" actually is.
 
 - The grid: a [rectangle of cells, rows by columns](https://mitchellh.com/writing/grapheme-clusters-in-terminals).
   Each cell holds one glyph plus its attributes -- bold, underline,
