@@ -86,28 +86,34 @@ export function mountTerminal({ screen, grid, onResize, fixedRows }) {
   });
 
   // Morph HUD: each /pty/view SSE patch arrives as one synchronous morph
-  // pass, so one MutationObserver callback batch == one server frame. Count
-  // the distinct `.row` elements touched by any mutation (added, removed,
-  // text changed, attrs changed) and show it next to the pane label. The
-  // headline number is the rows morphed by the latest frame; the parenthetical
-  // is a smoothed average. A healthy steady-state stream of pty output should
-  // show single-digit numbers; a number near the scrollback cap means every
-  // frame is touching the whole grid (the cliff the stable-id fix avoided).
+  // pass, so one MutationObserver callback batch == one server frame. We
+  // count the .row elements actually shipped by that patch, broken down:
+  //
+  //   +N  rows added at the bottom    (server emitted a mode:append patch)
+  //   -M  rows removed off the top    (server emitted a mode:remove patch)
+  //   ~K  rows rewritten in place     (default-outer morph; seqno advanced)
+  //
+  // Under seqno-diff the server only ships rows that actually changed, so
+  // +N -M ~K *is* "lines shipped by this patch". A steady-state keystroke
+  // should show a handful (cursor row + prompt repaint); a value near the
+  // scrollback cap would mean the diff path regressed and we're shipping
+  // the whole grid again.
   const pane = screen.closest('.pane');
   const head = pane?.querySelector('.pane-head');
   let hud = null;
   if (head) {
     hud = document.createElement('span');
     hud.className = 'grid-hud';
-    hud.title = 'rows morphed by the last server patch (avg over recent patches)';
-    hud.textContent = 'M 0';
+    hud.title = 'rows shipped by the last server patch: +added -removed ~changed (avg total)';
+    hud.textContent = '+0 -0 ~0';
     head.appendChild(hud);
   }
   let hudAvg = 0;
-  function bumpHud(rows) {
+  function bumpHud(adds, removes, changes) {
     if (!hud) return;
-    hudAvg = hudAvg * 0.7 + rows * 0.3;
-    hud.textContent = `M ${rows} (avg ${hudAvg.toFixed(0)})`;
+    const total = adds + removes + changes;
+    hudAvg = hudAvg * 0.7 + total * 0.3;
+    hud.textContent = `+${adds} -${removes} ~${changes} (avg ${hudAvg.toFixed(0)})`;
   }
 
   new MutationObserver((muts) => {
@@ -115,25 +121,29 @@ export function mountTerminal({ screen, grid, onResize, fixedRows }) {
       suppress = true;
       screen.scrollTop = screen.scrollHeight;
     }
-    const touched = new Set();
+    let adds = 0;
+    let removes = 0;
+    const changedIds = new Set();
     for (const m of muts) {
       if (m.type === 'childList') {
         for (const n of m.addedNodes) {
-          if (n.nodeType === 1 && n.classList?.contains('row')) touched.add('+' + n.id);
+          if (n.nodeType === 1 && n.classList?.contains('row')) adds++;
         }
         for (const n of m.removedNodes) {
-          if (n.nodeType === 1 && n.classList?.contains('row')) touched.add('-' + n.id);
+          if (n.nodeType === 1 && n.classList?.contains('row')) removes++;
         }
+        // A childList change inside an existing .row means its content was
+        // rewritten by an outer-morph patch.
         const row = m.target.nodeType === 1 ? m.target.closest?.('.row') : null;
-        if (row) touched.add(row.id);
+        if (row && row.isConnected) changedIds.add(row.id);
       } else {
-        // characterData lives on a text node; walk up to the enclosing .row.
+        // characterData / attribute change on a descendant of a .row.
         const el = m.target.nodeType === 1 ? m.target : m.target.parentElement;
         const row = el?.closest?.('.row');
-        if (row) touched.add(row.id);
+        if (row && row.isConnected) changedIds.add(row.id);
       }
     }
-    if (touched.size > 0) bumpHud(touched.size);
+    if (adds || removes || changedIds.size) bumpHud(adds, removes, changedIds.size);
   }).observe(grid, { childList: true, subtree: true, characterData: true, attributes: true });
 
   const initialDims = dims();
