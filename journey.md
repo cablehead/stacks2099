@@ -83,12 +83,12 @@ sequenceDiagram
 Step 3 -- the snapshot bytes from a replay buffer -- doesn't exist
 here yet. So on reconnect, what does your fresh xterm.js see? It
 hasn't seen the history of bytes that the previous xterm.js parsed to
-paint its virtual grid of what the screen looks like. You get a blank
+build up its grid of what the screen looks like. You get a blank
 screen. You press a key, that sends bytes through the pty to the
 shell, the shell echoes your key back, you see a single keypress on
 the screen. You might need to do a clear, cat a few things, start
-building up a history of new bytes to get the virtual screen repainted
-into something coherent.
+building up a history of new bytes to get the grid repainted into
+something coherent.
 
 
 ## Adding a replay buffer
@@ -143,37 +143,67 @@ terminal a question and waits for the answer. The common ones:
   for background, `\x1b]4;<n>;?` for palette entry n. Plus a growing
   family for cursor colour, clipboard, titles, capability negotiation.
 
-How these work: the program writes the query into its stdout (the pty
-slave). The terminal picks up the escape, builds a reply, writes it to
-the pty master (which the program reads as stdin). The program blocks
-on a read until the reply lands, or gives up on a timeout.
+The flow is short. The program writes the query into its stdout (the
+pty slave). The terminal picks up the escape, builds a reply, and writes
+it to the pty master, which the program reads back as stdin. The program
+blocks on a read until the reply lands, or gives up on a timeout.
 
 So far the only thing that knows how to answer is the browser. With a
 browser attached, you're fine. Without one, the queries pile up with no
 one to answer them.
 
 
-## How does tmux do this?
+## What a terminal builds up
 
-At this point I went and read tmux's source.
+A terminal emulator doesn't keep the byte stream around. As it parses,
+it folds those bytes into a small, fixed pile of state, and that state,
+not the bytes, is what "the screen" actually is.
+
+- The grid: a rectangle of cells, rows by columns. Each cell holds one
+  glyph plus its attributes -- bold, underline, foreground and
+  background colour.
+- The cursor: where the next glyph lands, plus the current pen (the
+  attributes freshly written cells inherit until an escape changes
+  them).
+- Scrollback: a ring of lines that have scrolled off the top, kept so
+  you can page back.
+- Modes: flags toggled by escape sequences -- alternate screen, line
+  wrap, mouse reporting, and so on.
+
+Printables and cursor moves nudge the grid and cursor; escape sequences
+flip attributes and modes or jump the cursor around. The byte stream is
+write-once history; the grid is the live result. From here on, "the
+grid" is shorthand for this whole pile -- cells, cursor, scrollback,
+modes.
+
+
+## How does tmux do this?
 
 tmux is itself a terminal emulator. The persistent "server" daemon
 isn't proxying the shell's bytes out to your attached terminal --
 it's parsing them. Every byte the shell writes to its pty gets consumed
-by tmux's VT parser, which maintains an in-memory grid (chars +
-attributes + colours) and a scrollback ring. Your attached terminal
-never sees the shell's raw output -- only what tmux re-emits.
+by [tmux's VT parser](https://github.com/tmux/tmux/blob/f0669334189995dba860f59c3cf9cb12ae15865c/input.c#L953-L1008),
+which maintains an [in-memory grid (chars + attributes + colours)](https://github.com/tmux/tmux/blob/f0669334189995dba860f59c3cf9cb12ae15865c/tmux.h#L813-L821)
+and a [scrollback ring](https://github.com/tmux/tmux/blob/f0669334189995dba860f59c3cf9cb12ae15865c/grid.c#L386-L411).
+Your attached terminal never sees the shell's raw output -- only what
+tmux re-emits.
 
 End to end:
 
-    shell --bytes--> pty --bytes--> tmux VT parser --updates--> grid
-                                                                  |
-    attached term <--bytes-- tmux VT renderer <--reads-- grid <---+
+```mermaid
+flowchart LR
+    Shell[shell] -->|bytes| Pty[pty]
+    Pty -->|bytes| Parser[tmux VT parser]
+    Parser -->|updates| Grid[(grid)]
+    Grid -->|reads| Renderer[tmux VT renderer]
+    Renderer -->|bytes| Term[attached term]
+```
 
 When you detach, the right half disappears; the left half keeps
 running. The shell writes bytes, tmux parses, the grid mutates, nobody's
-watching. When you reattach, tmux walks its grid and emits a fresh
-escape sequence to paint that grid on whatever client showed up.
+watching. When you reattach, tmux [walks its grid and emits a fresh
+escape sequence](https://github.com/tmux/tmux/blob/f0669334189995dba860f59c3cf9cb12ae15865c/tty-draw.c#L93)
+to paint that grid on whatever client showed up.
 
 tmux isn't storing the bytes the shell wrote yesterday. It's storing
 the result of those bytes -- the grid -- and regenerating bytes on
@@ -182,12 +212,12 @@ demand to reproduce it.
 
 ## A small VT100 proxy on the server
 
-So then it was like, OK, we need something on the server that knows how
-to parse the stream of bytes, so we can at least frame the replay. I
-dropped the vt100 crate on the server. Bytes were tee'd to it so it
-built up a virtual screen grid. On reconnect, push that screen to the
-client, then start feeding it fresh bytes from nu so it could maintain
-its grid incrementally from there.
+OK, we need something on the server that knows how to parse the stream
+of bytes, so we can at least *frame* the replay. I added the vt100 crate
+to the stacks2099 dependencies. Bytes were tee'd
+to it so it built up a grid. On reconnect, push that
+screen to the client, then start feeding it fresh bytes from nu so it
+could maintain its grid incrementally from there.
 
 Two jobs:
 
@@ -195,9 +225,9 @@ Two jobs:
    instead of a byte replay.
 2. Handles pty queries (DA/DSR/OSC) when no client is attached.
 
-(Around this time ghostty-web became pretty stable / usable, so
-xterm.js got swapped out for it on the client -- drop-in replacement,
-not an architectural change.)
+(Around this time ghostty-web became stable enough to use. It's a
+drop-in replacement for xterm.js, so swapping it in touched only the
+client side; the server stayed as it was.)
 
 This worked a good bit better. But would still fall into inconsistent
 states.
@@ -207,11 +237,13 @@ states.
 
 vt100 is an OK virtual terminal lib but doesn't handle a lot of what
 ghostty does (mouse modes, OSC 8 hyperlinks, color queries, image
-protocols). What I was after was parity with ghostty, and I was worried
-the gaps would mean the two emulators would disagree too often. So I
-swapped vt100 for wezterm. wezterm-term had the nicest API of the
-options I looked at, and would presumably disagree with ghostty less
-than vt100 did.
+protocols). Things felt a bit better, but the terminal would still
+regularly fall into an inconsistent state. Completely guessing, one
+hunch was a gap between vt100's parsing and ghostty's. What I was after
+was parity with ghostty, and I was worried the gaps would mean the two
+emulators would disagree too often. So I swapped vt100 for wezterm.
+wezterm-term had the nicest API of the options I looked at, and would
+presumably disagree with ghostty less than vt100 did.
 
 That was a good bit better again.
 
@@ -221,7 +253,7 @@ That was a good bit better again.
 But then I was like: why have 2x production-grade emulators?
 
 Using Datastar for a good while at this point should be credited. Why
-not maintain the screen grid only on the server, right next to the pty,
+not maintain the grid only on the server, right next to the pty,
 and as it changes render the screen state as HTML and use Datastar to
 morph it into place.
 
