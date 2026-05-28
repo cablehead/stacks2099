@@ -26,7 +26,8 @@ use nu_protocol::{
 use portable_pty::{native_pty_system, Child as PortableChild, CommandBuilder, MasterPty, PtySize};
 use wezterm_term::{
     color::{ColorAttribute, ColorPalette},
-    CellAttributes, Intensity, Terminal, TerminalConfiguration, TerminalSize, Underline,
+    CellAttributes, Intensity, StableRowIndex, Terminal, TerminalConfiguration, TerminalSize,
+    Underline,
 };
 
 use crate::bus::Bus;
@@ -236,17 +237,19 @@ struct GridFrame {
 
 /// Render the terminal's retained scrollback + visible screen + cursor as
 /// an HTML grid suitable for morphing into `#grid`. Each row is
-/// `<div class="row" id="r-{N}">...</div>` where N is the row's phys index;
-/// idiomorph matches rows by id and only morphs the ones that changed.
-/// Cells inside a row are run-length encoded into `<span class="...">`
-/// runs sharing the same attribute set.
+/// `<div class="row" id="r-{N}">...</div>` where N is the row's *stable*
+/// index (wezterm's StableRowIndex); idiomorph matches rows by id and only
+/// morphs the ones that changed. Cells inside a row are run-length encoded
+/// into `<span class="...">` runs sharing the same attribute set.
 ///
 /// All retained scrollback lines are emitted, not just the visible region.
 /// CSS scrolls the grid container; the client auto-sticks to the bottom
-/// unless the user has scrolled up. When scrollback fills past the cap, the
-/// oldest line drops off and every row's phys index shifts by one, which
-/// makes idiomorph morph each row's content -- brotli on the wire keeps
-/// the bandwidth cost tolerable.
+/// unless the user has scrolled up. The stable index stays constant for a
+/// given line of output even as older lines purge off the top once the
+/// scrollback cap is hit, so a purge removes one row id at the top and adds
+/// one at the bottom -- idiomorph leaves the unchanged middle untouched
+/// instead of re-morphing every row. (Using the phys index here would shift
+/// every id by one on each purge and force a full-scrollback morph.)
 fn render_grid_html(term: &Terminal, target: &str) -> GridFrame {
     let size = term.get_size();
     let cols = size.cols;
@@ -256,6 +259,9 @@ fn render_grid_html(term: &Terminal, target: &str) -> GridFrame {
     let total = screen.scrollback_rows();
     let visible_start = total.saturating_sub(phys_rows);
     let lines = screen.lines_in_phys_range(0..total);
+    // Stable index of phys row 0; add the phys offset to get each row's
+    // stable id. Stays constant for a line as older lines purge off the top.
+    let stable_base = screen.phys_to_stable_row_index(0);
 
     // Cursor.y is relative to the visible region; translate to an absolute
     // phys row index so the cursor sits on the right row when the grid
@@ -274,7 +280,8 @@ fn render_grid_html(term: &Terminal, target: &str) -> GridFrame {
     );
 
     for (row_idx, line) in lines.iter().enumerate() {
-        let _ = write!(out, "<div class=\"row\" id=\"r-{row_idx}\">");
+        let stable = stable_base + row_idx as StableRowIndex;
+        let _ = write!(out, "<div class=\"row\" id=\"r-{stable}\">");
 
         // Materialize the row into (text, attrs, is_cursor) per column so we
         // can run-length encode in one pass without worrying about wide-cell
@@ -1424,5 +1431,101 @@ impl Command for PtyMetaGetCommand {
             }
         };
         Ok(out.into_pipeline_data())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Build a small terminal and feed it `\r\n`-terminated lines.
+    fn term_with_lines(rows: usize, cols: usize, range: std::ops::Range<usize>) -> Terminal {
+        let mut term = Terminal::new(
+            TerminalSize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+                dpi: 0,
+            },
+            Arc::new(MinimalConfig),
+            "test",
+            "0",
+            Box::new(Vec::<u8>::new()),
+        );
+        for i in range {
+            term.advance_bytes(format!("L{i}\r\n").as_bytes());
+        }
+        term
+    }
+
+    /// Parse `render_grid_html` output into (row id, trimmed text) pairs in
+    /// document order. Strips all tags so cell spans collapse to their text.
+    fn rows_of(html: &str) -> Vec<(isize, String)> {
+        let mut out = Vec::new();
+        let marker = "<div class=\"row\" id=\"r-";
+        let mut rest = html;
+        while let Some(pos) = rest.find(marker) {
+            rest = &rest[pos + marker.len()..];
+            let id_end = rest.find("\">").unwrap();
+            let id: isize = rest[..id_end].parse().unwrap();
+            rest = &rest[id_end + 2..];
+            let close = rest.find("</div>").unwrap();
+            let inner = &rest[..close];
+            // Drop every <...> tag, keep the text between them.
+            let mut text = String::new();
+            let mut in_tag = false;
+            for c in inner.chars() {
+                match c {
+                    '<' => in_tag = true,
+                    '>' => in_tag = false,
+                    _ if !in_tag => text.push(c),
+                    _ => {}
+                }
+            }
+            out.push((id, text.trim_end().to_string()));
+            rest = &rest[close + "</div>".len()..];
+        }
+        out
+    }
+
+    #[test]
+    fn row_id_is_stable_across_scrollback_purge() {
+        // Fill well past the scrollback cap so the oldest lines purge.
+        let mut term = term_with_lines(4, 12, 0..SCROLLBACK_LINES + 100);
+        let before = rows_of(&render_grid_html(&term, "grid").html);
+
+        // Feed more lines, forcing further purges off the top.
+        for i in SCROLLBACK_LINES + 100..SCROLLBACK_LINES + 150 {
+            term.advance_bytes(format!("L{i}\r\n").as_bytes());
+        }
+        let after = rows_of(&render_grid_html(&term, "grid").html);
+
+        // The top id must have advanced -- a purge actually happened.
+        assert!(
+            after[0].0 > before[0].0,
+            "expected top row id to advance after purge: {} -> {}",
+            before[0].0,
+            after[0].0
+        );
+
+        // Every line of text present in both frames must keep the same id.
+        // (With the old phys-index scheme the ids would all shift by 50.)
+        let after_by_text: std::collections::HashMap<&str, isize> =
+            after.iter().map(|(id, t)| (t.as_str(), *id)).collect();
+        let mut shared = 0;
+        for (id, text) in &before {
+            if text.is_empty() {
+                continue;
+            }
+            if let Some(&aid) = after_by_text.get(text.as_str()) {
+                assert_eq!(aid, *id, "row {text:?} changed id across purge");
+                shared += 1;
+            }
+        }
+        assert!(
+            shared > 100,
+            "too few shared rows to be meaningful: {shared}"
+        );
     }
 }
