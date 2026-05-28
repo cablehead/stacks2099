@@ -667,7 +667,12 @@
       if (!cid) return;
       const pane = doc.querySelector('#pane-' + CSS.escape(cid));
       if (!pane) return;
-      if (pane.dataset.kind === 'note') {
+      // Notes branch by data-render, not data-kind: a note clip's kind is
+      // 'content' (only 'content' and 'terminal' exist), and data-render
+      // is what scanPanes uses for wiring too (the 'note' value means
+      // "editable textarea"). Mismatching this against 'kind' meant clicks
+      // on notes never opened the editor and typing did nothing.
+      if (pane.dataset.render === 'note') {
         keybuf.setAttribute('enabled', 'false');
         const ta = pane.querySelector('.note-edit'), pre = pane.querySelector('.note-pre');
         if (ta) {

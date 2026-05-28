@@ -373,6 +373,32 @@ test("rename modal pre-fills from the $label signal", () => withApp(async (page)
   assert.ok(typeof drafted === "string" && drafted.length > 0, `modal must pre-fill from $label, got "${drafted}"`);
 }));
 
+test("focusing a note opens the editor + receives keystrokes", () => withApp(async (page) => {
+  // Regression: __focusClip used to branch on `pane.dataset.kind === 'note'`,
+  // but a note clip's kind is 'content' (the only kinds are 'content' and
+  // 'terminal'). The right discriminator is `dataset.render === 'note'`,
+  // which matches what scanPanes already uses. Pre-fix the textarea never
+  // became visible or focused, so the user couldn't type into a note.
+  await page.evaluate(async () => {
+    await fetch("/clip/add", { method: "POST", headers: { "content-type": "text/markdown" }, body: "initial" });
+  });
+  await page.waitForFunction(() => document.querySelectorAll("#doc .pane").length >= 2, { timeout: 10000 });
+  await page.waitForFunction(
+    () => [...document.querySelectorAll("#doc .pane")].some((p) => p.dataset.render === "note"),
+    { timeout: 10000 },
+  );
+  const cid = await page.evaluate(() =>
+    [...document.querySelectorAll("#doc .pane")].find((p) => p.dataset.render === "note")?.dataset.clip
+  );
+  await page.evaluate((cid) => window.__focusClip(cid), cid);
+  const focused = await page.evaluate(() => document.activeElement?.classList.contains("note-edit"));
+  assert.ok(focused, "the note's textarea must be focused after __focusClip");
+
+  await page.keyboard.type(" typed!");
+  const value = await page.evaluate(() => document.querySelector(".note-edit")?.value);
+  assert.equal(value, "initial typed!", `typed keystrokes must land in the textarea (got "${value}")`);
+}));
+
 test("markdown clip toggles rendered <-> edit", () => withApp(async (page) => {
   await page.evaluate(async () => {
     await fetch("/clip/add", { method: "POST", headers: { "content-type": "text/markdown" }, body: "# Heading\n\n- a\n- b\n" });
