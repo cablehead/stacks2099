@@ -71,6 +71,10 @@
     .pane { flex: 0 0 auto; display: flex; flex-direction: column; border: 1px solid var(--pane-border); border-radius: 4px; overflow: hidden; background: var(--term-bg); transition: opacity .12s, border-color .12s; scroll-margin: .5rem; }
     .pane-head { flex: 0 0 auto; padding: .15rem .6rem; font-size: 11px; color: var(--dim); background: var(--chrome); cursor: pointer; display: flex; gap: .5ch; align-items: baseline; }
     .pane-head small { opacity: .5; }
+    /* Morph HUD: rows touched by the last /pty/view patch. Pushed to the right
+       end of the head so it doesn't crowd the label; tabular-nums keeps it
+       from jittering as the digit count changes. */
+    .pane-head .grid-hud { margin-left: auto; opacity: .55; font-variant-numeric: tabular-nums; }
     /* The terminal viewport. terminal.js sets its height to the row count it
        wants (fixedRows * cell height), so the pane sizes itself -- no calc,
        no absolute positioning. Scrollback scrolls within this box. */

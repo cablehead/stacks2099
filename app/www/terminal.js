@@ -84,12 +84,57 @@ export function mountTerminal({ screen, grid, onResize, fixedRows }) {
     }
     stick = screen.scrollHeight - screen.scrollTop - screen.clientHeight < 8;
   });
-  new MutationObserver(() => {
+
+  // Morph HUD: each /pty/view SSE patch arrives as one synchronous morph
+  // pass, so one MutationObserver callback batch == one server frame. Count
+  // the distinct `.row` elements touched by any mutation (added, removed,
+  // text changed, attrs changed) and show it next to the pane label. The
+  // headline number is the rows morphed by the latest frame; the parenthetical
+  // is a smoothed average. A healthy steady-state stream of pty output should
+  // show single-digit numbers; a number near the scrollback cap means every
+  // frame is touching the whole grid (the cliff the stable-id fix avoided).
+  const pane = screen.closest('.pane');
+  const head = pane?.querySelector('.pane-head');
+  let hud = null;
+  if (head) {
+    hud = document.createElement('span');
+    hud.className = 'grid-hud';
+    hud.title = 'rows morphed by the last server patch (avg over recent patches)';
+    hud.textContent = 'M 0';
+    head.appendChild(hud);
+  }
+  let hudAvg = 0;
+  function bumpHud(rows) {
+    if (!hud) return;
+    hudAvg = hudAvg * 0.7 + rows * 0.3;
+    hud.textContent = `M ${rows} (avg ${hudAvg.toFixed(0)})`;
+  }
+
+  new MutationObserver((muts) => {
     if (stick && screen.scrollTop !== screen.scrollHeight - screen.clientHeight) {
       suppress = true;
       screen.scrollTop = screen.scrollHeight;
     }
-  }).observe(grid, { childList: true, subtree: true, characterData: true });
+    const touched = new Set();
+    for (const m of muts) {
+      if (m.type === 'childList') {
+        for (const n of m.addedNodes) {
+          if (n.nodeType === 1 && n.classList?.contains('row')) touched.add('+' + n.id);
+        }
+        for (const n of m.removedNodes) {
+          if (n.nodeType === 1 && n.classList?.contains('row')) touched.add('-' + n.id);
+        }
+        const row = m.target.nodeType === 1 ? m.target.closest?.('.row') : null;
+        if (row) touched.add(row.id);
+      } else {
+        // characterData lives on a text node; walk up to the enclosing .row.
+        const el = m.target.nodeType === 1 ? m.target : m.target.parentElement;
+        const row = el?.closest?.('.row');
+        if (row) touched.add(row.id);
+      }
+    }
+    if (touched.size > 0) bumpHud(touched.size);
+  }).observe(grid, { childList: true, subtree: true, characterData: true, attributes: true });
 
   const initialDims = dims();
   applyHeight(initialDims.rows);
