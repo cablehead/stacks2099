@@ -315,6 +315,64 @@ test("seqno-diff: alternate-screen flip replaces the grid then restores main on 
   assert.ok(!(await hasAltMarker()), "the alt-screen /etc/services header should be gone after exit");
 }));
 
+test("rename terminal: live grid + cursor survive; pane-head label updates", () => withApp(async (page) => {
+  // Regression: a clip.patch{label} for a terminal used to fall into the
+  // full-pane repane path, which re-emitted `<div id='grid-{cid}'></div>`
+  // and let idiomorph wipe the live scrollback until /pty/view reconnected.
+  // The fix is to patch only the `<header id='pane-head-{cid}'>` for
+  // terminals on a label change, never the whole <section>.
+  await page.waitForSelector("#doc .pane", { timeout: 15000 });
+  await page.waitForFunction(() => !!document.querySelector("[id^='grid-'] .row"), { timeout: 15000 });
+  const before = await page.evaluate(() => ({
+    rows: document.querySelectorAll("[id^='grid-'] .row").length,
+    cursor: !!document.querySelector("[id^='grid-'] .cursor"),
+  }));
+  assert.ok(before.rows > 0, "grid must have rows before the rename");
+  assert.ok(before.cursor, "cursor overlay must exist before the rename");
+
+  // Open the rename modal, type a new name, submit.
+  await page.evaluate(() => document.getElementById("rename-tab-trigger")?.click());
+  await page.waitForSelector(".modal-input", { timeout: 5000 });
+  await page.evaluate(() => {
+    const i = document.querySelector(".modal-input");
+    i.value = "RENAMED_PROBE";
+    i.dispatchEvent(new Event("input", { bubbles: true }));
+    i.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+  });
+
+  // The label patch and head update arrive over SSE; wait for the new label
+  // to appear in the pane-head text.
+  await page.waitForFunction(
+    () => !!document.querySelector("#doc .pane .pane-head")?.textContent?.includes("RENAMED_PROBE"),
+    { timeout: 5000 },
+  );
+
+  const after = await page.evaluate(() => ({
+    rows: document.querySelectorAll("[id^='grid-'] .row").length,
+    cursor: !!document.querySelector("[id^='grid-'] .cursor"),
+  }));
+  assert.ok(after.rows > 0, `grid must still have rows after the rename (had ${before.rows}, now ${after.rows})`);
+  assert.ok(after.cursor, "cursor overlay must survive the rename");
+}));
+
+test("rename modal pre-fills from the $label signal", () => withApp(async (page) => {
+  // Regression: openRenameTab used to scrape `btn.firstChild.textContent`,
+  // which is the row icon's `<svg>` -- so the modal opened with the wrong
+  // text (or empty). Now the trigger button's `data-on:click` reads `$label`
+  // directly, and the server keeps `$label` in sync with the selected clip.
+  await page.waitForSelector("#doc .pane", { timeout: 15000 });
+  await page.waitForFunction(() => !!document.querySelector("[id^='grid-'] .row"), { timeout: 15000 });
+
+  // Open the modal; the draft input must contain a non-empty, non-svg value
+  // (the dev terminal clip's default display label is "nu").
+  await page.evaluate(() => document.getElementById("rename-tab-trigger")?.click());
+  const drafted = await page.waitForFunction(
+    () => document.querySelector(".modal-input")?.value,
+    { timeout: 5000 },
+  ).then((h) => h.jsonValue());
+  assert.ok(typeof drafted === "string" && drafted.length > 0, `modal must pre-fill from $label, got "${drafted}"`);
+}));
+
 test("markdown clip toggles rendered <-> edit", () => withApp(async (page) => {
   await page.evaluate(async () => {
     await fetch("/clip/add", { method: "POST", headers: { "content-type": "text/markdown" }, body: "# Heading\n\n- a\n- b\n" });

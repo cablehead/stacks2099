@@ -279,12 +279,14 @@
   </footer>
 
   <!-- Hidden trigger so the JS-only Alt+R action can seed signals through
-       datastar's expression evaluator. -->
+       datastar's expression evaluator. `$label` is kept in sync server-side
+       with the selected clip's display label (label-of in serve.nu); the
+       click just copies that into the rename modal's draft input. -->
   <button
     id="rename-tab-trigger"
     type="button"
     hidden
-    data-on:click="$draft = el.dataset.label || ''; $renameMode = 'tab'; $renaming = true"></button>
+    data-on:click="$draft = $label; $renameMode = 'tab'; $renaming = true"></button>
 
   <!-- Rename modal. -->
   <div class="modal-backdrop" data-show="$renaming" data-on:click="$renaming = false">
@@ -504,13 +506,11 @@
         document.querySelector('.title-display')?.click();
       },
       openRenameTab() {
-        const btn = document.querySelector('#clips-list li.selected .row');
-        if (!btn) return;
-        const label = btn.firstChild?.textContent?.trim() ?? '';
-        const trig = document.getElementById('rename-tab-trigger');
-        if (!trig) return;
-        trig.dataset.label = label;
-        trig.click();
+        // The trigger button's `data-on:click` reads `$label` directly; we
+        // just need to fire the synthetic click so datastar evaluates the
+        // expression (it can only mutate signals from a real DOM event, not
+        // from arbitrary JS like this).
+        document.getElementById('rename-tab-trigger')?.click();
       },
       toggleFocus() {
         // mod+Enter symmetric toggle (the only focus entry/exit): leave focus
