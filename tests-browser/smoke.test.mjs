@@ -262,6 +262,59 @@ test("seqno-diff: appended rows are direct siblings with no text node between th
   assert.equal(stray, 0, `no stray "\\n" text nodes should sit between row siblings (found ${stray})`);
 }));
 
+test("seqno-diff: alternate-screen flip replaces the grid then restores main on exit", () => withApp(async (page) => {
+  // Regression for the bat/less/vim hang: the primary and alternate screens
+  // have independent line storage + seqnos in wezterm, so a `\x1b[?1049h`
+  // transition makes the diff state invalid. Without a full re-emit on the
+  // flip, alt content overlays the first N rows of stale main content and
+  // less's status line lands somewhere nonsensical. We force the same
+  // entry/exit a TUI would and assert that the row set actually swaps.
+  await page.waitForSelector("#doc .pane", { timeout: 15000 });
+  await page.waitForFunction(() => {
+    const s = document.querySelector("[id^='screen-']");
+    return s && s.getAttribute("data-sid");
+  }, { timeout: 15000 });
+  const sid = await page.evaluate(() => document.querySelector("[id^='screen-']").getAttribute("data-sid"));
+  const send = (cmd) => page.evaluate(
+    async ({ sid, cmd }) => {
+      await fetch(`/pty/input?sid=${encodeURIComponent(sid)}`, { method: "POST", body: cmd });
+    },
+    { sid, cmd },
+  );
+  const hasMainMarker = () => page.evaluate(() =>
+    [...document.querySelectorAll("[id^='grid-'] .row")].some((r) => r.textContent.trim().startsWith("MAIN_"))
+  );
+  const hasAltMarker = () => page.evaluate(() =>
+    [...document.querySelectorAll("[id^='grid-'] .row")].some((r) => /^#\s*Network services/.test(r.textContent.trim()))
+  );
+
+  // Seed main-screen scrollback with a unique marker that must survive
+  // entry/exit through `less` and must be GONE while less is active.
+  await send("for i in 1..20 { print $\"MAIN_($i)\" }\n");
+  await page.waitForFunction(
+    () => [...document.querySelectorAll("[id^='grid-'] .row")].some((r) => r.textContent.trim().startsWith("MAIN_")),
+    { timeout: 10000 },
+  );
+
+  // Enter `less` -- switches to the alternate screen.
+  await send("less /etc/services\n");
+  await page.waitForFunction(
+    () => [...document.querySelectorAll("[id^='grid-'] .row")].some((r) => /^#\s*Network services/.test(r.textContent.trim())),
+    { timeout: 10000 },
+  );
+  assert.ok(await hasAltMarker(), "alt-screen content (/etc/services header) should be in the grid while less is active");
+  assert.ok(!(await hasMainMarker()), "MAIN_* markers must NOT be visible while the alternate screen is active");
+
+  // Exit less ('q'). Restores the primary screen, including MAIN_* markers.
+  await send("q");
+  await page.waitForFunction(
+    () => [...document.querySelectorAll("[id^='grid-'] .row")].some((r) => r.textContent.trim().startsWith("MAIN_")),
+    { timeout: 10000 },
+  );
+  assert.ok(await hasMainMarker(), "MAIN_* markers must reappear after exiting the alternate screen");
+  assert.ok(!(await hasAltMarker()), "the alt-screen /etc/services header should be gone after exit");
+}));
+
 test("markdown clip toggles rendered <-> edit", () => withApp(async (page) => {
   await page.evaluate(async () => {
     await fetch("/clip/add", { method: "POST", headers: { "content-type": "text/markdown" }, body: "# Heading\n\n- a\n- b\n" });

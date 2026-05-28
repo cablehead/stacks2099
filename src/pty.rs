@@ -1058,6 +1058,13 @@ impl Command for PtyViewCommand {
         let mut last_stable_base: StableRowIndex = 0;
         let mut last_max_stable: StableRowIndex = 0;
         let mut last_cursor: (usize, usize) = (0, 0);
+        // wezterm keeps separate `lines`/seqno counters for the primary and
+        // alternate screens, so switching between them invalidates our diff
+        // state entirely. Track which one we sampled last; a mismatch
+        // triggers a full re-emit so the client lands on the new screen
+        // instead of seeing alt content overlay the first N rows of stale
+        // main content (the symptom under `bat`/`less`/`vim`).
+        let mut last_alt: bool = false;
         let sid_owned = sid.clone();
 
         let stream = ByteStream::from_fn(
@@ -1110,6 +1117,7 @@ impl Command for PtyViewCommand {
                     let cursor = term_guard.cursor_pos();
                     let title = term_guard.get_title().to_string();
                     let seqno = term_guard.current_seqno();
+                    let alt_active = term_guard.is_alt_screen_active();
                     let screen = term_guard.screen();
                     let total = screen.scrollback_rows();
                     let visible_start = total.saturating_sub(phys_rows);
@@ -1117,13 +1125,19 @@ impl Command for PtyViewCommand {
                     let max_stable = stable_base + total as StableRowIndex;
                     let cursor_row = visible_start + cursor.y as usize;
                     let cursor_col = cursor.x;
+                    // A screen flip (primary <-> alt) invalidates the diff
+                    // basis: the two screens have independent line storage
+                    // and seqnos, so `get_changed_stable_rows(..last_seqno)`
+                    // would lie about what the client needs to see. Treat
+                    // the flip as if it were a fresh subscription.
+                    let screen_flipped = sent_initial && alt_active != last_alt;
                     // Changed rows that the client still has: query only the
                     // overlap of the current stable range with what we last
                     // sent. New rows (above `last_max_stable`) are handled
                     // by the append path; purged rows fall off the front of
                     // the overlap so they don't appear here.
                     let changed_end = max_stable.min(last_max_stable);
-                    let changed = if sent_initial && changed_end > stable_base {
+                    let changed = if sent_initial && !screen_flipped && changed_end > stable_base {
                         screen.get_changed_stable_rows(stable_base..changed_end, last_seqno)
                     } else {
                         Vec::new()
@@ -1134,6 +1148,8 @@ impl Command for PtyViewCommand {
                         rows: phys_rows,
                         title,
                         seqno,
+                        alt_active,
+                        screen_flipped,
                         stable_base,
                         max_stable,
                         cursor_row,
@@ -1144,9 +1160,11 @@ impl Command for PtyViewCommand {
                 };
                 last_gen = gen_now;
 
-                if !sent_initial {
-                    // First frame: hand the client the whole grid in one
-                    // morph. Subsequent frames will only ship the diff.
+                if !sent_initial || snap.screen_flipped {
+                    // First frame OR primary/alt screen flipped under us:
+                    // hand the client the whole new grid in one outer morph
+                    // so idiomorph drops anything no longer present and the
+                    // diff state starts fresh.
                     let frame = render_full_from_snap(&snap, &target);
                     emit_patch_elements(buffer, &frame);
                     sent_initial = true;
@@ -1163,6 +1181,7 @@ impl Command for PtyViewCommand {
                 last_seqno = snap.seqno;
                 last_stable_base = snap.stable_base;
                 last_max_stable = snap.max_stable;
+                last_alt = snap.alt_active;
                 last_cursor = (snap.cursor_row, snap.cursor_col);
 
                 // Surface dims + title as signals so the client binds them
@@ -1193,13 +1212,23 @@ struct ViewSnapshot {
     rows: usize,
     title: String,
     seqno: usize,
+    /// True when the terminal is currently rendering its alternate screen
+    /// (vim, less, htop, etc. switch into it with `\x1b[?1049h`). The
+    /// alt and primary screens have independent storage + seqnos, so a
+    /// transition between them requires a full re-emit.
+    alt_active: bool,
+    /// True when this snapshot's `alt_active` differs from the subscriber's
+    /// last sample; the view loop treats this as "first frame all over
+    /// again" and ships the whole grid instead of a diff.
+    screen_flipped: bool,
     stable_base: StableRowIndex,
     max_stable: StableRowIndex,
     cursor_row: usize,
     cursor_col: usize,
     lines: Vec<wezterm_term::Line>,
     /// Stable ids whose lines' content changed since the subscriber's last
-    /// seqno, intersected with the rows still mounted in the client.
+    /// seqno, intersected with the rows still mounted in the client. Empty
+    /// on a `screen_flipped` snapshot since the diff is unusable then.
     changed: Vec<StableRowIndex>,
 }
 
