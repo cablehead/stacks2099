@@ -1,5 +1,5 @@
 stacks2099 doesn't have a terminal emulator in the browser. The pty
-runs on the server, where stacks2099 (our custom binary) drives
+runs on the server, where stacks2099 (my custom binary) drives
 wezterm-term as a library to parse its bytes into a cell grid, the grid
 renders to HTML, Datastar morphs it into the DOM. This is how I got
 there.
@@ -93,7 +93,7 @@ something coherent.
 
 ## Adding a replay buffer
 
-So my next step was wire up step 3 -- buffer the most recent bytes
+So my next step was to wire up step 3 -- buffer the most recent bytes
 sent to the terminal (the bytes that paint "l" and "s", the cursor
 moves around them like newlines and carriage returns, and any escape
 codes). On reconnect xterm.js sees a blast of bytes, replays them,
@@ -212,12 +212,12 @@ demand to reproduce it.
 
 ## A small VT100 proxy on the server
 
-OK, we need something on the server that knows how to parse the stream
-of bytes, so we can at least *frame* the replay. I added the vt100 crate
-to the stacks2099 dependencies. Bytes were tee'd
-to it so it built up a grid. On reconnect, push that
-screen to the client, then start feeding it fresh bytes from nu so it
-could maintain its grid incrementally from there.
+OK, I needed something on the server that knew how to parse the stream
+of bytes, so I could at least *frame* the replay. I added the vt100
+crate to the stacks2099 dependencies. Bytes were tee'd to it so it
+built up a grid. On reconnect it pushed the grid to the client, then
+started feeding it fresh bytes from nu so it could maintain its grid
+incrementally from there.
 
 Two jobs:
 
@@ -229,7 +229,7 @@ Two jobs:
 drop-in replacement for xterm.js, so swapping it in touched only the
 client side; the server stayed as it was.)
 
-This worked a good bit better. But would still fall into inconsistent
+This worked a good bit better. But it would still fall into inconsistent
 states.
 
 
