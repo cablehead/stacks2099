@@ -143,10 +143,10 @@ question and waits for the answer. The common ones:
   background, `\x1b]4;<n>;?` for palette entry n. Plus a growing family for
   cursor colour, clipboard, titles, capability negotiation.
 
-The flow is short. The program writes the query into its stdout (the pty slave).
-The terminal picks up the escape, builds a reply, and writes it to the pty
-master, which the program reads back as stdin. The program blocks on a read
-until the reply lands, or gives up on a timeout.
+The program writes the query into its stdout (the pty slave). The terminal picks
+up the escape, builds a reply, and writes it to the pty master, which the
+program reads back as stdin. The program blocks on a read until the reply lands,
+or gives up on a timeout.
 
 So far the only thing that knows how to answer is the browser. With a browser
 attached, you're fine. Without one, the queries pile up with no one to answer
