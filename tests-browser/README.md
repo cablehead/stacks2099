@@ -24,8 +24,13 @@ as its own CI job. Build the binary first (`cargo build`) or set `STACKS2099_BIN
 ```
 node shoot.mjs                      # dev default 127.0.0.1:5099 -> /tmp/stacks2099-shot.png
 node shoot.mjs /tmp/foo.png         # custom output path
+node shoot.mjs --add                # also file the shot into the running stack
 BASE=http://127.0.0.1:5300 node shoot.mjs   # a different instance
 ```
+
+`--add` POSTs the PNG to `/clip/add`, dropping it as an image clip in the
+current (last-focused) stack -- so a session driving the browser can surface
+what it rendered back into the workspace, no manual grab or paste.
 
 A dev/debugging aid, not a test. Unlike the test harness it does NOT spawn its
 own server -- it shoots whatever is already running and reads that server's
