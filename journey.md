@@ -17,35 +17,7 @@ The server holds the pty, proxies bytes over HTTP in both directions --
 bytes that would normally just go directly between the terminal and the
 shell.
 
-This actually works pretty great out of the box.
-
-On reconnect though, what does your fresh xterm.js see? It hasn't seen
-the history of bytes that the previous xterm.js parsed to paint its
-virtual grid of what the screen looks like. You get a blank screen. You
-press a key, that sends bytes through the pty to the shell, the shell
-echoes your key back, you see a single keypress on the screen. You might need to do a clear, cat
-a few things, start building up a history of new bytes to get the
-virtual screen repainted into something coherent.
-
-
-## Stage 2: same architecture, plus a replay buffer
-
-So my next step was buffer the most recent bytes sent to the terminal --
-the bytes that paint "l" and "s", the cursor moves around them (newlines,
-carriage returns), and any escape codes. On reconnect xterm.js sees a
-blast of bytes, replays them, hopefully repaints to a coherent screen.
-
-This worked "pretty" well. But pretty quickly the terminal would get
-into a weird state. Pressing a key would delete the previous row of
-output on the screen. Type ls, you'd see the output for a flash, then
-the screen would clear and you'd just see the prompt at the top of the
-screen.
-
-My hunch was the stream was getting out of sync. It's just a ring
-buffer; you're picking it up at some arbitrary point, potentially
-halfway through an escape sequence.
-
-The shape of this architecture, drawn out:
+This actually works pretty great out of the box. The shape, drawn out:
 
 ```mermaid
 sequenceDiagram
@@ -105,6 +77,35 @@ sequenceDiagram
         HTTP-->>Term: paint grid (restored) <- parse VT (xterm.js) <- SSE: <bytes>
     end
 ```
+
+Step 3 -- the snapshot bytes from a replay buffer -- doesn't exist yet
+in this stage. So on reconnect, what does your fresh xterm.js see? It
+hasn't seen the history of bytes that the previous xterm.js parsed to
+paint its virtual grid of what the screen looks like. You get a blank
+screen. You press a key, that sends bytes through the pty to the
+shell, the shell echoes your key back, you see a single keypress on
+the screen. You might need to do a clear, cat a few things, start
+building up a history of new bytes to get the virtual screen repainted
+into something coherent.
+
+
+## Stage 2: same architecture, plus a replay buffer
+
+So my next step was wire up step 3 -- buffer the most recent bytes
+sent to the terminal (the bytes that paint "l" and "s", the cursor
+moves around them like newlines and carriage returns, and any escape
+codes). On reconnect xterm.js sees a blast of bytes, replays them,
+hopefully repaints to a coherent screen.
+
+This worked "pretty" well. But pretty quickly the terminal would get
+into a weird state. Pressing a key would delete the previous row of
+output on the screen. Type ls, you'd see the output for a flash, then
+the screen would clear and you'd just see the prompt at the top of the
+screen.
+
+My hunch was the stream was getting out of sync. The buffer is a ring
+buffer; you're picking it up at some arbitrary point, potentially
+halfway through an escape sequence.
 
 
 ## Stage 3: swap xterm.js for ghostty-wasm
