@@ -6,7 +6,9 @@
  *   .sb .sd .si .su .sx .ss   - bold, dim, italic, underline, invisible, strikethrough
  *                               (reverse video is a server-side fg/bg swap, no class)
  *   .f0..f15 .b0..b15         - ANSI 16-color palette fg/bg
- *   .cursor                   - cell under the current cursor
+ *   .cursor                   - one overlay element per grid, anchored on
+ *                               (--cursor-row, --cursor-col); inverts what's
+ *                               beneath via mix-blend-mode and blinks via CSS
  *   style="color:#...;background:#...;"  - 256-color / truecolor inline fallbacks
  * The grid root is `<div id="grid" data-cols=N data-rows=M>`, rows are
  * `<div class="row" id="r-N">`. Datastar morphs by id; idiomorph keeps stable
@@ -73,8 +75,10 @@
 }
 
 /* The grid root always carries data-cols (single-pane #grid or per-pane
-   #grid-<sid>), so target that rather than a specific id. */
+   #grid-<sid>), so target that rather than a specific id. position:relative
+   anchors the absolutely-positioned cursor overlay below. */
 [data-cols] {
+  position: relative;
   font-family: var(--term-font);
   font-size: 14px;
   line-height: var(--cell-h);
@@ -144,15 +148,24 @@
 .b14 { background: #54ffff; }
 .b15 { background: #ffffff; }
 
-/* Cursor cell: invert against the theme. Applied to the same <span> as the
- * cell's other attrs, so it stacks with an explicit .bN when present. */
+/* Cursor overlay: a single absolutely-positioned cell-sized box anchored at
+ * (--cursor-row, --cursor-col). mix-blend-mode: difference XORs whatever's
+ * underneath, so it inverts the glyph regardless of the cell's own colors --
+ * no per-cell class needed. The server only re-emits this element when the
+ * cursor moves, decoupling cursor motion from row diffs. */
 .cursor {
+  position: absolute;
+  top: calc(var(--cursor-row, 0) * var(--cell-h));
+  left: calc(var(--cursor-col, 0) * 1ch);
+  width: 1ch;
+  height: var(--cell-h);
   background: var(--term-fg);
-  color: var(--term-bg);
+  mix-blend-mode: difference;
+  pointer-events: none;
   animation: cursor-blink 1s steps(2) infinite;
 }
 @keyframes cursor-blink {
-  50% { opacity: 0.5; }
+  50% { opacity: 0.4; }
 }
 
 /* Key buffer overlay: floating ghost characters showing in-flight keys. */

@@ -144,6 +144,83 @@ test("terminal row ids stay stable across scrollback purge", () => withApp(async
   );
 }));
 
+test("seqno-diff: post-cap keystroke ships a bounded patch", () => withApp(async (page) => {
+  // Regression guard for the seqno-driven per-row diff: above the 3000-line
+  // scrollback cap, a single keystroke's SSE patch bundle must stay tiny
+  // (the per-row delta), not the whole grid (which pre-diff was ~387 KB
+  // every frame). Opens its own /pty/view subscriber so we can size the
+  // raw SSE bytes without coordinating with the page's stream.
+  await page.waitForSelector("#doc .pane", { timeout: 15000 });
+  await page.waitForFunction(() => {
+    const s = document.querySelector("[id^='screen-']");
+    return s && s.getAttribute("data-sid");
+  }, { timeout: 15000 });
+  const sid = await page.evaluate(() => document.querySelector("[id^='screen-']").getAttribute("data-sid"));
+
+  const sizes = await page.evaluate(async (sid) => {
+    const out = [];
+    const ctrl = new AbortController();
+    const resp = await fetch(`/pty/view?sid=${encodeURIComponent(sid)}&target=t-probe&nosig=1`, { signal: ctrl.signal });
+    const reader = resp.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "";
+    const drain = () => {
+      let i;
+      while ((i = buf.indexOf("\n\n")) !== -1) {
+        const raw = buf.slice(0, i);
+        buf = buf.slice(i + 2);
+        if (raw.startsWith("event: datastar-patch-elements")) out.push(raw);
+      }
+    };
+    // Pump until a quiet period of `quietMs` with no new events, capped at `maxMs`.
+    const pumpUntilQuiet = async (quietMs, maxMs) => {
+      const deadline = Date.now() + maxMs;
+      let lastCount = out.length;
+      let quietStart = Date.now();
+      while (Date.now() < deadline) {
+        const timeout = new Promise((r) => setTimeout(() => r("timeout"), 200));
+        const got = await Promise.race([reader.read(), timeout]);
+        if (got === "timeout") {
+          if (out.length === lastCount && Date.now() - quietStart >= quietMs) return;
+          if (out.length !== lastCount) { lastCount = out.length; quietStart = Date.now(); }
+          continue;
+        }
+        if (got.done) return;
+        if (got.value) buf += dec.decode(got.value, { stream: true });
+        drain();
+        if (out.length !== lastCount) { lastCount = out.length; quietStart = Date.now(); }
+      }
+    };
+
+    await pumpUntilQuiet(500, 5000);
+    const firstFrame = { events: out.length, bytes: out.reduce((a, e) => a + e.length, 0) };
+    out.length = 0;
+
+    // Fill past the 3000-line cap.
+    await fetch(`/pty/input?sid=${encodeURIComponent(sid)}`, { method: "POST", body: "for i in 1..3500 { print $\"x_($i)\" }\n" });
+    await pumpUntilQuiet(500, 25000);
+    out.length = 0;
+
+    // The keystroke we actually care about: a single line above the cap.
+    await fetch(`/pty/input?sid=${encodeURIComponent(sid)}`, { method: "POST", body: "print 'k'\n" });
+    await pumpUntilQuiet(500, 5000);
+    const post = { events: out.length, bytes: out.reduce((a, e) => a + e.length, 0) };
+
+    ctrl.abort();
+    return { firstFrame, post };
+  }, sid);
+
+  // First frame ships the full current grid in one outer patch.
+  assert.ok(sizes.firstFrame.events >= 1, "first frame must arrive");
+  // The pre-diff cliff was ~387 KB per post-cap frame. A loose 10 KB ceiling
+  // catches a regression to full-scrollback emit without being brittle to
+  // shell prompt repaints (a 30-row repaint at ~150B/row is well under).
+  assert.ok(
+    sizes.post.bytes < 10_000,
+    `post-cap keystroke must ship <10KB of SSE, got ${sizes.post.bytes}B in ${sizes.post.events} events`,
+  );
+}));
+
 test("markdown clip toggles rendered <-> edit", () => withApp(async (page) => {
   await page.evaluate(async () => {
     await fetch("/clip/add", { method: "POST", headers: { "content-type": "text/markdown" }, body: "# Heading\n\n- a\n- b\n" });

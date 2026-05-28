@@ -225,32 +225,95 @@ fn html_escape(s: &str, out: &mut String) {
     }
 }
 
-/// One rendered terminal frame: the grid HTML plus the metadata the client
-/// surfaces as signals (dimensions and OSC title) rather than reading off
-/// the DOM.
-struct GridFrame {
-    html: String,
+/// Render one row's HTML into `out` as `<div class="row" id="r-{stable}">...</div>`.
+/// Cells are run-length encoded into `<span class="...">` runs sharing the
+/// same attribute set; default-attr runs are emitted bare to save bytes.
+/// Used by both the full-frame render (first SSE patch) and the per-row
+/// diff emit (subsequent patches).
+fn render_row_into(
+    out: &mut String,
+    line: &wezterm_term::Line,
     cols: usize,
-    rows: usize,
-    title: String,
+    stable: StableRowIndex,
+    default_attrs: &CellAttributes,
+) {
+    let _ = write!(out, "<div class=\"row\" id=\"r-{stable}\">");
+    let mut cells: Vec<(String, CellAttributes)> = (0..cols)
+        .map(|_| (" ".to_string(), default_attrs.clone()))
+        .collect();
+    for cell_ref in line.visible_cells() {
+        let col = cell_ref.cell_index();
+        if col >= cols {
+            break;
+        }
+        let s = cell_ref.str();
+        let glyph = if s.is_empty() {
+            " ".to_string()
+        } else {
+            s.to_string()
+        };
+        cells[col] = (glyph, cell_ref.attrs().clone());
+    }
+
+    let mut i = 0;
+    while i < cells.len() {
+        let (_, ref a) = cells[i];
+        let mut j = i + 1;
+        while j < cells.len() {
+            let (_, ref b) = cells[j];
+            if attrs_equiv(a, b) {
+                j += 1;
+            } else {
+                break;
+            }
+        }
+        let (classes, style) = cell_class_and_style(a);
+        let text_len: usize = cells[i..j].iter().map(|c| c.0.len()).sum();
+        let mut text = String::with_capacity(text_len);
+        for c in &cells[i..j] {
+            text.push_str(&c.0);
+        }
+        let mut escaped = String::with_capacity(text.len());
+        html_escape(&text, &mut escaped);
+        if classes.is_empty() && style.is_empty() {
+            out.push_str(&escaped);
+        } else {
+            out.push_str("<span class=\"c");
+            out.push_str(&classes);
+            out.push('"');
+            if !style.is_empty() {
+                out.push_str(" style=\"");
+                out.push_str(&style);
+                out.push('"');
+            }
+            out.push('>');
+            out.push_str(&escaped);
+            out.push_str("</span>");
+        }
+        i = j;
+    }
+    out.push_str("</div>");
 }
 
-/// Render the terminal's retained scrollback + visible screen + cursor as
-/// an HTML grid suitable for morphing into `#grid`. Each row is
-/// `<div class="row" id="r-{N}">...</div>` where N is the row's *stable*
-/// index (wezterm's StableRowIndex); idiomorph matches rows by id and only
-/// morphs the ones that changed. Cells inside a row are run-length encoded
-/// into `<span class="...">` runs sharing the same attribute set.
+/// Render the cursor overlay element. Lives inside the grid container, gets
+/// its position from CSS custom properties so the only thing that crosses
+/// the wire on a cursor move is the style attribute (~20 bytes per patch).
+fn render_cursor_into(out: &mut String, target: &str, row: usize, col: usize) {
+    let _ = write!(
+        out,
+        "<div class=\"cursor\" id=\"{target}-cursor\" style=\"--cursor-row:{row};--cursor-col:{col}\"></div>"
+    );
+}
+
+/// Render the entire grid (cursor + all rows) as one HTML blob.
 ///
-/// All retained scrollback lines are emitted, not just the visible region.
-/// CSS scrolls the grid container; the client auto-sticks to the bottom
-/// unless the user has scrolled up. The stable index stays constant for a
-/// given line of output even as older lines purge off the top once the
-/// scrollback cap is hit, so a purge removes one row id at the top and adds
-/// one at the bottom -- idiomorph leaves the unchanged middle untouched
-/// instead of re-morphing every row. (Using the phys index here would shift
-/// every id by one on each purge and force a full-scrollback morph.)
-fn render_grid_html(term: &Terminal, target: &str) -> GridFrame {
+/// **Production uses `render_full_from_snap` + `emit_diff` via
+/// `PtyViewCommand::run` instead** -- that path takes one term-lock pass
+/// per frame and emits per-row diffs after the first frame. This helper
+/// stays around for the unit tests that pin the stable-id contract by
+/// driving a Terminal directly and parsing the rendered HTML.
+#[cfg(test)]
+fn render_grid_html(term: &Terminal, target: &str) -> String {
     let size = term.get_size();
     let cols = size.cols;
     let phys_rows = size.rows;
@@ -259,109 +322,22 @@ fn render_grid_html(term: &Terminal, target: &str) -> GridFrame {
     let total = screen.scrollback_rows();
     let visible_start = total.saturating_sub(phys_rows);
     let lines = screen.lines_in_phys_range(0..total);
-    // Stable index of phys row 0; add the phys offset to get each row's
-    // stable id. Stays constant for a line as older lines purge off the top.
     let stable_base = screen.phys_to_stable_row_index(0);
-
-    // Cursor.y is relative to the visible region; translate to an absolute
-    // phys row index so the cursor sits on the right row when the grid
-    // includes scrollback above it.
     let cursor_row = visible_start + cursor.y as usize;
     let cursor_col = cursor.x;
-
     let default_attrs = CellAttributes::default();
-
-    let title = term.get_title().to_string();
-
     let mut out = String::new();
     let _ = write!(
         out,
         "<div id=\"{target}\" data-cols=\"{cols}\" data-rows=\"{phys_rows}\" data-total=\"{total}\">"
     );
-
+    render_cursor_into(&mut out, target, cursor_row, cursor_col);
     for (row_idx, line) in lines.iter().enumerate() {
         let stable = stable_base + row_idx as StableRowIndex;
-        let _ = write!(out, "<div class=\"row\" id=\"r-{stable}\">");
-
-        // Materialize the row into (text, attrs, is_cursor) per column so we
-        // can run-length encode in one pass without worrying about wide-cell
-        // gaps. Default-fill any column the line didn't write to.
-        let mut cells: Vec<(String, CellAttributes, bool)> = (0..cols)
-            .map(|_| (" ".to_string(), default_attrs.clone(), false))
-            .collect();
-        for cell_ref in line.visible_cells() {
-            let col = cell_ref.cell_index();
-            if col >= cols {
-                break;
-            }
-            let s = cell_ref.str();
-            let glyph = if s.is_empty() {
-                " ".to_string()
-            } else {
-                s.to_string()
-            };
-            cells[col] = (glyph, cell_ref.attrs().clone(), false);
-        }
-        if row_idx == cursor_row && cursor_col < cols {
-            cells[cursor_col].2 = true;
-        }
-
-        // Run-length encode: walk and group consecutive cells with equal
-        // (attrs, is_cursor). The cursor cell always breaks the run since it
-        // gets a distinct class.
-        let mut i = 0;
-        while i < cells.len() {
-            let (_, ref a, ca) = cells[i];
-            let mut j = i + 1;
-            while j < cells.len() {
-                let (_, ref b, cb) = cells[j];
-                if attrs_equiv(a, b) && ca == cb {
-                    j += 1;
-                } else {
-                    break;
-                }
-            }
-
-            let (mut classes, style) = cell_class_and_style(a);
-            if ca {
-                classes.push_str(" cursor");
-            }
-            let text_len: usize = cells[i..j].iter().map(|c| c.0.len()).sum();
-            let mut text = String::with_capacity(text_len);
-            for c in &cells[i..j] {
-                text.push_str(&c.0);
-            }
-            let mut escaped = String::with_capacity(text.len());
-            html_escape(&text, &mut escaped);
-
-            if classes.is_empty() && style.is_empty() {
-                // No attrs, no cursor -- emit text bare. Saves bytes on
-                // ordinary whitespace runs, which dominate empty terminals.
-                out.push_str(&escaped);
-            } else {
-                out.push_str("<span class=\"c");
-                out.push_str(&classes);
-                out.push('"');
-                if !style.is_empty() {
-                    out.push_str(" style=\"");
-                    out.push_str(&style);
-                    out.push('"');
-                }
-                out.push('>');
-                out.push_str(&escaped);
-                out.push_str("</span>");
-            }
-            i = j;
-        }
-        out.push_str("</div>");
+        render_row_into(&mut out, line, cols, stable, &default_attrs);
     }
     out.push_str("</div>");
-    GridFrame {
-        html: out,
-        cols,
-        rows: phys_rows,
-        title,
-    }
+    out
 }
 
 /// Append a JSON string literal (with surrounding quotes) for `s` into `out`.
@@ -1064,6 +1040,18 @@ impl Command for PtyViewCommand {
         // patch-signals event when one changes so keystroke frames don't
         // carry a redundant signal patch.
         let mut last_meta: Option<(usize, usize, String)> = None;
+        // Per-subscriber diff state, set on the first frame and advanced on
+        // each subsequent one. `last_seqno` is wezterm's monotonic counter
+        // (a `usize` alias for `SequenceNo`); we ask the screen which lines
+        // changed since this value and emit only those. `last_stable_base`
+        // and `last_max_stable` track the [start, end) of stable ids
+        // currently mounted in the client so we can compute purges (top
+        // shrinks) and new rows (bottom grows). `last_cursor` short-circuits
+        // a cursor patch when nothing moved.
+        let mut last_seqno: usize = 0;
+        let mut last_stable_base: StableRowIndex = 0;
+        let mut last_max_stable: StableRowIndex = 0;
+        let mut last_cursor: (usize, usize) = (0, 0);
         let sid_owned = sid.clone();
 
         let stream = ByteStream::from_fn(
@@ -1102,17 +1090,74 @@ impl Command for PtyViewCommand {
                     std::thread::sleep(VIEW_COALESCE);
                 }
 
-                // Snapshot the latest generation + render the screen.
+                // Snapshot the latest generation + everything we need to
+                // either render the full first frame or compute the diff,
+                // under a single term lock. Lines come out cloned so we can
+                // render outside the lock.
                 let (lock, _cv) = &*dirty;
                 let gen_now = *lock.lock().unwrap();
-                let frame = {
+                let snap: ViewSnapshot = {
                     let term_guard = term.lock().unwrap();
-                    render_grid_html(&term_guard, &target)
+                    let size = term_guard.get_size();
+                    let cols = size.cols;
+                    let phys_rows = size.rows;
+                    let cursor = term_guard.cursor_pos();
+                    let title = term_guard.get_title().to_string();
+                    let seqno = term_guard.current_seqno();
+                    let screen = term_guard.screen();
+                    let total = screen.scrollback_rows();
+                    let visible_start = total.saturating_sub(phys_rows);
+                    let stable_base = screen.phys_to_stable_row_index(0);
+                    let max_stable = stable_base + total as StableRowIndex;
+                    let cursor_row = visible_start + cursor.y as usize;
+                    let cursor_col = cursor.x;
+                    // Changed rows that the client still has: query only the
+                    // overlap of the current stable range with what we last
+                    // sent. New rows (above `last_max_stable`) are handled
+                    // by the append path; purged rows fall off the front of
+                    // the overlap so they don't appear here.
+                    let changed_end = max_stable.min(last_max_stable);
+                    let changed = if sent_initial && changed_end > stable_base {
+                        screen.get_changed_stable_rows(stable_base..changed_end, last_seqno)
+                    } else {
+                        Vec::new()
+                    };
+                    let lines = screen.lines_in_phys_range(0..total);
+                    ViewSnapshot {
+                        cols,
+                        rows: phys_rows,
+                        title,
+                        seqno,
+                        stable_base,
+                        max_stable,
+                        cursor_row,
+                        cursor_col,
+                        lines,
+                        changed,
+                    }
                 };
                 last_gen = gen_now;
-                sent_initial = true;
 
-                emit_patch_elements(buffer, &frame.html);
+                if !sent_initial {
+                    // First frame: hand the client the whole grid in one
+                    // morph. Subsequent frames will only ship the diff.
+                    let frame = render_full_from_snap(&snap, &target);
+                    emit_patch_elements(buffer, &frame);
+                    sent_initial = true;
+                } else {
+                    emit_diff(buffer, &snap, &target, last_stable_base, last_max_stable);
+                    let cursor_now = (snap.cursor_row, snap.cursor_col);
+                    if cursor_now != last_cursor {
+                        let mut html = String::with_capacity(96);
+                        render_cursor_into(&mut html, &target, cursor_now.0, cursor_now.1);
+                        emit_patch_elements(buffer, &html);
+                    }
+                }
+
+                last_seqno = snap.seqno;
+                last_stable_base = snap.stable_base;
+                last_max_stable = snap.max_stable;
+                last_cursor = (snap.cursor_row, snap.cursor_col);
 
                 // Surface dims + title as signals so the client binds them
                 // declaratively (status line, document.title) instead of
@@ -1120,7 +1165,7 @@ impl Command for PtyViewCommand {
                 // when several views share the page (--no-signals) since the
                 // signals are global and would clobber each other.
                 if !no_signals {
-                    let meta = (frame.cols, frame.rows, frame.title);
+                    let meta = (snap.cols, snap.rows, snap.title.clone());
                     if last_meta.as_ref() != Some(&meta) {
                         emit_patch_signals(buffer, meta.0, meta.1, &meta.2);
                         last_meta = Some(meta);
@@ -1134,26 +1179,159 @@ impl Command for PtyViewCommand {
     }
 }
 
-/// Wrap a chunk of HTML as a `datastar-patch-elements` SSE event. The
-/// `elements` data line carries the HTML to morph; Datastar matches by id
-/// (we use `<div id="grid">` as the morph target).
-fn emit_patch_elements(buffer: &mut Vec<u8>, html: &str) {
-    buffer.extend_from_slice(b"event: datastar-patch-elements\n");
-    // The HTML never contains a literal newline (we don't pretty-print it),
-    // so a single `data: elements <...>` line is correct. Defensive: if a
-    // newline ever leaks in, split it into multiple data lines.
-    if html.contains('\n') {
-        for line in html.split('\n') {
-            buffer.extend_from_slice(b"data: elements ");
-            buffer.extend_from_slice(line.as_bytes());
-            buffer.extend_from_slice(b"\n");
-        }
-    } else {
-        buffer.extend_from_slice(b"data: elements ");
-        buffer.extend_from_slice(html.as_bytes());
-        buffer.extend_from_slice(b"\n");
+/// Everything PtyViewCommand's stream loop needs out of one term-lock pass:
+/// metadata + the cloned scrollback lines (for rendering outside the lock)
+/// + the precomputed changed-rows set. Built fresh each iteration.
+struct ViewSnapshot {
+    cols: usize,
+    rows: usize,
+    title: String,
+    seqno: usize,
+    stable_base: StableRowIndex,
+    max_stable: StableRowIndex,
+    cursor_row: usize,
+    cursor_col: usize,
+    lines: Vec<wezterm_term::Line>,
+    /// Stable ids whose lines' content changed since the subscriber's last
+    /// seqno, intersected with the rows still mounted in the client.
+    changed: Vec<StableRowIndex>,
+}
+
+/// Render the full grid HTML from a snapshot (cursor + every retained row).
+/// Used for the first SSE patch of a subscriber so the client lands in a
+/// consistent state; thereafter all frames are diffs.
+fn render_full_from_snap(snap: &ViewSnapshot, target: &str) -> String {
+    let default_attrs = CellAttributes::default();
+    let mut out = String::new();
+    let _ = write!(
+        out,
+        "<div id=\"{target}\" data-cols=\"{cols}\" data-rows=\"{rows}\" data-total=\"{total}\">",
+        cols = snap.cols,
+        rows = snap.rows,
+        total = snap.lines.len(),
+    );
+    render_cursor_into(&mut out, target, snap.cursor_row, snap.cursor_col);
+    for (idx, line) in snap.lines.iter().enumerate() {
+        let stable = snap.stable_base + idx as StableRowIndex;
+        render_row_into(&mut out, line, snap.cols, stable, &default_attrs);
     }
-    buffer.extend_from_slice(b"\n");
+    out.push_str("</div>");
+    out
+}
+
+/// Emit the per-frame diff bundle: a `mode: remove` selector list for any
+/// stable ids that purged off the top, default-mode-outer patches for any
+/// existing rows whose line seqno advanced, and a `mode: append` block of
+/// rows that appeared at the bottom. Cursor moves are handled separately
+/// by the caller.
+fn emit_diff(
+    buffer: &mut Vec<u8>,
+    snap: &ViewSnapshot,
+    target: &str,
+    last_stable_base: StableRowIndex,
+    last_max_stable: StableRowIndex,
+) {
+    let default_attrs = CellAttributes::default();
+
+    // Rows that purged off the top since last frame -- comma-joined so one
+    // SSE event removes them all at once.
+    if snap.stable_base > last_stable_base {
+        let mut selector = String::new();
+        for id in last_stable_base..snap.stable_base {
+            if !selector.is_empty() {
+                selector.push(',');
+            }
+            let _ = write!(selector, "#r-{id}");
+        }
+        emit_patch(buffer, Some(&selector), Some("remove"), &[]);
+    }
+
+    // Existing rows whose content changed. Default mode is `outer` and
+    // datastar matches each element by id, so no selector is needed -- the
+    // ids inside the HTML drive the morph.
+    if !snap.changed.is_empty() {
+        let mut htmls: Vec<String> = Vec::with_capacity(snap.changed.len());
+        for &id in &snap.changed {
+            let idx = (id - snap.stable_base) as usize;
+            if let Some(line) = snap.lines.get(idx) {
+                let mut s = String::with_capacity(snap.cols * 2 + 64);
+                render_row_into(&mut s, line, snap.cols, id, &default_attrs);
+                htmls.push(s);
+            }
+        }
+        if !htmls.is_empty() {
+            emit_patch(buffer, None, None, &htmls);
+        }
+    }
+
+    // New rows at the bottom: append into the grid container. last_max_stable
+    // can lag the current top (after a fast burst that's also purged the
+    // start of what we'd been about to add); clamp to the current base.
+    let new_start = last_max_stable.max(snap.stable_base);
+    if snap.max_stable > new_start {
+        let mut htmls: Vec<String> = Vec::with_capacity((snap.max_stable - new_start) as usize);
+        for id in new_start..snap.max_stable {
+            let idx = (id - snap.stable_base) as usize;
+            if let Some(line) = snap.lines.get(idx) {
+                let mut s = String::with_capacity(snap.cols * 2 + 64);
+                render_row_into(&mut s, line, snap.cols, id, &default_attrs);
+                htmls.push(s);
+            }
+        }
+        if !htmls.is_empty() {
+            let selector = format!("#{target}");
+            emit_patch(buffer, Some(&selector), Some("append"), &htmls);
+        }
+    }
+}
+
+/// General `datastar-patch-elements` SSE event. Any of `selector`, `mode`,
+/// `elements` may be omitted; datastar defaults `mode` to `outer` and (for
+/// outer/replace) matches by element id, so a default-mode patch with no
+/// selector morphs each top-level element in `elements` into its same-id
+/// counterpart in the DOM.
+fn emit_patch(
+    buffer: &mut Vec<u8>,
+    selector: Option<&str>,
+    mode: Option<&str>,
+    elements: &[String],
+) {
+    buffer.extend_from_slice(b"event: datastar-patch-elements\n");
+    if let Some(s) = selector {
+        buffer.extend_from_slice(b"data: selector ");
+        buffer.extend_from_slice(s.as_bytes());
+        buffer.push(b'\n');
+    }
+    if let Some(m) = mode {
+        buffer.extend_from_slice(b"data: mode ");
+        buffer.extend_from_slice(m.as_bytes());
+        buffer.push(b'\n');
+    }
+    for el in elements {
+        // The HTML never contains a literal newline (we don't pretty-print
+        // it), so a single `data: elements <...>` line is correct.
+        // Defensive: if a newline ever leaks in, split it into multiple
+        // data lines so SSE framing stays valid.
+        if el.contains('\n') {
+            for line in el.split('\n') {
+                buffer.extend_from_slice(b"data: elements ");
+                buffer.extend_from_slice(line.as_bytes());
+                buffer.push(b'\n');
+            }
+        } else {
+            buffer.extend_from_slice(b"data: elements ");
+            buffer.extend_from_slice(el.as_bytes());
+            buffer.push(b'\n');
+        }
+    }
+    buffer.push(b'\n');
+}
+
+/// Default-outer single-element patch: idiomorph finds the existing element
+/// by id and morphs in place. Used for the first full-grid frame and for
+/// cursor-move patches.
+fn emit_patch_elements(buffer: &mut Vec<u8>, html: &str) {
+    emit_patch(buffer, None, None, std::slice::from_ref(&html.to_string()));
 }
 
 /// Emit a `datastar-patch-signals` event carrying the frame's dimensions
@@ -1493,13 +1671,13 @@ mod tests {
     fn row_id_is_stable_across_scrollback_purge() {
         // Fill well past the scrollback cap so the oldest lines purge.
         let mut term = term_with_lines(4, 12, 0..SCROLLBACK_LINES + 100);
-        let before = rows_of(&render_grid_html(&term, "grid").html);
+        let before = rows_of(&render_grid_html(&term, "grid"));
 
         // Feed more lines, forcing further purges off the top.
         for i in SCROLLBACK_LINES + 100..SCROLLBACK_LINES + 150 {
             term.advance_bytes(format!("L{i}\r\n").as_bytes());
         }
-        let after = rows_of(&render_grid_html(&term, "grid").html);
+        let after = rows_of(&render_grid_html(&term, "grid"));
 
         // The top id must have advanced -- a purge actually happened.
         assert!(
