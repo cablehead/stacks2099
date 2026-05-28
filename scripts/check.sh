@@ -7,7 +7,7 @@ nu tests/test_html.nu
 nu tests/test_datastar.nu
 nu tests/test_projection.nu
 nu tests/test_render.nu
-deno fmt README.md --check
+deno fmt README.md journey.md --check
 cargo fmt --check --all
 cargo clippy --locked --workspace --all-targets --all-features -- -D warnings -W clippy::uninlined_format_args
 cargo build -p nu_plugin_test
