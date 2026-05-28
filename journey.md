@@ -1,10 +1,15 @@
-The usual way to put a terminal on a web page is [xterm.js](https://xtermjs.org)
--- a full terminal emulator in the browser. stacks2099 doesn't have one. The pty
-runs on the server, where stacks2099 (my custom binary) drives
+stacks2099 is a clip manager, a successor to
+[Stacks](https://stacks.cross.stream). Notes, images, and JSON gather into
+stacks, one per task. A clip can also be live: a running terminal. So how do you
+put a terminal in the browser?
+
+The usual way is [xterm.js](https://xtermjs.org), a full terminal emulator in
+the browser. stacks2099 doesn't have one. The pty runs on the server, where
+stacks2099 (my custom binary) drives
 [wezterm-term](https://github.com/wezterm/wezterm) as a library to parse its
-bytes into a cell grid; the grid renders to HTML, and
+bytes into a cell grid. The grid renders to HTML, and
 [Datastar](https://data-star.dev) morphs it into the DOM. The browser holds no
-terminal state at all -- it just renders what the server hands it.
+terminal state at all. It just renders what the server hands it.
 
 Benny's question in the [Datastar Discord](https://discord.gg/bnRNgZjgPh)
 prompted me to write down where I'd been. Thanks, Benny.
@@ -14,10 +19,10 @@ https://github.com/user-attachments/assets/3a1d739d-2e56-41a4-a562-f05af1a770b2
 ## xterm.js plus a pty proxy, no buffer
 
 This is the pretty standard starting place for sticking a terminal in a web
-page. It's where I started, anyway. xterm.js on the client side -- a virtual
+page. It's where I started, anyway. xterm.js on the client side, a virtual
 terminal emulator that knows how to parse the byte sequences a terminal
 exchanges with the shell (or TUI) on the other end of the pty. The server holds
-the pty, proxies bytes over HTTP in both directions -- bytes that would normally
+the pty, proxies bytes over HTTP in both directions, bytes that would normally
 just go directly between the terminal and the shell.
 
 This actually works pretty great out of the box. The shape, drawn out:
@@ -81,8 +86,8 @@ sequenceDiagram
     end
 ```
 
-Step 3 -- the snapshot bytes from a replay buffer -- doesn't exist here yet. So
-on reconnect, what does your fresh xterm.js see? It hasn't seen the history of
+Step 3 (the snapshot bytes from a replay buffer) doesn't exist here yet. So on
+reconnect, what does your fresh xterm.js see? It hasn't seen the history of
 bytes that the previous xterm.js parsed to build up its grid of what the screen
 looks like. You get a blank screen. You press a key, that sends bytes through
 the pty to the shell, the shell echoes your key back, you see a single keypress
@@ -91,10 +96,10 @@ a history of new bytes to get the grid repainted into something coherent.
 
 ## Adding a replay buffer
 
-So my next step was to wire up step 3 -- buffer the most recent bytes sent to
-the terminal (the bytes that paint "l" and "s", the cursor moves around them
-like newlines and carriage returns, and any escape codes). On reconnect xterm.js
-sees a blast of bytes, replays them, hopefully repaints to a coherent screen.
+So my next step was to wire up step 3: buffer the most recent bytes sent to the
+terminal (the bytes that paint "l" and "s", the cursor moves around them like
+newlines and carriage returns, and any escape codes). On reconnect xterm.js sees
+a blast of bytes, replays them, hopefully repaints to a coherent screen.
 
 This worked "pretty" well. But pretty quickly the terminal would get into a
 weird state. Pressing a key would delete the previous row of output on the
@@ -107,7 +112,7 @@ through an escape sequence.
 
 ## Three kinds of byte
 
-Back to "paint l, paint s, newline, carriage return" from earlier -- a useful
+Back to "paint l, paint s, newline, carriage return" from earlier. A useful
 simplification but it blurs what's in the stream. A terminal byte stream is a
 mix of three kinds of byte.
 
@@ -118,20 +123,20 @@ mix of three kinds of byte.
   rings the bell. These don't paint anything; they're cursor moves and side
   effects.
 - Escape sequences: anything starting with `\x1b`. Most of the protocol lives
-  here -- attribute changes (colours, bold), cursor jumps, clear screen, mode
+  here: attribute changes (colours, bold), cursor jumps, clear screen, mode
   switches (alternate screen, mouse reporting), queries the program wants the
   terminal to answer.
 
 ## Terminal queries (DA, DSR, and friends)
 
-Some of those escape sequences are queries -- the program asks the terminal a
+Some of those escape sequences are queries: the program asks the terminal a
 question and waits for the answer. The common ones:
 
-- DA1, "Primary Device Attributes" -- `\x1b[c`, "what kind of terminal are you?"
-- DA2, "Secondary Device Attributes" -- `\x1b[>c`, "what version?"
-- DSR, "Device Status Report" -- `\x1b[6n` is the one I see most, "where's the
+- DA1, "Primary Device Attributes": `\x1b[c`, "what kind of terminal are you?"
+- DA2, "Secondary Device Attributes": `\x1b[>c`, "what version?"
+- DSR, "Device Status Report": `\x1b[6n` is the one I see most, "where's the
   cursor right now?". The terminal writes back `\x1b[<row>;<col>R`.
-- OSC queries -- `\x1b]10;?\x07` asks for the foreground colour, `\x1b]11` for
+- OSC queries: `\x1b]10;?\x07` asks for the foreground colour, `\x1b]11` for
   background, `\x1b]4;<n>;?` for palette entry n. Plus a growing family for
   cursor colour, clipboard, titles, capability negotiation.
 
@@ -152,32 +157,32 @@ and that state, not the bytes, is what "the screen" actually is.
 
 - The grid: a
   [rectangle of cells, rows by columns](https://mitchellh.com/writing/grapheme-clusters-in-terminals).
-  Each cell holds one glyph plus its attributes -- bold, underline, foreground
-  and background colour.
+  Each cell holds one glyph plus its attributes: bold, underline, foreground and
+  background colour.
 - The cursor: where the next glyph lands, plus the current pen (the attributes
   freshly written cells inherit until an escape changes them).
 - Scrollback: a ring of lines that have scrolled off the top, kept so you can
   page back.
-- Modes: flags toggled by escape sequences -- alternate screen, line wrap, mouse
-  reporting, and so on.
+- Modes: flags toggled by escape sequences, such as alternate screen, line wrap,
+  mouse reporting, and so on.
 
 Printables and cursor moves nudge the grid and cursor; escape sequences flip
 attributes and modes or jump the cursor around. The byte stream is write-once
 history; the grid is the live result. From here on, "the grid" is shorthand for
-this whole pile -- cells, cursor, scrollback, modes.
+this whole pile: cells, cursor, scrollback, modes.
 
 ## How does tmux do this?
 
 [tmux](https://github.com/tmux/tmux) is itself a terminal emulator. The
 persistent "server" daemon isn't proxying the shell's bytes out to your attached
-terminal -- it's parsing them. Every byte the shell writes to its pty gets
+terminal. It's parsing them. Every byte the shell writes to its pty gets
 consumed by
 [tmux's VT parser](https://github.com/tmux/tmux/blob/f0669334189995dba860f59c3cf9cb12ae15865c/input.c#L953-L1008),
 which maintains an
 [in-memory grid (chars + attributes + colours)](https://github.com/tmux/tmux/blob/f0669334189995dba860f59c3cf9cb12ae15865c/tmux.h#L813-L821)
 and a
 [scrollback ring](https://github.com/tmux/tmux/blob/f0669334189995dba860f59c3cf9cb12ae15865c/grid.c#L386-L411).
-Your attached terminal never sees the shell's raw output -- only what tmux
+Your attached terminal never sees the shell's raw output, only what tmux
 re-emits.
 
 End to end:
@@ -199,7 +204,7 @@ escape sequence](https://github.com/tmux/tmux/blob/f0669334189995dba860f59c3cf9c
 to paint that grid on whatever client showed up.
 
 tmux isn't storing the bytes the shell wrote yesterday. It's storing the result
-of those bytes -- the grid -- and regenerating bytes on demand to reproduce it.
+of those bytes (the grid) and regenerating bytes on demand to reproduce it.
 
 ## A small VT100 proxy on the server
 
