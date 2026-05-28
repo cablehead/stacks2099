@@ -222,6 +222,46 @@ test("seqno-diff: post-cap keystroke ships a bounded patch", () => withApp(async
   );
 }));
 
+test("seqno-diff: appended rows are direct siblings with no text node between them", () => withApp(async (page) => {
+  // Regression for the SSE-join blank-line bug: multiple `data: elements`
+  // lines in one event get joined with `\n` by the browser, datastar feeds
+  // that to DOMParser, and the `\n` between top-level siblings becomes a
+  // visible text node in the parsed fragment. With `white-space: pre` on
+  // the grid that text node renders as a blank line between every appended
+  // row -- one per line of pty output, accumulating fast.
+  await page.waitForSelector("#doc .pane", { timeout: 15000 });
+  await page.waitForFunction(() => {
+    const s = document.querySelector("[id^='screen-']");
+    return s && s.getAttribute("data-sid");
+  }, { timeout: 15000 });
+  const sid = await page.evaluate(() => document.querySelector("[id^='screen-']").getAttribute("data-sid"));
+
+  // Drive a burst that forces a multi-row append in a single diff frame.
+  await page.evaluate(
+    async (sid) => {
+      await fetch(`/pty/input?sid=${encodeURIComponent(sid)}`, {
+        method: "POST",
+        body: "for i in 1..200 { print $\"row_($i)\" }\n",
+      });
+    },
+    sid,
+  );
+  await page.waitForFunction(
+    () => document.querySelectorAll("[id^='grid-'] .row").length >= 200,
+    { timeout: 15000 },
+  );
+
+  const stray = await page.evaluate(() => {
+    const g = document.querySelector("[id^='grid-']");
+    let count = 0;
+    for (const n of g.childNodes) {
+      if (n.nodeType === 3 && n.textContent.includes("\n")) count++;
+    }
+    return count;
+  });
+  assert.equal(stray, 0, `no stray "\\n" text nodes should sit between row siblings (found ${stray})`);
+}));
+
 test("markdown clip toggles rendered <-> edit", () => withApp(async (page) => {
   await page.evaluate(async () => {
     await fetch("/clip/add", { method: "POST", headers: { "content-type": "text/markdown" }, body: "# Heading\n\n- a\n- b\n" });
