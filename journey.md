@@ -5,12 +5,12 @@ put a terminal in the browser?
 
 The usual way is [xterm.js](https://xtermjs.org), a full terminal emulator in
 the browser. Or it was, before we had
-[ghostty-web](https://github.com/coder/ghostty-web).. stacks2099 doesn't have
-one. The pty runs on the server, where stacks2099 (my custom binary) drives
-[wezterm-term](https://github.com/wezterm/wezterm) as a library to parse its
-bytes into a cell grid. The grid renders to HTML, and
-[Datastar](https://data-star.dev) morphs it into the DOM. The browser holds no
-terminal state at all. It just renders what the server hands it.
+[ghostty-web](https://github.com/coder/ghostty-web).. stacks2099 has neither.
+The pty runs on the server, where stacks2099 parses its bytes with
+[wezterm-term](https://github.com/wezterm/wezterm), linked in as a library, into
+a cell grid. The grid renders to HTML, and [Datastar](https://data-star.dev)
+morphs it into the DOM. The browser holds no terminal state at all. It just
+renders what the server hands it.
 
 Benny's question in the [Datastar Discord](https://discord.gg/bnRNgZjgPh)
 prompted me to write down where I'd been. Thanks, Benny.
