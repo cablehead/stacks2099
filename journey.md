@@ -1,18 +1,20 @@
 stacks2099 doesn't have a terminal emulator in the browser. The pty
 runs on the server, where stacks2099 (my custom binary) drives
-wezterm-term as a library to parse its bytes into a cell grid, the grid
-renders to HTML, Datastar morphs it into the DOM. This is how I got
-there.
+[wezterm-term](https://github.com/wezterm/wezterm) as a library to parse
+its bytes into a cell grid, the grid renders to HTML,
+[Datastar](https://data-star.dev) morphs it into the DOM. This is how I
+got there.
 
-Thanks to Benny for the prompt that turned this from a [Datastar
-Discord](https://discord.gg/bnRNgZjgPh) answer into a doc.
+Benny's question in the [Datastar Discord](https://discord.gg/bnRNgZjgPh)
+prompted me to write down where I'd been. Thanks, Benny.
 
 https://github.com/user-attachments/assets/3a1d739d-2e56-41a4-a562-f05af1a770b2
 
 ## xterm.js plus a pty proxy, no buffer
 
 This is the pretty standard starting place for sticking a terminal in a
-web page. It's where I started, anyway. xterm.js on the client side -- a
+web page. It's where I started, anyway. [xterm.js](https://xtermjs.org)
+on the client side -- a
 virtual terminal emulator that knows how to parse the byte sequences a
 terminal exchanges with the shell (or TUI) on the other end of the pty.
 The server holds the pty, proxies bytes over HTTP in both directions --
@@ -159,9 +161,9 @@ A terminal emulator doesn't keep the byte stream around. As it parses,
 it folds those bytes into a small, fixed pile of state, and that state,
 not the bytes, is what "the screen" actually is.
 
-- The grid: a rectangle of cells, rows by columns. Each cell holds one
-  glyph plus its attributes -- bold, underline, foreground and
-  background colour.
+- The grid: a [rectangle of cells, rows by columns](https://mitchellh.com/writing/grapheme-clusters-in-terminals).
+  Each cell holds one glyph plus its attributes -- bold, underline,
+  foreground and background colour.
 - The cursor: where the next glyph lands, plus the current pen (the
   attributes freshly written cells inherit until an escape changes
   them).
@@ -179,7 +181,7 @@ modes.
 
 ## How does tmux do this?
 
-tmux is itself a terminal emulator. The persistent "server" daemon
+[tmux](https://github.com/tmux/tmux) is itself a terminal emulator. The persistent "server" daemon
 isn't proxying the shell's bytes out to your attached terminal --
 it's parsing them. Every byte the shell writes to its pty gets consumed
 by [tmux's VT parser](https://github.com/tmux/tmux/blob/f0669334189995dba860f59c3cf9cb12ae15865c/input.c#L953-L1008),
@@ -214,10 +216,11 @@ demand to reproduce it.
 
 OK, I needed something on the server that knew how to parse the stream
 of bytes, so I could at least *frame* the replay. I added the vt100
-crate to the stacks2099 dependencies. Bytes were tee'd to it so it
-built up a grid. On reconnect it pushed the grid to the client, then
-started feeding it fresh bytes from nu so it could maintain its grid
-incrementally from there.
+[crate](https://crates.io/crates/vt100) to the stacks2099 dependencies.
+Bytes were tee'd to it so it built up a grid. On reconnect it pushed the
+grid to the client, then started feeding it fresh bytes from
+[nu](https://www.nushell.sh) so it could maintain its grid incrementally
+from there.
 
 Two jobs:
 
@@ -225,7 +228,8 @@ Two jobs:
    instead of a byte replay.
 2. Handles pty queries (DA/DSR/OSC) when no client is attached.
 
-(Around this time ghostty-web became stable enough to use. It's a
+(Around this time [ghostty-web](https://github.com/coder/ghostty-web)
+became stable enough to use. It's a
 drop-in replacement for xterm.js, so swapping it in touched only the
 client side; the server stayed as it was.)
 
@@ -236,7 +240,7 @@ states.
 ## Swapping vt100 for wezterm-term
 
 vt100 is an OK virtual terminal lib but doesn't handle a lot of what
-ghostty does (mouse modes, OSC 8 hyperlinks, color queries, image
+[ghostty](https://ghostty.org) does (mouse modes, OSC 8 hyperlinks, color queries, image
 protocols). Things felt a bit better, but the terminal would still
 regularly fall into an inconsistent state. Completely guessing, one
 hunch was a gap between vt100's parsing and ghostty's. What I was after
