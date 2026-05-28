@@ -1,5 +1,6 @@
-stacks2099 doesn't have a terminal emulator in the browser. The pty runs on the
-server, where stacks2099 (my custom binary) drives
+The usual way to put a terminal on a web page is [xterm.js](https://xtermjs.org)
+-- a full terminal emulator in the browser. stacks2099 doesn't have one. The pty
+runs on the server, where stacks2099 (my custom binary) drives
 [wezterm-term](https://github.com/wezterm/wezterm) as a library to parse its
 bytes into a cell grid, the grid renders to HTML,
 [Datastar](https://data-star.dev) morphs it into the DOM. This is how I got
@@ -13,11 +14,11 @@ https://github.com/user-attachments/assets/3a1d739d-2e56-41a4-a562-f05af1a770b2
 ## xterm.js plus a pty proxy, no buffer
 
 This is the pretty standard starting place for sticking a terminal in a web
-page. It's where I started, anyway. [xterm.js](https://xtermjs.org) on the
-client side -- a virtual terminal emulator that knows how to parse the byte
-sequences a terminal exchanges with the shell (or TUI) on the other end of the
-pty. The server holds the pty, proxies bytes over HTTP in both directions --
-bytes that would normally just go directly between the terminal and the shell.
+page. It's where I started, anyway. xterm.js on the client side -- a virtual
+terminal emulator that knows how to parse the byte sequences a terminal
+exchanges with the shell (or TUI) on the other end of the pty. The server holds
+the pty, proxies bytes over HTTP in both directions -- bytes that would normally
+just go directly between the terminal and the shell.
 
 This actually works pretty great out of the box. The shape, drawn out:
 
