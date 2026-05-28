@@ -4,8 +4,9 @@ stacks, one per task. A clip can also be live: a running terminal. So how do you
 put a terminal in the browser?
 
 The usual way is [xterm.js](https://xtermjs.org), a full terminal emulator in
-the browser. stacks2099 doesn't have one. The pty runs on the server, where
-stacks2099 (my custom binary) drives
+the browser. Or it was, before we had
+[ghostty-web](https://github.com/coder/ghostty-web).. stacks2099 doesn't have
+one. The pty runs on the server, where stacks2099 (my custom binary) drives
 [wezterm-term](https://github.com/wezterm/wezterm) as a library to parse its
 bytes into a cell grid. The grid renders to HTML, and
 [Datastar](https://data-star.dev) morphs it into the DOM. The browser holds no
@@ -19,11 +20,13 @@ https://github.com/user-attachments/assets/3a1d739d-2e56-41a4-a562-f05af1a770b2
 ## xterm.js plus a pty proxy, no buffer
 
 This is the pretty standard starting place for sticking a terminal in a web
-page. It's where I started, anyway. xterm.js on the client side, a virtual
-terminal emulator that knows how to parse the byte sequences a terminal
-exchanges with the shell (or TUI) on the other end of the pty. The server holds
-the pty, proxies bytes over HTTP in both directions, bytes that would normally
-just go directly between the terminal and the shell.
+page. It's
+[where I started](https://github.com/cablehead/tauri-xtermjs-nushell), anyway.
+xterm.js on the client side, a virtual terminal emulator that knows how to parse
+the byte sequences a terminal exchanges with the shell (or TUI) on the other end
+of the pty. The server holds the pty, proxies bytes over HTTP in both
+directions, bytes that would normally just go directly between the terminal and
+the shell.
 
 This actually works pretty great out of the box. The shape, drawn out:
 
@@ -221,9 +224,10 @@ Two jobs:
    byte replay.
 2. Handles pty queries (DA/DSR/OSC) when no client is attached.
 
-(Around this time [ghostty-web](https://github.com/coder/ghostty-web) became
-stable enough to use. It's a drop-in replacement for xterm.js, so swapping it in
-touched only the client side; the server stayed as it was.)
+(Around this time ghostty-web, Ghostty compiled to WASM, became stable enough to
+use. It's a drop-in replacement for xterm.js, so
+[swapping it in](https://github.com/cablehead/ghostty-web-nu) touched only the
+client side; the server stayed as it was.)
 
 This worked a good bit better. But it would still fall into inconsistent states.
 
