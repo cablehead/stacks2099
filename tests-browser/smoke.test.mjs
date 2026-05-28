@@ -79,6 +79,71 @@ test("move reorders #doc panes by relocating nodes (terminal stays live)", () =>
   assert.ok(await page.evaluate(() => !!document.querySelector("[id^='grid-'] *")), "terminal grid survived the reorder");
 }));
 
+test("terminal row ids stay stable across scrollback purge", () => withApp(async (page) => {
+  // Regression for the full-grid-morph cliff: row ids in `#grid-<cid>` are
+  // wezterm's StableRowIndex, not the phys index, so when scrollback fills past
+  // its cap and oldest lines purge, surviving rows keep their ids and idiomorph
+  // leaves them untouched. Pre-fix the ids would shift by one per purge and the
+  // browser re-morphed the entire scrollback on every frame.
+  await page.waitForSelector("#doc .pane", { timeout: 15000 });
+  await page.waitForFunction(() => {
+    const s = document.querySelector("[id^='screen-']");
+    return s && s.getAttribute("data-sid");
+  }, { timeout: 15000 });
+  const sid = await page.evaluate(() => document.querySelector("[id^='screen-']").getAttribute("data-sid"));
+  const gridSel = await page.evaluate(() => "#" + document.querySelector("[id^='grid-']").id);
+
+  const send = (cmd) => page.evaluate(
+    async ({ sid, cmd }) => {
+      const r = await fetch(`/pty/input?sid=${encodeURIComponent(sid)}`, { method: "POST", body: cmd });
+      if (!r.ok) throw new Error(`pty/input ${r.status}`);
+    },
+    { sid, cmd },
+  );
+  const idOfText = (text) => page.evaluate(
+    ({ sel, text }) => {
+      for (const r of document.querySelectorAll(sel + " .row")) {
+        if (r.textContent.trim() === text) return r.id;
+      }
+      return null;
+    },
+    { sel: gridSel, text },
+  );
+  const topRowId = () => page.evaluate((sel) => document.querySelector(sel + " .row").id, gridSel);
+
+  // Emit ~3200 marker lines so the 3000-line cap purges and at least 200 sit in
+  // the retained-but-not-original window we'll re-check after another purge.
+  await send("for i in 1..3200 { print $\"M_($i)\" }\n");
+  await page.waitForFunction(
+    (sel) => document.querySelectorAll(sel + " .row").length >= 3000,
+    gridSel,
+    { timeout: 30000 },
+  );
+
+  const marker = "M_2500";
+  const markerIdBefore = await idOfText(marker);
+  assert.ok(markerIdBefore, `${marker} should be in the retained scrollback`);
+  const topIdBefore = await topRowId();
+
+  // Push another 200 lines so the oldest ~200 rows purge off the top.
+  await send("for i in 1..200 { print $\"N_($i)\" }\n");
+  await page.waitForFunction(
+    ({ sel, topIdBefore }) => document.querySelector(sel + " .row")?.id !== topIdBefore,
+    { sel: gridSel, topIdBefore },
+    { timeout: 15000 },
+  );
+
+  const markerIdAfter = await idOfText(marker);
+  assert.equal(markerIdAfter, markerIdBefore, `${marker} must keep its row id across a purge`);
+
+  const num = (id) => Number.parseInt(id.replace(/^r-/, ""), 10);
+  const topIdAfter = await topRowId();
+  assert.ok(
+    num(topIdAfter) > num(topIdBefore),
+    `top row id must advance after purge: ${topIdBefore} -> ${topIdAfter}`,
+  );
+}));
+
 test("markdown clip toggles rendered <-> edit", () => withApp(async (page) => {
   await page.evaluate(async () => {
     await fetch("/clip/add", { method: "POST", headers: { "content-type": "text/markdown" }, body: "# Heading\n\n- a\n- b\n" });
