@@ -513,14 +513,21 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
               let layout_patch = if $layout != $st.layout { ({docLayout: $layout} | to datastar-patch-signals) } else { null }
 
               # Re-render a clip's pane in place when its content or type
-              # changes -- the add/remove above only tracks presence. A note's
-              # body edit (clip.update on a note) is skipped: its editor owns
-              # the text and the editing client already reflects it.
+              # changes -- the add/remove above only tracks presence. Two
+              # repane skips: a note's body edit (clip.update on a note)
+              # because its editor owns the text; and a position-only
+              # clip.patch (renumber-stack or a single move) because position
+              # is a sort key with no visible effect on the pane. The latter
+              # also matters for terminals: repaning emits an empty
+              # `<div id='grid-{cid}'>`, which idiomorph would morph in place
+              # and wipe the live scrollback until the /pty/view SSE
+              # reconnects.
               let repane = if ($topic in ["clip.update" "clip.patch"]) {
                 let rid = ($ev.meta?.id? | default "")
                 let rc = ($clips | where id == $rid | get 0?)
                 let editing_note = ($rc | is-not-empty) and ($topic == "clip.update") and ((clip-render-type $rc) == "note")
-                if ($rc | is-not-empty) and ($rid in $rendered2) and (not $editing_note) {
+                let position_only = ($topic == "clip.patch") and (($ev.meta? | default {} | columns | where {|k| not ($k in ["id" "position"]) } | is-empty))
+                if ($rc | is-not-empty) and ($rid in $rendered2) and (not $editing_note) and (not $position_only) {
                   (render-pane $rc | to datastar-patch-elements --selector $"#pane-($rid)")
                 } else { null }
               } else { null }
