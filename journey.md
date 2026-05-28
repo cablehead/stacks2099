@@ -6,6 +6,7 @@ got there.
 Thanks to Benny for the prompt that turned this from a Discord answer
 into a doc.
 
+https://github.com/user-attachments/assets/3a1d739d-2e56-41a4-a562-f05af1a770b2
 
 ## xterm.js plus a pty proxy, no buffer
 
