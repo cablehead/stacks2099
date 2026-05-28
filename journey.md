@@ -2,9 +2,9 @@ The usual way to put a terminal on a web page is [xterm.js](https://xtermjs.org)
 -- a full terminal emulator in the browser. stacks2099 doesn't have one. The pty
 runs on the server, where stacks2099 (my custom binary) drives
 [wezterm-term](https://github.com/wezterm/wezterm) as a library to parse its
-bytes into a cell grid, the grid renders to HTML,
-[Datastar](https://data-star.dev) morphs it into the DOM. This is how I got
-there.
+bytes into a cell grid; the grid renders to HTML, and
+[Datastar](https://data-star.dev) morphs it into the DOM. The browser holds no
+terminal state at all -- it just renders what the server hands it.
 
 Benny's question in the [Datastar Discord](https://discord.gg/bnRNgZjgPh)
 prompted me to write down where I'd been. Thanks, Benny.
