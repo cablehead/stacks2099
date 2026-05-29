@@ -116,8 +116,7 @@ through an escape sequence.
 
 ## Three kinds of byte
 
-Back to "paint l, paint s, newline, carriage return" from earlier. A useful
-simplification but it blurs what's in the stream. A terminal byte stream is a
+A terminal byte stream is a
 [mix of three kinds of byte](https://vt100.net/emu/dec_ansi_parser).
 
 - Printables: bytes (or UTF-8 sequences) that produce a character you'd see. Put
