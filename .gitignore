@@ -3,6 +3,6 @@
 store
 www/assets/_/
 __pycache__/
-.claude/
+.claude/settings.local.json
 
 /.dev-store
