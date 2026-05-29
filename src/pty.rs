@@ -243,12 +243,30 @@ fn hyperlink_rules() -> &'static [Rule] {
         .as_slice()
 }
 
-/// Attach implicit-hyperlink attributes to a line's cells for any text that
-/// matches `hyperlink_rules`. Idempotent per line (wezterm tracks a scanned
-/// bit, cleared when the line changes). Scanning is per physical line, so a
-/// URL that wraps across rows is linked up to the wrap point on each row.
-fn scan_line_hyperlinks(line: &mut Line) {
-    line.scan_and_create_hyperlinks(hyperlink_rules());
+/// Attach implicit-hyperlink attributes for any text matching `hyperlink_rules`
+/// to the logical lines whose stable id changed since `since`. wezterm groups
+/// wrapped physical rows into one logical line (and `apply_hyperlink_rules`
+/// writes the attribute back onto each physical row's cells), so a URL that
+/// wraps across the right edge is linked across the rows it spans. Returns the
+/// current seqno to pass as `since` next time; per-line scanned bits mean only
+/// genuinely-changed lines re-scan. Runs on the live screen in the reader
+/// thread, so the per-frame `pty view` clones inherit the attributes for free.
+fn scan_hyperlinks(term: &mut Terminal, since: usize) -> usize {
+    let seqno = term.current_seqno();
+    let screen = term.screen_mut();
+    let base = screen.phys_to_stable_row_index(0);
+    let total = screen.scrollback_rows() as StableRowIndex;
+    if total == 0 {
+        return seqno;
+    }
+    let changed = screen.get_changed_stable_rows(base..base + total, since);
+    if let (Some(&lo), Some(&hi)) = (changed.first(), changed.last()) {
+        screen.for_each_logical_line_in_stable_range_mut(lo..hi + 1, |_, lines| {
+            Line::apply_hyperlink_rules(hyperlink_rules(), lines);
+            true
+        });
+    }
+    seqno
 }
 
 /// Return the URI to use as an `href`, or None if its scheme isn't one we'll
@@ -430,7 +448,8 @@ fn render_cursor_into(out: &mut String, target: &str, row: usize, col: usize) {
 /// stays around for the unit tests that pin the stable-id contract by
 /// driving a Terminal directly and parsing the rendered HTML.
 #[cfg(test)]
-fn render_grid_html(term: &Terminal, target: &str) -> String {
+fn render_grid_html(term: &mut Terminal, target: &str) -> String {
+    scan_hyperlinks(term, 0);
     let size = term.get_size();
     let cols = size.cols;
     let phys_rows = size.rows;
@@ -438,7 +457,7 @@ fn render_grid_html(term: &Terminal, target: &str) -> String {
     let screen = term.screen();
     let total = screen.scrollback_rows();
     let visible_start = total.saturating_sub(phys_rows);
-    let mut lines = screen.lines_in_phys_range(0..total);
+    let lines = screen.lines_in_phys_range(0..total);
     let stable_base = screen.phys_to_stable_row_index(0);
     let cursor_row = visible_start + cursor.y as usize;
     let cursor_col = cursor.x;
@@ -449,9 +468,8 @@ fn render_grid_html(term: &Terminal, target: &str) -> String {
         "<div id=\"{target}\" data-cols=\"{cols}\" data-rows=\"{phys_rows}\" data-total=\"{total}\">"
     );
     render_cursor_into(&mut out, target, cursor_row, cursor_col);
-    for (row_idx, line) in lines.iter_mut().enumerate() {
+    for (row_idx, line) in lines.iter().enumerate() {
         let stable = stable_base + row_idx as StableRowIndex;
-        scan_line_hyperlinks(line);
         render_row_into(&mut out, target, line, cols, stable, &default_attrs);
     }
     out.push_str("</div>");
@@ -799,6 +817,9 @@ fn spawn_reader(
                 .ok()
         });
         let mut buf = [0u8; 4096];
+        // Seqno of the last hyperlink scan; advanced each chunk so only lines
+        // changed by this chunk get re-scanned.
+        let mut scan_seqno = 0usize;
         loop {
             match reader.read(&mut buf) {
                 Ok(0) => break,
@@ -810,6 +831,10 @@ fn spawn_reader(
                     {
                         let mut term_guard = term.lock().unwrap();
                         term_guard.advance_bytes(&buf[..n]);
+                        // Detect bare URLs on the lines just changed, before
+                        // waking view subscribers so their clones carry the
+                        // hyperlink attributes.
+                        scan_seqno = scan_hyperlinks(&mut term_guard, scan_seqno);
                     }
                     let (lock, cv) = &*dirty;
                     {
@@ -1221,7 +1246,7 @@ impl Command for PtyViewCommand {
                 // render outside the lock.
                 let (lock, _cv) = &*dirty;
                 let gen_now = *lock.lock().unwrap();
-                let mut snap: ViewSnapshot = {
+                let snap: ViewSnapshot = {
                     let term_guard = term.lock().unwrap();
                     let size = term_guard.get_size();
                     let cols = size.cols;
@@ -1277,17 +1302,11 @@ impl Command for PtyViewCommand {
                     // hand the client the whole new grid in one outer morph
                     // so idiomorph drops anything no longer present and the
                     // diff state starts fresh.
-                    let frame = render_full_from_snap(&mut snap, &target);
+                    let frame = render_full_from_snap(&snap, &target);
                     emit_patch_elements(buffer, &frame);
                     sent_initial = true;
                 } else {
-                    emit_diff(
-                        buffer,
-                        &mut snap,
-                        &target,
-                        last_stable_base,
-                        last_max_stable,
-                    );
+                    emit_diff(buffer, &snap, &target, last_stable_base, last_max_stable);
                     let cursor_now = (snap.cursor_row, snap.cursor_col);
                     if cursor_now != last_cursor {
                         let mut html = String::with_capacity(96);
@@ -1353,21 +1372,20 @@ struct ViewSnapshot {
 /// Render the full grid HTML from a snapshot (cursor + every retained row).
 /// Used for the first SSE patch of a subscriber so the client lands in a
 /// consistent state; thereafter all frames are diffs.
-fn render_full_from_snap(snap: &mut ViewSnapshot, target: &str) -> String {
+fn render_full_from_snap(snap: &ViewSnapshot, target: &str) -> String {
     let default_attrs = CellAttributes::default();
-    let (cols, rows, stable_base) = (snap.cols, snap.rows, snap.stable_base);
-    let (cursor_row, cursor_col) = (snap.cursor_row, snap.cursor_col);
     let mut out = String::new();
     let _ = write!(
         out,
         "<div id=\"{target}\" data-cols=\"{cols}\" data-rows=\"{rows}\" data-total=\"{total}\">",
+        cols = snap.cols,
+        rows = snap.rows,
         total = snap.lines.len(),
     );
-    render_cursor_into(&mut out, target, cursor_row, cursor_col);
-    for (idx, line) in snap.lines.iter_mut().enumerate() {
-        let stable = stable_base + idx as StableRowIndex;
-        scan_line_hyperlinks(line);
-        render_row_into(&mut out, target, line, cols, stable, &default_attrs);
+    render_cursor_into(&mut out, target, snap.cursor_row, snap.cursor_col);
+    for (idx, line) in snap.lines.iter().enumerate() {
+        let stable = snap.stable_base + idx as StableRowIndex;
+        render_row_into(&mut out, target, line, snap.cols, stable, &default_attrs);
     }
     out.push_str("</div>");
     out
@@ -1380,20 +1398,19 @@ fn render_full_from_snap(snap: &mut ViewSnapshot, target: &str) -> String {
 /// by the caller.
 fn emit_diff(
     buffer: &mut Vec<u8>,
-    snap: &mut ViewSnapshot,
+    snap: &ViewSnapshot,
     target: &str,
     last_stable_base: StableRowIndex,
     last_max_stable: StableRowIndex,
 ) {
     let default_attrs = CellAttributes::default();
-    let (cols, stable_base, max_stable) = (snap.cols, snap.stable_base, snap.max_stable);
 
     // Rows that purged off the top since last frame -- comma-joined so one
     // SSE event removes them all at once. The id is grid-scoped
     // (`{target}-r-{stable}`) so two panes can't fight over the same id.
-    if stable_base > last_stable_base {
+    if snap.stable_base > last_stable_base {
         let mut selector = String::new();
-        for id in last_stable_base..stable_base {
+        for id in last_stable_base..snap.stable_base {
             if !selector.is_empty() {
                 selector.push(',');
             }
@@ -1406,18 +1423,15 @@ fn emit_diff(
     // datastar matches each element by id, so no selector is needed -- the
     // ids inside the HTML drive the morph.
     if !snap.changed.is_empty() {
-        let changed = std::mem::take(&mut snap.changed);
-        let mut htmls: Vec<String> = Vec::with_capacity(changed.len());
-        for &id in &changed {
-            let idx = (id - stable_base) as usize;
-            if let Some(line) = snap.lines.get_mut(idx) {
-                scan_line_hyperlinks(line);
-                let mut s = String::with_capacity(cols * 2 + 64);
-                render_row_into(&mut s, target, line, cols, id, &default_attrs);
+        let mut htmls: Vec<String> = Vec::with_capacity(snap.changed.len());
+        for &id in &snap.changed {
+            let idx = (id - snap.stable_base) as usize;
+            if let Some(line) = snap.lines.get(idx) {
+                let mut s = String::with_capacity(snap.cols * 2 + 64);
+                render_row_into(&mut s, target, line, snap.cols, id, &default_attrs);
                 htmls.push(s);
             }
         }
-        snap.changed = changed;
         if !htmls.is_empty() {
             emit_patch(buffer, None, None, &htmls);
         }
@@ -1426,15 +1440,14 @@ fn emit_diff(
     // New rows at the bottom: append into the grid container. last_max_stable
     // can lag the current top (after a fast burst that's also purged the
     // start of what we'd been about to add); clamp to the current base.
-    let new_start = last_max_stable.max(stable_base);
-    if max_stable > new_start {
-        let mut htmls: Vec<String> = Vec::with_capacity((max_stable - new_start) as usize);
-        for id in new_start..max_stable {
-            let idx = (id - stable_base) as usize;
-            if let Some(line) = snap.lines.get_mut(idx) {
-                scan_line_hyperlinks(line);
-                let mut s = String::with_capacity(cols * 2 + 64);
-                render_row_into(&mut s, target, line, cols, id, &default_attrs);
+    let new_start = last_max_stable.max(snap.stable_base);
+    if snap.max_stable > new_start {
+        let mut htmls: Vec<String> = Vec::with_capacity((snap.max_stable - new_start) as usize);
+        for id in new_start..snap.max_stable {
+            let idx = (id - snap.stable_base) as usize;
+            if let Some(line) = snap.lines.get(idx) {
+                let mut s = String::with_capacity(snap.cols * 2 + 64);
+                render_row_into(&mut s, target, line, snap.cols, id, &default_attrs);
                 htmls.push(s);
             }
         }
@@ -1846,13 +1859,13 @@ mod tests {
     fn row_id_is_stable_across_scrollback_purge() {
         // Fill well past the scrollback cap so the oldest lines purge.
         let mut term = term_with_lines(4, 12, 0..SCROLLBACK_LINES + 100);
-        let before = rows_of(&render_grid_html(&term, "grid"));
+        let before = rows_of(&render_grid_html(&mut term, "grid"));
 
         // Feed more lines, forcing further purges off the top.
         for i in SCROLLBACK_LINES + 100..SCROLLBACK_LINES + 150 {
             term.advance_bytes(format!("L{i}\r\n").as_bytes());
         }
-        let after = rows_of(&render_grid_html(&term, "grid"));
+        let after = rows_of(&render_grid_html(&mut term, "grid"));
 
         // The top id must have advanced -- a purge actually happened.
         assert!(
@@ -1923,8 +1936,8 @@ mod tests {
     #[test]
     fn render_row_wide_char_no_pad() {
         let zhong = '\u{4E2D}';
-        let term = term_with_bytes(2, 12, "ab\u{4E2D}cd".as_bytes());
-        let html = render_grid_html(&term, "grid");
+        let mut term = term_with_bytes(2, 12, "ab\u{4E2D}cd".as_bytes());
+        let html = render_grid_html(&mut term, "grid");
         let rows = rows_of(&html);
 
         // No spurious pad: the five typed glyphs and nothing more.
@@ -1976,8 +1989,8 @@ mod tests {
     #[test]
     fn render_osc8_hyperlink_becomes_anchor() {
         let bytes = b"\x1b]8;;https://example.com\x1b\\Click\x1b]8;;\x1b\\";
-        let term = term_with_bytes(2, 40, bytes);
-        let html = render_grid_html(&term, "grid");
+        let mut term = term_with_bytes(2, 40, bytes);
+        let html = render_grid_html(&mut term, "grid");
         assert!(
             html.contains("<a "),
             "expected an anchor element for the OSC 8 link, got:\n{html}"
@@ -1999,8 +2012,8 @@ mod tests {
     /// linkify the match itself.
     #[test]
     fn render_bare_url_is_detected_and_linked() {
-        let term = term_with_bytes(2, 40, b"see https://example.com ok");
-        let html = render_grid_html(&term, "grid");
+        let mut term = term_with_bytes(2, 40, b"see https://example.com ok");
+        let html = render_grid_html(&mut term, "grid");
         assert!(
             html.contains("<a "),
             "expected an anchor element for the detected bare URL, got:\n{html}"
@@ -2008,6 +2021,30 @@ mod tests {
         assert!(
             hrefs_of(&html).iter().any(|h| h == "https://example.com"),
             "detected URL should appear as an href"
+        );
+    }
+
+    /// A URL that wraps across the right edge is one logical line in wezterm.
+    /// Scanning groups the wrapped physical rows and links the whole URL, so
+    /// the full target (including the tail on the next row) appears as the
+    /// href -- per-physical-line scanning would only catch the head on row 0
+    /// and leave the tail an unlinked fragment.
+    #[test]
+    fn render_wrapped_url_is_linked_across_rows() {
+        // 20 cols: "https://example.com/" fills row 0 exactly, "abcdef" wraps
+        // to row 1.
+        let full = "https://example.com/abcdef";
+        let mut term = term_with_bytes(4, 20, full.as_bytes());
+        let html = render_grid_html(&mut term, "grid");
+        let hrefs = hrefs_of(&html);
+        assert!(
+            hrefs.iter().any(|h| h == full),
+            "wrapped URL should link to the full target {full:?}, got hrefs {hrefs:?}"
+        );
+        // Both rows carry the link (head on row 0, tail on row 1).
+        assert!(
+            hrefs.iter().filter(|h| h.as_str() == full).count() >= 2,
+            "both wrapped rows should carry the href, got {hrefs:?}"
         );
     }
 }
