@@ -68,7 +68,7 @@ sequenceDiagram
         Term->>HTTP: POST /pty/resize {rows, cols}
         HTTP->>State: master.resize(rows, cols)
         State->>Nu: SIGWINCH
-        Nu->>State: VT escapes (reedline repaints prompt)
+        Nu->>State: VT escapes (repaints prompt)
         State-->>HTTP: reader yields chunk
         HTTP-->>Term: paint grid <- parse VT (xterm.js) <- SSE: <bytes>
     end
@@ -298,7 +298,7 @@ sequenceDiagram
         Browser->>HTTP: POST /pty/resize {rows, cols}
         HTTP->>Nu: master.resize -> SIGWINCH
         HTTP->>Grid: resize(): reflow scrollback at new width
-        Note over Nu: reedline repaints prompt
+        Note over Nu: repaints prompt
         Grid-->>HTTP: re-render reflowed grid as HTML
         HTTP-->>Browser: Datastar morphs DOM <- SSE: morph patch
     end
