@@ -102,8 +102,8 @@ a history of new bytes to get the grid repainted into something coherent.
 So my next step was to wire up step 3: buffer the most recent bytes sent to the
 terminal (the printable bytes for "l" and "s", the C0 controls that move the
 cursor around them like line feed and carriage return, and the escape and
-control sequences). On reconnect xterm.js sees
-a blast of bytes, replays them, hopefully repaints to a coherent screen.
+control sequences). On reconnect xterm.js sees a blast of bytes, replays them,
+hopefully repaints to a coherent screen.
 
 This worked "pretty" well. But pretty quickly the terminal would get into a
 weird state. Pressing a key would delete the previous row of output on the
@@ -163,8 +163,8 @@ what "the screen" actually is.
 - The grid: a
   [grid of fixed-size cells](https://mitchellh.com/writing/grapheme-clusters-in-terminals),
   rows by columns. A cell holds a glyph plus its attributes: bold, underline,
-  foreground and background colour. (The glyph can be a multi-codepoint grapheme,
-  and a wide one spans two cells.)
+  foreground and background colour. (The glyph can be a multi-codepoint
+  grapheme, and a wide one spans two cells.)
 - The cursor: where the next glyph lands, plus the current pen (the attributes
   freshly written cells inherit until an escape changes them).
 - Scrollback: a ring of lines that have scrolled off the top, kept so you can
