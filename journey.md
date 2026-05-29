@@ -100,8 +100,9 @@ a history of new bytes to get the grid repainted into something coherent.
 ## Adding a replay buffer
 
 So my next step was to wire up step 3: buffer the most recent bytes sent to the
-terminal (the bytes that paint "l" and "s", the cursor moves around them like
-newlines and carriage returns, and any escape codes). On reconnect xterm.js sees
+terminal (the printable bytes for "l" and "s", the C0 controls that move the
+cursor around them like line feed and carriage return, and the escape and
+control sequences). On reconnect xterm.js sees
 a blast of bytes, replays them, hopefully repaints to a coherent screen.
 
 This worked "pretty" well. But pretty quickly the terminal would get into a
@@ -117,7 +118,7 @@ through an escape sequence.
 
 Back to "paint l, paint s, newline, carriage return" from earlier. A useful
 simplification but it blurs what's in the stream. A terminal byte stream is a
-mix of three kinds of byte.
+[mix of three kinds of byte](https://vt100.net/emu/dec_ansi_parser).
 
 - Printables: bytes (or UTF-8 sequences) that produce a character you'd see. Put
   the glyph at the cursor, advance the cursor.
@@ -139,9 +140,11 @@ question and waits for the answer. The common ones:
 - DA2, "Secondary Device Attributes": `\x1b[>c`, "what version?"
 - DSR, "Device Status Report": `\x1b[6n` is the one I see most, "where's the
   cursor right now?". The terminal writes back `\x1b[<row>;<col>R`.
-- OSC queries: `\x1b]10;?\x07` asks for the foreground colour, `\x1b]11` for
-  background, `\x1b]4;<n>;?` for palette entry n. Plus a growing family for
-  cursor colour, clipboard, titles, capability negotiation.
+- OSC queries: `\x1b]10;?` for the foreground colour, `\x1b]11;?` for
+  background, `\x1b]4;<n>;?` for palette entry n, each closed by ST (`\x1b\`, or
+  a BEL as xterm's shortcut). The parser defines OSC only for the window title
+  and icon name; these colour queries, and a growing family for clipboard and
+  capability negotiation, are xterm extensions on top.
 
 The program writes the query into its stdout (the pty slave). The terminal picks
 up the escape, builds a reply, and writes it to the pty master, which the
@@ -154,14 +157,15 @@ them.
 
 ## What a terminal builds up
 
-A terminal emulator doesn't keep the byte stream around. As it parses, it
-[folds those bytes into a small, fixed pile of state](https://mitchellh.com/writing/libghostty-is-coming),
-and that state, not the bytes, is what "the screen" actually is.
+A terminal emulator doesn't keep the byte stream around. As it parses, it folds
+those bytes into a small, fixed pile of state, and that state, not the bytes, is
+what "the screen" actually is.
 
 - The grid: a
-  [rectangle of cells, rows by columns](https://mitchellh.com/writing/grapheme-clusters-in-terminals).
-  Each cell holds one glyph plus its attributes: bold, underline, foreground and
-  background colour.
+  [grid of fixed-size cells](https://mitchellh.com/writing/grapheme-clusters-in-terminals),
+  rows by columns. A cell holds a glyph plus its attributes: bold, underline,
+  foreground and background colour. (The glyph can be a multi-codepoint grapheme,
+  and a wide one spans two cells.)
 - The cursor: where the next glyph lands, plus the current pen (the attributes
   freshly written cells inherit until an escape changes them).
 - Scrollback: a ring of lines that have scrolled off the top, kept so you can
