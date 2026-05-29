@@ -67,7 +67,7 @@
        pane a fixed-width (80ch) full-height column you pan across, rather than a
        stacked row. Same panes (live grids intact), only the container axis flips. */
     #doc.layout-niri { flex-direction: row; overflow-x: auto; overflow-y: hidden; align-items: stretch; }
-    #doc.layout-niri .pane { flex: 0 0 80ch; width: 80ch; }
+    #doc.layout-niri .pane { flex: 0 0 80ch; width: 80ch; overflow-y: auto; }
     .pane { flex: 0 0 auto; display: flex; flex-direction: column; border: 1px solid var(--pane-border); border-radius: 4px; overflow: hidden; background: var(--term-bg); transition: opacity .12s, border-color .12s; scroll-margin: .5rem; }
     .pane-head { flex: 0 0 auto; padding: .15rem .6rem; font-size: 11px; color: var(--dim); background: var(--chrome); cursor: pointer; display: flex; gap: .5ch; align-items: baseline; }
     .pane-head small { opacity: .5; }
