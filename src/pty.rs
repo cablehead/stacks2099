@@ -1064,13 +1064,23 @@ impl Command for PtyResizeCommand {
                     pixel_height: 0,
                 })
                 .map_err(|e| err(head, "pty resize failed", e.to_string()))?;
-            session.term.lock().unwrap().resize(TerminalSize {
-                rows: rows as usize,
-                cols: cols as usize,
-                pixel_width: 0,
-                pixel_height: 0,
-                dpi: 0,
-            });
+            {
+                let mut term = session.term.lock().unwrap();
+                let before = term.current_seqno();
+                term.resize(TerminalSize {
+                    rows: rows as usize,
+                    cols: cols as usize,
+                    pixel_width: 0,
+                    pixel_height: 0,
+                    dpi: 0,
+                });
+                // Reflow re-wraps lines (clearing their scanned bit), which can
+                // regroup a URL across new row boundaries. Rescan just the
+                // reflowed lines so links track the new wrapping without waiting
+                // for the next output chunk. Cheap: only lines bumped past
+                // `before` re-scan; the per-line scanned bit skips the rest.
+                scan_hyperlinks(&mut term, before);
+            }
             // Wake subscribers so the next frame reflects the new grid
             // dimensions even if the program isn't generating output.
             let (lock, cv) = &*session.dirty;
