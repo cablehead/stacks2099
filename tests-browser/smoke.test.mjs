@@ -412,3 +412,64 @@ test("markdown clip toggles rendered <-> edit", () => withApp(async (page) => {
   await page.locator("#doc .pane .mini-btn", { hasText: "Edit" }).first().click();
   await page.waitForSelector("#doc .pane .note-pre", { timeout: 10000 });
 }));
+
+// Regression: the server used to skip re-rendering a note's pane on every
+// clip.update (the `editing_note` guard), so a note edited by anything other
+// than this browser (an agent, the CLI) never refreshed live -- it stayed stale
+// until reload. The pane now re-renders live; the <pre> picks up the new body.
+test("an outside note update refreshes the <pre> live", () => withApp(async (page) => {
+  await page.evaluate(async () => {
+    await fetch("/clip/add", { method: "POST", headers: { "content-type": "text/markdown" }, body: "before" });
+  });
+  await page.waitForFunction(
+    () => [...document.querySelectorAll("#doc .pane")].some((p) => p.dataset.render === "note"),
+    { timeout: 10000 });
+  const cid = await page.evaluate(() =>
+    [...document.querySelectorAll("#doc .pane")].find((p) => p.dataset.render === "note")?.dataset.clip
+  );
+  // Simulate an agent rewriting the note body from outside the editor.
+  await page.evaluate(async (cid) => {
+    await fetch("/clip/update?clip=" + encodeURIComponent(cid), {
+      method: "POST", headers: { "content-type": "text/plain" }, body: "after",
+    });
+  }, cid);
+  await page.waitForFunction(
+    (cid) => document.querySelector("#note-pre-" + CSS.escape(cid))?.textContent === "after",
+    cid,
+    { timeout: 10000 },
+  );
+}));
+
+// The flip side of the live refresh: an in-flight edit must survive an outside
+// update. The editor textarea carries data-ignore-morph, so the morph that
+// refreshes the <pre> underneath leaves the unsaved draft (and focus) intact.
+test("an outside note update preserves an in-flight edit", () => withApp(async (page) => {
+  await page.evaluate(async () => {
+    await fetch("/clip/add", { method: "POST", headers: { "content-type": "text/markdown" }, body: "base" });
+  });
+  await page.waitForFunction(
+    () => [...document.querySelectorAll("#doc .pane")].some((p) => p.dataset.render === "note"),
+    { timeout: 10000 });
+  const cid = await page.evaluate(() =>
+    [...document.querySelectorAll("#doc .pane")].find((p) => p.dataset.render === "note")?.dataset.clip
+  );
+  await page.evaluate((cid) => window.__focusClip(cid), cid);
+  await page.keyboard.type(" draft");
+  // Agent rewrites the body underneath the open editor.
+  await page.evaluate(async (cid) => {
+    await fetch("/clip/update?clip=" + encodeURIComponent(cid), {
+      method: "POST", headers: { "content-type": "text/plain" }, body: "agent body",
+    });
+  }, cid);
+  // The <pre> picks up the agent's body live...
+  await page.waitForFunction(
+    (cid) => document.querySelector("#note-pre-" + CSS.escape(cid))?.textContent === "agent body",
+    cid,
+    { timeout: 10000 },
+  );
+  // ...while the editor keeps the unsaved draft and stays focused.
+  const value = await page.evaluate(() => document.querySelector(".note-edit")?.value);
+  assert.equal(value, "base draft", `the in-flight draft must survive the morph (got "${value}")`);
+  const focused = await page.evaluate(() => document.activeElement?.classList.contains("note-edit"));
+  assert.ok(focused, "the editor stays focused through the morph");
+}));

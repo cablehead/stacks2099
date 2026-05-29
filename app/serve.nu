@@ -220,7 +220,13 @@ def render-content [c: record]: nothing -> string {
         (if (is-url $body) { $"<button type='button' class='mini-btn' data-on:click=\"@post\('/clip/view?clip=($c.id)&view=embed'\)\">Embed ↗</button>" } else { "" })
       ] | where {|b| $b != "" } | str join " ")
       let actions = if ($btns == "") { "" } else { $"<div class='note-actions'>($btns)</div>" }
-      $"<div class='note-body'><pre class='note-pre'>($esc)</pre><textarea class='note-edit' spellcheck='false' style='display:none'>($esc)</textarea>($actions)</div>"
+      # Display <pre> and editor <textarea> are siblings keyed by clip id. The
+      # <pre> re-renders live on every clip.update; its visibility is reactive
+      # on $noteEditing (the clip id being edited) so morph never fights an
+      # inline display toggle. The textarea carries data-ignore-morph: morph
+      # leaves it (and an unsaved draft) untouched, and the editor reseeds it
+      # from the live <pre> on focus (see wireNotePane in sessions.html).
+      $"<div class='note-body'><pre class='note-pre' id='note-pre-($c.id)' data-show=\"$noteEditing != '($c.id)'\">($esc)</pre><textarea class='note-edit' id='note-edit-($c.id)' data-ignore-morph spellcheck='false' style='display:none'>($esc)</textarea>($actions)</div>"
     }
     _ => {
       let m = ($c.mime_type? | default "")
@@ -533,10 +539,10 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
               let label_patch = if $label != $st.label { ({label: $label} | to datastar-patch-signals) } else { null }
 
               # Re-render a clip's pane in place when its content or type
-              # changes -- the add/remove above only tracks presence.
+              # changes -- the add/remove above only tracks presence. A note
+              # pane re-renders live too: its <pre> picks up the new body while
+              # the editor textarea (data-ignore-morph) keeps any unsaved draft.
               # Special-case gates:
-              #   * editing note body (clip.update on a note): skip; the
-              #     editor owns the text and we'd clobber an unsaved draft.
               #   * position-only clip.patch (renumber-stack, single move):
               #     skip; position is a sort key with no visible effect.
               #   * terminal clip (any kind): never re-emit the whole pane,
@@ -549,11 +555,10 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
               let repane = if ($topic in ["clip.update" "clip.patch"]) {
                 let rid = ($ev.meta?.id? | default "")
                 let rc = ($clips | where id == $rid | get 0?)
-                let editing_note = ($rc | is-not-empty) and ($topic == "clip.update") and ((clip-render-type $rc) == "note")
                 let position_only = ($topic == "clip.patch") and (($ev.meta? | default {} | columns | where {|k| not ($k in ["id" "position"]) } | is-empty))
                 let is_terminal = ($rc | is-not-empty) and ($rc.kind == "terminal")
                 let label_touched = ($topic == "clip.patch") and (($ev.meta?.label? | default null) != null)
-                if ($rc | is-not-empty) and ($rid in $rendered2) and (not $editing_note) and (not $position_only) {
+                if ($rc | is-not-empty) and ($rid in $rendered2) and (not $position_only) {
                   if $is_terminal {
                     if $label_touched {
                       let lbl = (html-escape (clip-display-label $rc))
@@ -808,8 +813,9 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
       # Replace an existing clip's body (clip.update -> CAS): a note's text on
       # blur, or any asset re-posted from the CLI --
       #   curl --data-binary @diagram.png 'localhost:5099/clip/update?clip=<id>'
-      # Mime is unchanged; the clip's pane refreshes live (a note being edited
-      # is the exception -- its editor owns the text).
+      # Mime is unchanged; the clip's pane refreshes live. A note's editor
+      # textarea is data-ignore-morph, so an open draft survives the refresh
+      # (the <pre> picks up the new body underneath).
       let cid = ($req.query.clip? | default "")
       if $cid != "" { $body | set-clip-body $cid }
       null | metadata set { merge {'http.response': {status: 204}} }

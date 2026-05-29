@@ -193,7 +193,7 @@
   </style>
 </head>
 <body
-  data-signals='{"selectedSid":"","selectedStack":"","connId":"","sid":"","sel":"","termCols":0,"termRows":0,"termTitle":"","focusedDims":"","title":{{ title | default("") | tojson | e }},"docReady":false,"picking":false,"renaming":false,"renameMode":"title","renameStackId":"","draft":"","label":"","docOrder":"[]","docLayout":"flow"}'
+  data-signals='{"selectedSid":"","selectedStack":"","connId":"","sid":"","sel":"","termCols":0,"termRows":0,"termTitle":"","focusedDims":"","title":{{ title | default("") | tojson | e }},"docReady":false,"picking":false,"renaming":false,"renameMode":"title","renameStackId":"","draft":"","label":"","noteEditing":"","docOrder":"[]","docLayout":"flow"}'
   data-init="@get('/sse')"
   data-effect="document.title = $title || 'ghostty-web-nu sessions'"
   data-class:nav-collapsed="$docLayout === 'niri'"
@@ -323,6 +323,10 @@
 
   <script type="module">
     import { ensureTermFont, mountTerminal } from './terminal.js';
+    // mergePatch lets imperative code (focus/blur of the note editor) drive the
+    // same signal store the data-* attributes read. Re-importing the bundle is
+    // free -- ES modules are singletons, so this is the live store.
+    import { mergePatch } from '{{ datastar_js_path | safe }}';
     await ensureTermFont();
 
     // Restore the canvas width set by the last drag.
@@ -372,18 +376,25 @@
       ta.style.height = ta.scrollHeight + 'px';
     }
     function wireNotePane(pane) {
-      if (pane.dataset.noteWired) return;
-      pane.dataset.noteWired = '1';
+      // Mark via a JS property, not a data-* attribute: note panes re-render
+      // live now, and a morph would strip a marker attribute (the server
+      // doesn't emit it), re-wiring duplicate listeners on the next scan. A
+      // property rides along with the preserved node and the morph leaves it.
+      if (pane.__noteWired) return;
+      pane.__noteWired = true;
       const cid = pane.dataset.clip;
       const pre = pane.querySelector('.note-pre');
       const ta = pane.querySelector('.note-edit');
       if (!ta) return;
-      // Blur ends editing: mirror text into the <pre>, swap back to display,
-      // and persist (clip.update -> CAS).
+      // Blur ends editing: clear $noteEditing (data-show reveals the <pre>),
+      // hide the editor, and persist (clip.update -> CAS). The <pre> text is
+      // mirrored optimistically so it doesn't flash the old body before the
+      // clip.update echo morphs it. The <pre>'s visibility is reactive, so we
+      // never touch its display here.
       ta.addEventListener('blur', () => {
-        pre.textContent = ta.value;
+        mergePatch({ noteEditing: '' });
         ta.style.display = 'none';
-        pre.style.display = '';
+        pre.textContent = ta.value;
         fetch('/clip/update?clip=' + encodeURIComponent(cid), {
           method: 'POST', headers: { 'content-type': 'text/plain' }, body: ta.value,
         }).catch(() => {});
@@ -391,6 +402,11 @@
       // Grow the editor to fit its content so there is no inner scrollbar --
       // the note flows with the document. __focusClip sizes it on show too.
       ta.addEventListener('input', () => growNote(ta));
+      // Focus == editing this note: flag it so the <pre> hides reactively and
+      // a live morph leaves this clip's draft alone. Focus fires after the
+      // previous element's blur, so switching between notes resolves to the
+      // clip being entered, not the one being left.
+      ta.addEventListener('focus', () => { mergePatch({ noteEditing: cid }); });
       // A freshly created note arrives empty -- focus it (== edit it) straight
       // away. __onSelect would do this too, but only in focus mode and only
       // once $selectedSid arrives, which can race the pane's DOM append; the
@@ -675,9 +691,18 @@
       if (pane.dataset.render === 'note') {
         keybuf.setAttribute('enabled', 'false');
         const ta = pane.querySelector('.note-edit'), pre = pane.querySelector('.note-pre');
-        if (ta) {
+        // Only seed + focus on fresh entry. The selection signal re-fires
+        // __focusClip on every live clip.update; reseeding the textarea then
+        // would drop an in-flight draft and jump the caret. The editor is
+        // data-ignore-morph, so its own content lags the backend -- reseed it
+        // from the live <pre> when first opening it. $noteEditing is set by the
+        // textarea's focus handler (it fires after any prior editor's blur, so
+        // it resolves to the clip being entered, and hides this <pre> reactively
+        // via data-show). The textarea is morph-immune, so a plain inline
+        // display toggle here is safe.
+        if (ta && document.activeElement !== ta) {
+          if (pre) ta.value = pre.textContent;
           ta.style.display = '';
-          if (pre) pre.style.display = 'none';
           ta.focus();
           // Land the caret at the end so you continue the note where it left
           // off rather than at the top.
