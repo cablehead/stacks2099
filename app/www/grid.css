@@ -5,6 +5,8 @@
  *   .c                       - any styled run (no-attr runs are emitted bare)
  *   .sb .sd .si .su .sx .ss   - bold, dim, italic, underline, invisible, strikethrough
  *                               (reverse video is a server-side fg/bg swap, no class)
+ *   .wc                       - wide / multi-scalar cell pinned to --w columns
+ *   a                         - OSC 8 or detected-URL link
  *   .f0..f15 .b0..b15         - ANSI 16-color palette fg/bg
  *   .cursor                   - one overlay element per grid, anchored on
  *                               (--cursor-row, --cursor-col); inverts what's
@@ -112,6 +114,34 @@
 .su { text-decoration: underline; }
 .sx { visibility: hidden; }
 .ss { text-decoration: line-through; }
+
+/* Wide / multi-scalar cells (CJK, emoji, ZWJ sequences, combining marks) get
+ * pinned in a fixed box `--w` columns wide. The browser font's advance for
+ * these may not match wezterm's column width, so without the box a too-wide
+ * or too-narrow glyph would shove the rest of the flowed row and desync the
+ * cursor. Plain single-scalar text stays bare and flows as before. color
+ * inherits normally; text-decoration is forced with `inherit` because an
+ * underline/strikethrough from the surrounding run does not otherwise paint
+ * across an inline-block. */
+.wc {
+  display: inline-block;
+  width: calc(var(--w, 1) * 1ch);
+  height: var(--cell-h);
+  overflow: hidden;
+  text-align: center;
+  vertical-align: top;
+  text-decoration: inherit;
+}
+
+/* Clickable links: OSC 8 hyperlinks the program emitted, or bare URLs the
+ * server detected. Inherit the cell color so a link matches its surrounding
+ * output; a dotted underline marks it without the browser's default link
+ * color. Scoped to the grid so it can't restyle sidebar/chrome anchors. */
+[data-cols] a {
+  color: inherit;
+  text-decoration: underline dotted;
+  cursor: pointer;
+}
 
 /* ANSI 16 palette - standard xterm-ish dark theme */
 .f0  { color: #000000; }

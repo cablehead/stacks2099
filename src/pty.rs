@@ -24,9 +24,10 @@ use nu_protocol::{
     ShellError, Signature, Span, SyntaxShape, Type, Value,
 };
 use portable_pty::{native_pty_system, Child as PortableChild, CommandBuilder, MasterPty, PtySize};
+use wezterm_surface::hyperlink::Rule;
 use wezterm_term::{
     color::{ColorAttribute, ColorPalette},
-    CellAttributes, Intensity, StableRowIndex, Terminal, TerminalConfiguration, TerminalSize,
+    CellAttributes, Intensity, Line, StableRowIndex, Terminal, TerminalConfiguration, TerminalSize,
     Underline,
 };
 
@@ -225,6 +226,54 @@ fn html_escape(s: &str, out: &mut String) {
     }
 }
 
+/// URL detection rules for bare (non-OSC-8) text. Same patterns wezterm's
+/// own default set is built from (wezterm-surface): an explicit-scheme URL
+/// and a bare email mapped to `mailto:`. Compiled once. The renderer feeds
+/// these to `Line::scan_and_create_hyperlinks` so a printed URL becomes a
+/// clickable link even when the program didn't emit an OSC 8 escape.
+fn hyperlink_rules() -> &'static [Rule] {
+    static RULES: OnceLock<Vec<Rule>> = OnceLock::new();
+    RULES
+        .get_or_init(|| {
+            vec![
+                Rule::new(r"\b\w+://(?:[\w.-]+)\.[a-z]{2,15}\S*\b", "$0").unwrap(),
+                Rule::new(r"\b\w+@[\w-]+(\.[\w-]+)+\b", "mailto:$0").unwrap(),
+            ]
+        })
+        .as_slice()
+}
+
+/// Attach implicit-hyperlink attributes to a line's cells for any text that
+/// matches `hyperlink_rules`. Idempotent per line (wezterm tracks a scanned
+/// bit, cleared when the line changes). Scanning is per physical line, so a
+/// URL that wraps across rows is linked up to the wrap point on each row.
+fn scan_line_hyperlinks(line: &mut Line) {
+    line.scan_and_create_hyperlinks(hyperlink_rules());
+}
+
+/// Return the URI to use as an `href`, or None if its scheme isn't one we'll
+/// make clickable. OSC 8 can carry any scheme (including `javascript:` and
+/// `data:`), so gate every link through this allowlist before it reaches the
+/// DOM. Our implicit rules only ever emit http/https/mailto anyway.
+fn safe_href(uri: &str) -> Option<&str> {
+    let u = uri.trim();
+    let ok = ["http://", "https://", "mailto:"]
+        .iter()
+        .any(|p| u.len() >= p.len() && u.as_bytes()[..p.len()].eq_ignore_ascii_case(p.as_bytes()));
+    ok.then_some(u)
+}
+
+/// True when a cell's glyph can't be trusted to advance exactly its column
+/// width in the browser font, so it must be pinned in a fixed-width box.
+/// Plain single-scalar text in the loaded monospace face advances 1ch; a wide
+/// glyph (width 2: CJK, emoji) or a multi-scalar grapheme (emoji ZWJ
+/// sequence, base+combining marks) may render at some other width and shove
+/// the rest of the row. Single-scalar box-drawing/Latin glyphs stay bare:
+/// the pinned monospace face covers them at uniform advance.
+fn cell_needs_box(glyph: &str, width: usize) -> bool {
+    width != 1 || glyph.chars().count() > 1
+}
+
 /// Render one row's HTML into `out` as
 /// `<div class="row" id="{target}-r-{stable}">...</div>`. Cells are
 /// run-length encoded into `<span class="...">` runs sharing the same
@@ -244,56 +293,118 @@ fn render_row_into(
     default_attrs: &CellAttributes,
 ) {
     let _ = write!(out, "<div class=\"row\" id=\"{target}-r-{stable}\">");
-    let mut cells: Vec<(String, CellAttributes)> = (0..cols)
-        .map(|_| (" ".to_string(), default_attrs.clone()))
-        .collect();
+
+    // One token per column, built by streaming `visible_cells` left to right.
+    // Real gaps (and the line's trailing remainder) fill with default spaces;
+    // a wide cell's continuation column is skipped by advancing `expected`
+    // past its width, so no pad space ever leaks into it.
+    struct Tok {
+        text: String,
+        attrs: CellAttributes,
+        boxed: bool,
+        width: usize,
+        href: Option<String>,
+    }
+    let space = |attrs: &CellAttributes| Tok {
+        text: " ".to_string(),
+        attrs: attrs.clone(),
+        boxed: false,
+        width: 1,
+        href: None,
+    };
+    let mut toks: Vec<Tok> = Vec::with_capacity(cols);
+    let mut expected = 0usize;
     for cell_ref in line.visible_cells() {
         let col = cell_ref.cell_index();
         if col >= cols {
             break;
         }
+        // A column already covered by a preceding wide cell's span (its
+        // continuation column) would only reach here if visible_cells ever
+        // yielded it; skip it so we never double-emit or misalign.
+        if col < expected {
+            continue;
+        }
+        while expected < col {
+            toks.push(space(default_attrs));
+            expected += 1;
+        }
+        let width = cell_ref.width().max(1);
         let s = cell_ref.str();
         let glyph = if s.is_empty() {
             " ".to_string()
         } else {
             s.to_string()
         };
-        cells[col] = (glyph, cell_ref.attrs().clone());
+        let href = cell_ref
+            .attrs()
+            .hyperlink()
+            .and_then(|h| safe_href(h.uri()))
+            .map(str::to_string);
+        toks.push(Tok {
+            boxed: cell_needs_box(&glyph, width),
+            text: glyph,
+            attrs: cell_ref.attrs().clone(),
+            width,
+            href,
+        });
+        expected = col + width;
+    }
+    while expected < cols {
+        toks.push(space(default_attrs));
+        expected += 1;
     }
 
+    // Run-length merge: adjacent tokens sharing visual attrs AND link target
+    // collapse under one wrapper -- an `<a>` when linked, a `<span>` when
+    // styled, else bare text. Inside a run, trusted cells contribute bare
+    // escaped text while untrusted (wide / multi-scalar) cells nest a
+    // fixed-width `.wc` box so the font can't shift the row; color and
+    // decoration reach the box through CSS inheritance.
     let mut i = 0;
-    while i < cells.len() {
-        let (_, ref a) = cells[i];
+    while i < toks.len() {
+        let a = &toks[i];
         let mut j = i + 1;
-        while j < cells.len() {
-            let (_, ref b) = cells[j];
-            if attrs_equiv(a, b) {
-                j += 1;
-            } else {
-                break;
+        while j < toks.len() && attrs_equiv(&a.attrs, &toks[j].attrs) && a.href == toks[j].href {
+            j += 1;
+        }
+        let (classes, style) = cell_class_and_style(&a.attrs);
+        let linked = a.href.is_some();
+        let styled = !classes.is_empty() || !style.is_empty();
+
+        if linked {
+            out.push_str("<a class=\"c");
+            out.push_str(&classes);
+            out.push('"');
+            if !style.is_empty() {
+                let _ = write!(out, " style=\"{style}\"");
             }
-        }
-        let (classes, style) = cell_class_and_style(a);
-        let text_len: usize = cells[i..j].iter().map(|c| c.0.len()).sum();
-        let mut text = String::with_capacity(text_len);
-        for c in &cells[i..j] {
-            text.push_str(&c.0);
-        }
-        let mut escaped = String::with_capacity(text.len());
-        html_escape(&text, &mut escaped);
-        if classes.is_empty() && style.is_empty() {
-            out.push_str(&escaped);
-        } else {
+            out.push_str(" href=\"");
+            html_escape(a.href.as_deref().unwrap(), out);
+            out.push_str("\" target=\"_blank\" rel=\"noopener noreferrer\">");
+        } else if styled {
             out.push_str("<span class=\"c");
             out.push_str(&classes);
             out.push('"');
             if !style.is_empty() {
-                out.push_str(" style=\"");
-                out.push_str(&style);
-                out.push('"');
+                let _ = write!(out, " style=\"{style}\"");
             }
             out.push('>');
-            out.push_str(&escaped);
+        }
+
+        for t in &toks[i..j] {
+            if t.boxed {
+                let _ = write!(out, "<span class=\"wc\" style=\"--w:{}\">", t.width);
+                html_escape(&t.text, out);
+                out.push_str("</span>");
+            } else {
+                html_escape(&t.text, out);
+            }
+        }
+
+        if linked {
+            out.push_str("</a>");
+        } else if styled {
             out.push_str("</span>");
         }
         i = j;
@@ -327,7 +438,7 @@ fn render_grid_html(term: &Terminal, target: &str) -> String {
     let screen = term.screen();
     let total = screen.scrollback_rows();
     let visible_start = total.saturating_sub(phys_rows);
-    let lines = screen.lines_in_phys_range(0..total);
+    let mut lines = screen.lines_in_phys_range(0..total);
     let stable_base = screen.phys_to_stable_row_index(0);
     let cursor_row = visible_start + cursor.y as usize;
     let cursor_col = cursor.x;
@@ -338,8 +449,9 @@ fn render_grid_html(term: &Terminal, target: &str) -> String {
         "<div id=\"{target}\" data-cols=\"{cols}\" data-rows=\"{phys_rows}\" data-total=\"{total}\">"
     );
     render_cursor_into(&mut out, target, cursor_row, cursor_col);
-    for (row_idx, line) in lines.iter().enumerate() {
+    for (row_idx, line) in lines.iter_mut().enumerate() {
         let stable = stable_base + row_idx as StableRowIndex;
+        scan_line_hyperlinks(line);
         render_row_into(&mut out, target, line, cols, stable, &default_attrs);
     }
     out.push_str("</div>");
@@ -1109,7 +1221,7 @@ impl Command for PtyViewCommand {
                 // render outside the lock.
                 let (lock, _cv) = &*dirty;
                 let gen_now = *lock.lock().unwrap();
-                let snap: ViewSnapshot = {
+                let mut snap: ViewSnapshot = {
                     let term_guard = term.lock().unwrap();
                     let size = term_guard.get_size();
                     let cols = size.cols;
@@ -1165,11 +1277,17 @@ impl Command for PtyViewCommand {
                     // hand the client the whole new grid in one outer morph
                     // so idiomorph drops anything no longer present and the
                     // diff state starts fresh.
-                    let frame = render_full_from_snap(&snap, &target);
+                    let frame = render_full_from_snap(&mut snap, &target);
                     emit_patch_elements(buffer, &frame);
                     sent_initial = true;
                 } else {
-                    emit_diff(buffer, &snap, &target, last_stable_base, last_max_stable);
+                    emit_diff(
+                        buffer,
+                        &mut snap,
+                        &target,
+                        last_stable_base,
+                        last_max_stable,
+                    );
                     let cursor_now = (snap.cursor_row, snap.cursor_col);
                     if cursor_now != last_cursor {
                         let mut html = String::with_capacity(96);
@@ -1235,20 +1353,21 @@ struct ViewSnapshot {
 /// Render the full grid HTML from a snapshot (cursor + every retained row).
 /// Used for the first SSE patch of a subscriber so the client lands in a
 /// consistent state; thereafter all frames are diffs.
-fn render_full_from_snap(snap: &ViewSnapshot, target: &str) -> String {
+fn render_full_from_snap(snap: &mut ViewSnapshot, target: &str) -> String {
     let default_attrs = CellAttributes::default();
+    let (cols, rows, stable_base) = (snap.cols, snap.rows, snap.stable_base);
+    let (cursor_row, cursor_col) = (snap.cursor_row, snap.cursor_col);
     let mut out = String::new();
     let _ = write!(
         out,
         "<div id=\"{target}\" data-cols=\"{cols}\" data-rows=\"{rows}\" data-total=\"{total}\">",
-        cols = snap.cols,
-        rows = snap.rows,
         total = snap.lines.len(),
     );
-    render_cursor_into(&mut out, target, snap.cursor_row, snap.cursor_col);
-    for (idx, line) in snap.lines.iter().enumerate() {
-        let stable = snap.stable_base + idx as StableRowIndex;
-        render_row_into(&mut out, target, line, snap.cols, stable, &default_attrs);
+    render_cursor_into(&mut out, target, cursor_row, cursor_col);
+    for (idx, line) in snap.lines.iter_mut().enumerate() {
+        let stable = stable_base + idx as StableRowIndex;
+        scan_line_hyperlinks(line);
+        render_row_into(&mut out, target, line, cols, stable, &default_attrs);
     }
     out.push_str("</div>");
     out
@@ -1261,19 +1380,20 @@ fn render_full_from_snap(snap: &ViewSnapshot, target: &str) -> String {
 /// by the caller.
 fn emit_diff(
     buffer: &mut Vec<u8>,
-    snap: &ViewSnapshot,
+    snap: &mut ViewSnapshot,
     target: &str,
     last_stable_base: StableRowIndex,
     last_max_stable: StableRowIndex,
 ) {
     let default_attrs = CellAttributes::default();
+    let (cols, stable_base, max_stable) = (snap.cols, snap.stable_base, snap.max_stable);
 
     // Rows that purged off the top since last frame -- comma-joined so one
     // SSE event removes them all at once. The id is grid-scoped
     // (`{target}-r-{stable}`) so two panes can't fight over the same id.
-    if snap.stable_base > last_stable_base {
+    if stable_base > last_stable_base {
         let mut selector = String::new();
-        for id in last_stable_base..snap.stable_base {
+        for id in last_stable_base..stable_base {
             if !selector.is_empty() {
                 selector.push(',');
             }
@@ -1286,15 +1406,18 @@ fn emit_diff(
     // datastar matches each element by id, so no selector is needed -- the
     // ids inside the HTML drive the morph.
     if !snap.changed.is_empty() {
-        let mut htmls: Vec<String> = Vec::with_capacity(snap.changed.len());
-        for &id in &snap.changed {
-            let idx = (id - snap.stable_base) as usize;
-            if let Some(line) = snap.lines.get(idx) {
-                let mut s = String::with_capacity(snap.cols * 2 + 64);
-                render_row_into(&mut s, target, line, snap.cols, id, &default_attrs);
+        let changed = std::mem::take(&mut snap.changed);
+        let mut htmls: Vec<String> = Vec::with_capacity(changed.len());
+        for &id in &changed {
+            let idx = (id - stable_base) as usize;
+            if let Some(line) = snap.lines.get_mut(idx) {
+                scan_line_hyperlinks(line);
+                let mut s = String::with_capacity(cols * 2 + 64);
+                render_row_into(&mut s, target, line, cols, id, &default_attrs);
                 htmls.push(s);
             }
         }
+        snap.changed = changed;
         if !htmls.is_empty() {
             emit_patch(buffer, None, None, &htmls);
         }
@@ -1303,14 +1426,15 @@ fn emit_diff(
     // New rows at the bottom: append into the grid container. last_max_stable
     // can lag the current top (after a fast burst that's also purged the
     // start of what we'd been about to add); clamp to the current base.
-    let new_start = last_max_stable.max(snap.stable_base);
-    if snap.max_stable > new_start {
-        let mut htmls: Vec<String> = Vec::with_capacity((snap.max_stable - new_start) as usize);
-        for id in new_start..snap.max_stable {
-            let idx = (id - snap.stable_base) as usize;
-            if let Some(line) = snap.lines.get(idx) {
-                let mut s = String::with_capacity(snap.cols * 2 + 64);
-                render_row_into(&mut s, target, line, snap.cols, id, &default_attrs);
+    let new_start = last_max_stable.max(stable_base);
+    if max_stable > new_start {
+        let mut htmls: Vec<String> = Vec::with_capacity((max_stable - new_start) as usize);
+        for id in new_start..max_stable {
+            let idx = (id - stable_base) as usize;
+            if let Some(line) = snap.lines.get_mut(idx) {
+                scan_line_hyperlinks(line);
+                let mut s = String::with_capacity(cols * 2 + 64);
+                render_row_into(&mut s, target, line, cols, id, &default_attrs);
                 htmls.push(s);
             }
         }
@@ -1755,6 +1879,135 @@ mod tests {
         assert!(
             shared > 100,
             "too few shared rows to be meaningful: {shared}"
+        );
+    }
+
+    /// Build a terminal of `rows x cols` and feed raw bytes once. No trailing
+    /// newline, so the cursor stays on the line we just wrote -- which lets us
+    /// read its column off the rendered cursor div.
+    fn term_with_bytes(rows: usize, cols: usize, bytes: &[u8]) -> Terminal {
+        let mut term = Terminal::new(
+            TerminalSize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+                dpi: 0,
+            },
+            Arc::new(MinimalConfig),
+            "test",
+            "0",
+            Box::new(Vec::<u8>::new()),
+        );
+        term.advance_bytes(bytes);
+        term
+    }
+
+    /// Pull `--cursor-col:{N}` out of the rendered cursor div.
+    fn cursor_col_of(html: &str) -> usize {
+        let marker = "--cursor-col:";
+        let pos = html.find(marker).expect("cursor div present");
+        let rest = &html[pos + marker.len()..];
+        let end = rest.find(['"', ';']).unwrap();
+        rest[..end].parse().unwrap()
+    }
+
+    /// A double-width glyph (CJK, emoji) is pinned in a fixed-width `.wc` box
+    /// spanning its two columns, with no pad space leaking into the hidden
+    /// continuation column. wezterm gives U+4E2D (zhong, "middle") cell width
+    /// 2; `render_row_into` advances past the continuation column rather than
+    /// filling it, so for "ab<zhong>cd" the rendered text is exactly the five
+    /// typed glyphs, and the glyph sits in a `--w:2` box so the browser font
+    /// can't shift the rest of the row. The cursor stays at wezterm's column 6
+    /// (a, b, zhong = 2 cols, c, d) and now lines up with the visible text.
+    #[test]
+    fn render_row_wide_char_no_pad() {
+        let zhong = '\u{4E2D}';
+        let term = term_with_bytes(2, 12, "ab\u{4E2D}cd".as_bytes());
+        let html = render_grid_html(&term, "grid");
+        let rows = rows_of(&html);
+
+        // No spurious pad: the five typed glyphs and nothing more.
+        let (_, ref text) = rows[0];
+        assert_eq!(
+            text, "ab\u{4E2D}cd",
+            "no pad space in the continuation column"
+        );
+        assert_eq!(text.chars().count(), 5, "exactly the five typed glyphs");
+
+        // The wide glyph is followed directly by 'c'.
+        let after_glyph: String = text
+            .chars()
+            .skip_while(|&c| c != zhong)
+            .skip(1)
+            .take(1)
+            .collect();
+        assert_eq!(after_glyph, "c", "no cell between the wide glyph and 'c'");
+
+        // The wide glyph is boxed at its two-column width so its font advance
+        // can't push the row sideways.
+        assert!(
+            html.contains("<span class=\"wc\" style=\"--w:2\">\u{4E2D}</span>"),
+            "wide glyph pinned in a --w:2 box, got:\n{html}"
+        );
+
+        // Cursor matches wezterm's column model and now aligns with the text.
+        assert_eq!(cursor_col_of(&html), 6, "cursor at wezterm column 6");
+    }
+
+    /// Pull every `href="..."` value out of the rendered HTML, in order.
+    fn hrefs_of(html: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        let marker = "href=\"";
+        let mut rest = html;
+        while let Some(pos) = rest.find(marker) {
+            rest = &rest[pos + marker.len()..];
+            let end = rest.find('"').unwrap();
+            out.push(rest[..end].to_string());
+            rest = &rest[end + 1..];
+        }
+        out
+    }
+
+    /// OSC 8 explicit hyperlinks: a program wraps text in
+    /// `ESC ] 8 ; ; URI ST ... ESC ] 8 ; ; ST`. wezterm-term parses this and
+    /// tags the enclosed cells with a hyperlink attribute; the renderer should
+    /// emit those cells inside an `<a href>`.
+    #[test]
+    fn render_osc8_hyperlink_becomes_anchor() {
+        let bytes = b"\x1b]8;;https://example.com\x1b\\Click\x1b]8;;\x1b\\";
+        let term = term_with_bytes(2, 40, bytes);
+        let html = render_grid_html(&term, "grid");
+        assert!(
+            html.contains("<a "),
+            "expected an anchor element for the OSC 8 link, got:\n{html}"
+        );
+        assert_eq!(
+            hrefs_of(&html),
+            vec!["https://example.com".to_string()],
+            "anchor should carry the OSC 8 URI"
+        );
+        let rows = rows_of(&html);
+        assert_eq!(
+            rows[0].1, "Click",
+            "link text should render as the cell text"
+        );
+    }
+
+    /// Implicit detection: a bare URL printed as plain text carries no OSC 8
+    /// attribute, so the renderer must scan the line against URL rules and
+    /// linkify the match itself.
+    #[test]
+    fn render_bare_url_is_detected_and_linked() {
+        let term = term_with_bytes(2, 40, b"see https://example.com ok");
+        let html = render_grid_html(&term, "grid");
+        assert!(
+            html.contains("<a "),
+            "expected an anchor element for the detected bare URL, got:\n{html}"
+        );
+        assert!(
+            hrefs_of(&html).iter().any(|h| h == "https://example.com"),
+            "detected URL should appear as an href"
         );
     }
 }

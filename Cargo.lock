@@ -7397,6 +7397,7 @@ dependencies = [
  "typetag",
  "url",
  "v_htmlescape",
+ "wezterm-surface",
  "wezterm-term",
  "win_uds",
  "xxhash-rust",
