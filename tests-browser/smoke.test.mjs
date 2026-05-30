@@ -612,9 +612,9 @@ test("clip-actions: Close removes the selected clip", () => withApp(async (page)
   await page.waitForFunction((cid) => !document.querySelector("#pane-" + CSS.escape(cid)), noteCid, { timeout: 10000 });
 }));
 
-test("clip-actions: mod-K does nothing in focus mode (the pty keeps the key)", () => withApp(async (page) => {
-  // Regression guard for the navigate-only gate: in focus mode Ctrl+K must fall
-  // through to the terminal (readline kill-line off-mac), not open the panel.
+test("clip-actions: Ctrl-K stays with a focused terminal (readline kill-line, not the panel)", () => withApp(async (page) => {
+  // Ctrl+K is kill-line for a focused terminal on every platform, so it must
+  // NOT open the panel while a terminal is focused -- only Cmd+K does.
   await page.waitForFunction(() => !!document.querySelector("[id^='grid-'] .row"), { timeout: 15000 });
   const cid = await page.evaluate(() => document.querySelector("#doc .pane[data-render='terminal']")?.dataset.clip);
   await page.evaluate((cid) => window.__focusClip(cid), cid);
@@ -623,5 +623,22 @@ test("clip-actions: mod-K does nothing in focus mode (the pty keeps the key)", (
   await page.keyboard.press("Control+k");
   await page.waitForTimeout(300);
   const open = await page.evaluate(() => getComputedStyle(document.querySelector(".actions-backdrop")).display !== "none");
-  assert.ok(!open, "mod-K must not open the clip-actions panel while a terminal is focused");
+  assert.ok(!open, "Ctrl-K must not open the clip-actions panel while a terminal is focused");
+}));
+
+test("clip-actions: Cmd-K opens the panel even when a terminal is focused", () => withApp(async (page) => {
+  // Cmd+K is a Meta combo, which key-buffer drops, so it never reaches the pty
+  // -- it opens clip actions in every mode, including a focused terminal.
+  await page.waitForFunction(() => !!document.querySelector("[id^='grid-'] .row"), { timeout: 15000 });
+  const cid = await page.evaluate(() => document.querySelector("#doc .pane[data-render='terminal']")?.dataset.clip);
+  await page.evaluate((cid) => window.__focusClip(cid), cid);
+  await page.waitForTimeout(150);
+
+  await page.keyboard.press("Meta+k");
+  await page.waitForSelector(".actions-backdrop", { state: "visible", timeout: 5000 });
+  assert.deepEqual(
+    await page.$$eval(".actions-panel .picker-row", (rs) => rs.map((r) => r.classList.contains("sel"))),
+    [true, false],
+    "panel opens with Rename selected, from focus mode",
+  );
 }));

@@ -710,14 +710,18 @@
       { label: 'Rename', keys: ['Alt', 'R'], run: () => window.app.openRenameTab() },
       { label: 'Height', keys: ['Alt', 'O'], run: () => window.app.cycleHeight() },
     ];
+    const actionsBinding = { label: 'Actions', keys: [modLabel, 'K'], run: () => window.app.openActions() };
     const bindingsByMode = {
       navigate: [
         ...appChords,
-        { label: 'Actions', keys: [modLabel, 'K'], run: () => window.app.openActions() },
+        actionsBinding,
         { label: 'Focus', keys: [modLabel, 'Enter'], run: () => window.app.toggleFocus() },
       ],
       focus: [
         ...appChords,
+        // Cmd+K works in focus mode (Meta never reaches the pty); Ctrl+K stays
+        // kill-line, so only advertise Actions here when the mod is Cmd (macOS).
+        ...(isMac ? [actionsBinding] : []),
         { label: 'Navigate', keys: [modLabel, 'Enter'], run: () => window.app.toggleFocus() },
       ],
     };
@@ -922,12 +926,12 @@
         window.app.toggleFocus();
         return;
       }
-      // mod+K opens the clip-actions panel, but only in navigate mode. In focus
-      // mode the key falls through to the pty, so Ctrl+K stays readline
-      // kill-line off-mac (on macOS Cmd+K is a Meta combo key-buffer drops
-      // anyway). One rule on every platform: clip actions open from navigate.
+      // mod+K opens the clip-actions panel on the current clip. Cmd+K works in
+      // every mode, including a focused terminal -- key-buffer drops Meta combos,
+      // so the pty never loses anything. Ctrl+K only opens in navigate mode, so
+      // a focused terminal keeps Ctrl+K as readline kill-line on every platform.
       // preventDefault suppresses the browser's own Cmd/Ctrl+K (omnibox search).
-      if ((combo === 'cmd+k' || combo === 'ctrl+k') && mode === 'navigate') {
+      if (combo === 'cmd+k' || (combo === 'ctrl+k' && mode === 'navigate')) {
         e.preventDefault();
         e.stopPropagation();
         window.app.openActions();
