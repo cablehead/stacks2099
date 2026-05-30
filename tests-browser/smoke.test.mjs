@@ -642,3 +642,43 @@ test("clip-actions: Cmd-K opens the panel even when a terminal is focused", () =
     "panel opens with Rename selected, from focus mode",
   );
 }));
+
+test("layout flip to niri resizes the pty to the niri column, not the flow width", () => withApp(async (page) => {
+  // Regression: flipping flow->niri measured the pane before the niri 80ch
+  // width (and sidebar collapse) had reflowed, so __applyLayout pushed a
+  // too-wide resize (the full-width doc) to the pty. A program reading the
+  // winsize in that window (e.g. bat) drew to the stale wide size and
+  // overflowed the narrower niri column. Every resize after the flip must fit
+  // the niri pane.
+  await page.waitForFunction(() => !!document.querySelector("[id^='grid-'] .row"), { timeout: 15000 });
+  await page.evaluate(() => {
+    window.__resizes = [];
+    const orig = window.fetch;
+    window.fetch = (url, opts) => {
+      if (typeof url === "string" && url.includes("/pty/resize")) {
+        try { window.__resizes.push(JSON.parse(opts?.body || "{}").cols); } catch {}
+      }
+      return orig(url, opts);
+    };
+  });
+  await page.evaluate(() => window.app.toggleLayout());
+  await page.waitForFunction(() => document.getElementById("doc").classList.contains("layout-niri"), { timeout: 5000 });
+  await page.waitForTimeout(700);
+  const { resizes, cap } = await page.evaluate(() => {
+    const grid = document.querySelector("[id^='grid-']");
+    const screen = grid.closest(".pane-screen") || grid.parentElement;
+    const probe = document.createElement("span");
+    probe.className = "cell-probe"; // grid.css: correct term font + size
+    probe.textContent = "M".repeat(80);
+    document.body.appendChild(probe);
+    const cw = probe.getBoundingClientRect().width / 80;
+    probe.remove();
+    return { resizes: window.__resizes, cap: Math.floor(screen.clientWidth / cw) };
+  });
+  assert.ok(resizes.length > 0, "a resize fired on the niri flip");
+  for (const c of resizes) {
+    // +1 slack for sub-pixel/border rounding. The pre-fix bug emitted the full
+    // flow width (e.g. 140), far over the ~80-col niri pane.
+    assert.ok(c <= cap + 1, `niri resize cols=${c} must fit the niri pane (~${cap}); a wider value is the stale flow width`);
+  }
+}));

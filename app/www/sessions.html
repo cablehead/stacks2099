@@ -657,9 +657,19 @@
     // Layout flip: in niri terminals fill their full-height column; in flow
     // they return to the constant PANE_ROWS document height. Re-apply to every
     // mounted terminal (newly-mounted ones pick it up via layoutRows()).
+    //
+    // Measure on the next frame, not now: the layout-niri class is a sibling
+    // data-class reaction to the same $docLayout change, and its order versus
+    // this data-effect isn't guaranteed. Measuring before it reflows the panes
+    // to 80ch reads the old (flow) geometry, so the pty keeps the wider width
+    // until a later ResizeObserver fires -- and a program like bat, reading the
+    // winsize once at startup, draws to the stale too-wide size and overflows
+    // the narrower niri column. rAF runs after the class is applied.
     window.__applyLayout = (layout) => {
       currentLayout = (layout === 'niri') ? 'niri' : 'flow';
-      for (const term of mounted.values()) term.setFixedRows?.(layoutRows());
+      requestAnimationFrame(() => {
+        for (const term of mounted.values()) term.setFixedRows?.(layoutRows());
+      });
     };
     window.__onSelect = (cid) => {
       if (cid) {
