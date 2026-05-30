@@ -222,10 +222,29 @@
     }
     /* Keyboard (.sel) and mouse (:hover) share one highlight. */
     .picker-row:hover, .picker-row.sel { background: var(--sel-blur); color: var(--sel-fg); }
+
+    /* Clip-actions panel. Acts on the current clip, so it rises out of the
+       bottom-right status bar (rounded top corners, shadow upward) -- the
+       mirror of the top New picker. Reuses .picker-row / .picker-heading. */
+    .actions-backdrop {
+      position: fixed; inset: 0; z-index: 1000;
+      display: flex; align-items: flex-end; justify-content: flex-end;
+      padding: 0 .75rem 2.2rem 0;
+      background: transparent;
+    }
+    .actions-panel {
+      min-width: 13rem;
+      background: var(--chrome);
+      border: 1px solid var(--pane-border);
+      border-bottom: 0;
+      border-radius: 5px 5px 0 0;
+      box-shadow: 0 -10px 28px rgba(0, 0, 0, 0.55);
+      overflow: hidden;
+    }
   </style>
 </head>
 <body
-  data-signals='{"selectedSid":"","selectedStack":"","connId":"","sid":"","sel":"","termCols":0,"termRows":0,"termTitle":"","focusedDims":"","title":{{ title | default("") | tojson | e }},"docReady":false,"picking":false,"renaming":false,"renameMode":"title","renameStackId":"","draft":"","label":"","noteEditing":"","docOrder":"[]","docLayout":"flow"}'
+  data-signals='{"selectedSid":"","selectedStack":"","connId":"","sid":"","sel":"","termCols":0,"termRows":0,"termTitle":"","focusedDims":"","title":{{ title | default("") | tojson | e }},"docReady":false,"picking":false,"acting":false,"renaming":false,"renameMode":"title","renameStackId":"","draft":"","label":"","noteEditing":"","docOrder":"[]","docLayout":"flow"}'
   data-init="@get('/sse')"
   data-effect="document.title = $title || 'ghostty-web-nu sessions'"
   data-class:nav-collapsed="$docLayout === 'niri'"
@@ -300,6 +319,8 @@
        with a bare $picking read so datastar registers the dependency even
        before the deferred module defines __syncPicker. -->
   <div data-effect="$picking; window.__syncPicker && window.__syncPicker($picking)" style="display:none"></div>
+  <!-- Same edge-patch for the clip-actions panel ($acting). -->
+  <div data-effect="$acting; window.__syncActions && window.__syncActions($acting)" style="display:none"></div>
 
   <!-- Server-pushed canvas pane. Empty -> collapses to 0 width. -->
   <section id="canvas" class="canvas"></section>
@@ -354,6 +375,22 @@
       </button>
       <button type="button" class="picker-row" data-on:click="$picking = false; @post('/clip/new?type=note')">
         <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg> Note
+      </button>
+    </div>
+  </div>
+
+  <!-- Clip-actions panel (mod+K in navigate mode / the Actions status binding).
+       Acts on the current clip, so it rises from the bottom-right status bar.
+       Rename and Close moved in here; both stay available as Alt+R / Alt+D too.
+       Keyboard quick-select wired by __syncActions on the $acting edge. -->
+  <div class="actions-backdrop" data-show="$acting" data-on:click="$acting = false">
+    <div class="actions-panel" data-on:click="evt.stopPropagation()">
+      <div class="picker-heading">Clip</div>
+      <button type="button" class="picker-row" data-on:click="$acting = false; window.app.openRenameTab()">
+        <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg> Rename
+      </button>
+      <button type="button" class="picker-row" data-on:click="$acting = false; window.app.closeSelected()">
+        <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg> Close
       </button>
     </div>
   </div>
@@ -533,6 +570,11 @@
         if (!cid) return;
         fetch('/clip/close?clip=' + encodeURIComponent(cid), { method: 'POST' }).catch(() => {});
       },
+      openActions() {
+        // Bottom-right clip-actions panel (Rename / Close). mergePatch drives
+        // the $acting signal the same way the rename trigger drives $renaming.
+        mergePatch({ acting: true });
+      },
       move(dir) {
         // Reorder the selected clip up/down within its stack (Alt+Shift+J/K).
         const cid = currentClip();
@@ -671,6 +713,7 @@
     const bindingsByMode = {
       navigate: [
         ...appChords,
+        { label: 'Actions', keys: [modLabel, 'K'], run: () => window.app.openActions() },
         { label: 'Focus', keys: [modLabel, 'Enter'], run: () => window.app.toggleFocus() },
       ],
       focus: [
@@ -714,17 +757,18 @@
     }
     setMode('navigate');
 
-    // New-clip picker key handler, patched in and out on the $picking edge
-    // (__syncPicker, called from a data-effect). While open, this single
-    // capture-phase listener owns the keys -- Ctrl-n/Ctrl-p or Down/Up move,
-    // Enter chooses, Esc closes -- and swallows everything else so nothing
-    // leaks to a focused terminal's key-buffer. Selection is a .sel class on
-    // the rows (no signal), the way the stacks.nu action panel does it. When
-    // the picker is closed nothing of it is live, mirroring how a mode's key
-    // bindings only exist while that mode is active.
-    const newPicker = (() => {
+    // Keyboard-driven picker panels (the top New-clip picker and the bottom
+    // clip-actions panel). Each panel node is static (toggled by a data-show
+    // signal), so we patch the capture-phase key handler in and out on that
+    // signal's edge (__sync*, called from a data-effect). While open it owns
+    // every key -- Ctrl-n/Ctrl-p or Down/Up move, Enter chooses, Esc closes --
+    // and swallows the rest so nothing leaks to a focused terminal's
+    // key-buffer. Selection is a .sel class on the rows (no signal), the way
+    // the stacks.nu action panel does it. Row queries are scoped to panelSel
+    // so the two panels' rows never cross-match. Returns a sync(on) callback.
+    function makePicker(panelSel, signal) {
       let keyHandler = null;
-      const rows = () => Array.from(document.querySelectorAll('.picker-row'));
+      const rows = () => Array.from((document.querySelector(panelSel) || document).querySelectorAll('.picker-row'));
       const selIdx = () => rows().findIndex((r) => r.classList.contains('sel'));
       function setSel(i) {
         const rs = rows();
@@ -734,7 +778,7 @@
         rs[w].classList.add('sel');
       }
       // Mouse and keyboard share one .sel highlight. Rows are static (the
-      // picker lives in the shell, never morphed), so wire hover once.
+      // panels live in the shell, never morphed), so wire hover once.
       rows().forEach((r, i) => r.addEventListener('mouseenter', () => setSel(i)));
       function open() {
         if (keyHandler) return;
@@ -742,7 +786,7 @@
         keyHandler = (e) => {
           const k = e.key;
           if (k === 'Shift' || k === 'Control' || k === 'Alt' || k === 'Meta') return;
-          if (k === 'Escape') mergePatch({ picking: false });
+          if (k === 'Escape') mergePatch({ [signal]: false });
           else if (k === 'Enter') (rows()[selIdx()] || rows()[0])?.click();
           else if (k === 'ArrowDown' || (e.ctrlKey && k === 'n')) setSel(selIdx() + 1);
           else if (k === 'ArrowUp' || (e.ctrlKey && k === 'p')) setSel(selIdx() - 1);
@@ -758,9 +802,10 @@
         document.removeEventListener('keydown', keyHandler, { capture: true });
         keyHandler = null;
       }
-      return { sync: (on) => (on ? open() : close()) };
-    })();
-    window.__syncPicker = newPicker.sync;
+      return (on) => (on ? open() : close());
+    }
+    window.__syncPicker = makePicker('.picker-panel', 'picking');
+    window.__syncActions = makePicker('.actions-panel', 'acting');
 
     // Focus a clip by id -- the one entry point for "go into this pane".
     // Terminal: point key-buffer at the pane's pty (its .pane-screen carries
@@ -875,6 +920,17 @@
         e.preventDefault();
         e.stopPropagation();
         window.app.toggleFocus();
+        return;
+      }
+      // mod+K opens the clip-actions panel, but only in navigate mode. In focus
+      // mode the key falls through to the pty, so Ctrl+K stays readline
+      // kill-line off-mac (on macOS Cmd+K is a Meta combo key-buffer drops
+      // anyway). One rule on every platform: clip actions open from navigate.
+      // preventDefault suppresses the browser's own Cmd/Ctrl+K (omnibox search).
+      if ((combo === 'cmd+k' || combo === 'ctrl+k') && mode === 'navigate') {
+        e.preventDefault();
+        e.stopPropagation();
+        window.app.openActions();
         return;
       }
       // Alt app-chords: active in every mode. Save a note being edited first
