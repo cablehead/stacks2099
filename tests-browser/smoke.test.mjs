@@ -473,3 +473,80 @@ test("an outside note update preserves an in-flight edit", () => withApp(async (
   const focused = await page.evaluate(() => document.activeElement?.classList.contains("note-edit"));
   assert.ok(focused, "the editor stays focused through the morph");
 }));
+
+// The new-clip picker is pure client logic (no server round-trip until a row is
+// chosen), so the projection tests can't reach it. Its keyboard quick-select is
+// the whole point -- a capture-phase handler patched in on the $picking edge.
+test("new-clip picker: Ctrl-n/Ctrl-p and arrows move selection; Enter creates the clip; Esc closes", () => withApp(async (page) => {
+  const sel = () => page.$$eval(".picker-row", (rs) => rs.map((r) => r.classList.contains("sel")));
+  const selIdx = () => page.evaluate(() => [...document.querySelectorAll(".picker-row")].findIndex((r) => r.classList.contains("sel")));
+  const hidden = () => page.evaluate(() => getComputedStyle(document.querySelector(".picker-backdrop")).display === "none");
+
+  // Open from the top bar via Alt+T; selection starts on the first row.
+  await page.keyboard.press("Alt+t");
+  await page.waitForSelector(".picker-backdrop", { state: "visible", timeout: 5000 });
+  await page.waitForFunction(() => document.querySelector(".picker-row.sel") === document.querySelector(".picker-row"), { timeout: 3000 });
+  assert.deepEqual(await sel(), [true, false], "opens with the first row (Terminal) selected");
+
+  // One highlight that Ctrl-n / Ctrl-p / ArrowDown move.
+  await page.keyboard.press("Control+n");
+  await page.waitForFunction(() => [...document.querySelectorAll(".picker-row")].findIndex((r) => r.classList.contains("sel")) === 1, { timeout: 3000 });
+  await page.keyboard.press("Control+p");
+  assert.deepEqual(await sel(), [true, false], "Ctrl-p returns to the first row");
+  await page.keyboard.press("ArrowDown");
+  await page.waitForFunction(() => [...document.querySelectorAll(".picker-row")].findIndex((r) => r.classList.contains("sel")) === 1, { timeout: 3000 });
+
+  // Esc closes and creates nothing.
+  const panesBefore = await page.evaluate(() => document.querySelectorAll("#doc .pane").length);
+  await page.keyboard.press("Escape");
+  await page.waitForFunction(() => getComputedStyle(document.querySelector(".picker-backdrop")).display === "none", { timeout: 3000 });
+  await page.waitForTimeout(300);
+  assert.equal(await page.evaluate(() => document.querySelectorAll("#doc .pane").length), panesBefore, "Esc creates no clip");
+
+  // Reopen, select Note (row 1), Enter creates a note pane over SSE.
+  await page.keyboard.press("Alt+t");
+  await page.waitForSelector(".picker-backdrop", { state: "visible", timeout: 5000 });
+  await page.keyboard.press("ArrowDown");
+  await page.waitForFunction(() => [...document.querySelectorAll(".picker-row")].findIndex((r) => r.classList.contains("sel")) === 1, { timeout: 3000 });
+  assert.equal(await selIdx(), 1, "Note row is selected before Enter");
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => getComputedStyle(document.querySelector(".picker-backdrop")).display === "none", { timeout: 3000 });
+  assert.ok(await hidden(), "Enter closes the picker");
+  await page.waitForFunction(
+    () => [...document.querySelectorAll("#doc .pane")].some((p) => p.dataset.render === "note"),
+    { timeout: 10000 },
+  );
+}));
+
+// The picker is modal while open: it must own every key, so nothing leaks to a
+// focused terminal underneath. Regression guard for the capture-phase handler's
+// stopImmediatePropagation (without it, key-buffer forwards picker keys to the pty).
+test("new-clip picker: while open, keystrokes don't leak to a focused terminal", () => withApp(async (page) => {
+  await page.waitForFunction(() => !!document.querySelector("[id^='grid-'] .row"), { timeout: 15000 });
+  const cid = await page.evaluate(() => document.querySelector("#doc .pane[data-render='terminal']")?.dataset.clip);
+  assert.ok(cid, "a terminal pane is present");
+  // Focus it: key-buffer enabled and pointed at the pty (focus mode).
+  await page.evaluate((cid) => window.__focusClip(cid), cid);
+  await page.waitForTimeout(150);
+
+  // Open the picker over the focused terminal and type characters that would
+  // otherwise reach the pty. They must be swallowed.
+  await page.keyboard.press("Alt+t");
+  await page.waitForSelector(".picker-backdrop", { state: "visible", timeout: 5000 });
+  await page.keyboard.type("LEAKZZZ");
+  await page.keyboard.press("Escape");
+  await page.waitForFunction(() => getComputedStyle(document.querySelector(".picker-backdrop")).display === "none", { timeout: 3000 });
+
+  // Still focused: a sentinel typed now DOES reach the pty and echoes. pty input
+  // is ordered, so once the sentinel shows, any leaked LEAKZZZ would be on the
+  // line too.
+  await page.keyboard.type("SENT9");
+  await page.waitForFunction(
+    () => [...document.querySelectorAll("[id^='grid-'] .row")].some((r) => r.textContent.includes("SENT9")),
+    { timeout: 10000 },
+  );
+  const leaked = await page.evaluate(() =>
+    [...document.querySelectorAll("[id^='grid-'] .row")].some((r) => r.textContent.includes("LEAKZZZ"))
+  );
+  assert.ok(!leaked, "no picker keystroke reached the terminal");
+}));
