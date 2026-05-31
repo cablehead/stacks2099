@@ -19,8 +19,8 @@ running terminal or an embedded URL, so a stack holds the working context itself
 -- the shells you're in, the site you're building. The page is a pure projection
 of the event log: selection, layout, and the visible HTML are computed on the
 server and patched over Datastar SSE. Terminals included, rendered from
-[wezterm-term](https://github.com/wezterm/wezterm) as an HTML grid (no WASM, no
-client-side VT emulator).
+[wezterm-term](https://github.com/wezterm/wezterm) as
+[an HTML grid (no WASM, no client-side VT emulator)](journey.md).
 
 <img alt="A terminal clip rendered as an HTML cell grid" width="760" src="docs/assets/terminal.png">
 
