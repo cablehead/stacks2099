@@ -106,6 +106,18 @@ impl Engine {
         Ok(())
     }
 
+    /// Prepare the engine to act as nushell's interactive shell: mark the
+    /// session interactive and build the `$nu` constant (default-config-dir,
+    /// config-path, current-exe, is-interactive, ...). Stock nushell does this
+    /// before evaluating env.nu/config.nu so user configs can read `$nu.*` --
+    /// including parse-time `const` contexts (NU_LIB_DIRS / NU_PLUGIN_DIRS).
+    /// Without it those configs fail with "variable not found" / "Value is not
+    /// a parse-time constant".
+    pub fn enter_interactive(&mut self) {
+        self.state.is_interactive = true;
+        self.state.generate_nu_constant();
+    }
+
     pub fn add_commands(&mut self, commands: Vec<Box<dyn Command>>) -> Result<(), Error> {
         let mut working_set = StateWorkingSet::new(&self.state);
         for command in commands {

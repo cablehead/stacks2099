@@ -29,6 +29,33 @@ fn test_engine_eval() {
 }
 
 #[test]
+fn test_enter_interactive_builds_nu_constant() {
+    // Regression: the embedded REPL must build the `$nu` constant before user
+    // config runs. A real user config references `$nu` in parse-time `const`s
+    // (NU_LIB_DIRS / NU_PLUGIN_DIRS); without the constant those fail to parse.
+
+    // Before: `$nu` has no value, so a parse-time const referencing it errors
+    // (exactly what users were hitting).
+    let mut bare = Engine::new().unwrap();
+    assert!(
+        bare.eval("const P = $nu.config-path", None).is_err(),
+        "$nu should be unavailable before enter_interactive"
+    );
+
+    // After: the const resolves, and the session reports interactive.
+    let mut engine = Engine::new().unwrap();
+    engine.enter_interactive();
+    engine
+        .eval("const P = $nu.config-path; $P", None)
+        .expect("$nu.config-path should resolve in a parse-time const after enter_interactive");
+    let interactive = engine.eval("$nu.is-interactive", None).unwrap();
+    assert!(
+        interactive.as_bool().unwrap(),
+        "$nu.is-interactive should be true"
+    );
+}
+
+#[test]
 fn test_closure_no_args() {
     let mut engine = Engine::new().unwrap();
 
