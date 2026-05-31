@@ -752,3 +752,13 @@ test("Alt+] cycles to the next stack (works with the rail collapsed)", () => wit
   await page.keyboard.press("Alt+]");
   await page.waitForFunction((s) => document.querySelector("#stacks-list ul.stacks li.selected .row")?.dataset.stack !== s, sel0, { timeout: 5000 });
 }));
+
+test("Alt+\\ opens the stacks switcher", () => withApp(async (page) => {
+  await page.keyboard.press("Alt+\\");
+  await page.waitForSelector(".stack-backdrop", { state: "visible", timeout: 5000 });
+  assert.equal(
+    await page.evaluate(() => getComputedStyle(document.querySelector(".stack-backdrop")).display !== "none"),
+    true,
+    "Alt+\\ opens the stacks switcher",
+  );
+}));

@@ -303,7 +303,8 @@
     "renameTab": "window.app.openRenameTab()",
     "cycleHeight":"window.app.cycleHeight()",
     "prevStack": "window.app.cycleStack(-1)",
-    "nextStack": "window.app.cycleStack(1)"
+    "nextStack": "window.app.cycleStack(1)",
+    "openStacks": "window.app.openStacks()"
   }'
   data-keymap='{
     "alt+t": "new",
@@ -318,7 +319,8 @@
     "alt+shift+r": "rename",
     "alt+o": "cycleHeight",
     "alt+[": "prevStack",
-    "alt+]": "nextStack"
+    "alt+]": "nextStack",
+    "alt+\\": "openStacks"
   }'
 >
   <!-- Three-pane: stacks | clips | content (#doc). Server overwrites the two
@@ -333,7 +335,7 @@
          the visible handle for the top-left Stacks switcher. New is the handle
          for the top-right picker. -->
     <div class="topbar">
-      <button class="bar-btn stack-crumb" type="button" title="Switch stack (Alt+[ / Alt+])" data-on:click="$stackPicking = true">
+      <button class="bar-btn stack-crumb" type="button" title="Switch stack (Alt+\ ; cycle Alt+[ / Alt+])" data-on:click="$stackPicking = true">
         <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m6.08 9.5-3.49 1.59a1 1 0 0 0 0 1.81l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9a1 1 0 0 0 0-1.83l-3.49-1.59"/></svg>
         <span data-text="$stackName || 'stack'"></span>
       </button>
@@ -695,6 +697,11 @@
         // the $acting signal the same way the rename trigger drives $renaming.
         mergePatch({ acting: true });
       },
+      openStacks() {
+        // Top-left stacks switcher (Alt+\\ or the breadcrumb). Same edge-driven
+        // panel as the others; Alt+[ / Alt+] cycle without opening it.
+        mergePatch({ stackPicking: true });
+      },
       move(dir) {
         // Reorder the selected clip up/down within its stack (Alt+Shift+J/K).
         const cid = currentClip();
@@ -1002,6 +1009,8 @@
         k = '[';
       } else if (e.altKey && e.code === 'BracketRight') {
         k = ']';
+      } else if (e.altKey && e.code === 'Backslash') {
+        k = '\\';
       } else if (k.length === 1 && /[a-zA-Z]/.test(k)) {
         k = k.toLowerCase();
       } else if (k === ' ') {
