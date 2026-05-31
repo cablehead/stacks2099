@@ -556,18 +556,18 @@ test("new-clip picker: while open, keystrokes don't leak to a focused terminal",
 // scoped capture-phase handler, opened by mod-K in navigate mode. Holds the
 // current-clip actions (Rename / Close).
 test("clip-actions: mod-K opens in navigate; Ctrl-n/Ctrl-p move; Enter opens rename; Esc closes", () => withApp(async (page) => {
-  const sel = () => page.$$eval(".actions-panel .picker-row", (rs) => rs.map((r) => r.classList.contains("sel")));
+  const selIdx = () => page.evaluate(() => [...document.querySelectorAll(".actions-panel .picker-row")].findIndex((r) => r.classList.contains("sel")));
   const hidden = () => page.evaluate(() => getComputedStyle(document.querySelector(".actions-backdrop")).display === "none");
 
-  // Linux headless: mod = Ctrl. Open from navigate mode.
+  // Linux headless: mod = Ctrl. Open from navigate mode; Rename (row 0) selected.
   await page.keyboard.press("Control+k");
   await page.waitForSelector(".actions-backdrop", { state: "visible", timeout: 5000 });
-  assert.deepEqual(await sel(), [true, false], "opens with Rename selected");
+  assert.equal(await selIdx(), 0, "opens with Rename selected");
 
   await page.keyboard.press("Control+n");
   await page.waitForFunction(() => [...document.querySelectorAll(".actions-panel .picker-row")].findIndex((r) => r.classList.contains("sel")) === 1, { timeout: 3000 });
   await page.keyboard.press("Control+p");
-  assert.deepEqual(await sel(), [true, false], "Ctrl-p returns to Rename");
+  assert.equal(await selIdx(), 0, "Ctrl-p returns to Rename");
 
   // Esc closes without opening rename.
   await page.keyboard.press("Escape");
@@ -602,11 +602,14 @@ test("clip-actions: Close removes the selected clip", () => withApp(async (page)
   }, noteCid);
   await page.waitForFunction((cid) => document.querySelector("#pane-" + CSS.escape(cid))?.classList.contains("active"), noteCid, { timeout: 5000 });
 
-  // Open actions, move to Close, Enter.
+  // Open actions; Close is the last row. Ctrl-p from row 0 wraps up to it.
   await page.keyboard.press("Control+k");
   await page.waitForSelector(".actions-backdrop", { state: "visible", timeout: 5000 });
-  await page.keyboard.press("ArrowDown");
-  await page.waitForFunction(() => [...document.querySelectorAll(".actions-panel .picker-row")].findIndex((r) => r.classList.contains("sel")) === 1, { timeout: 3000 });
+  await page.keyboard.press("Control+p");
+  await page.waitForFunction(() => {
+    const rows = [...document.querySelectorAll(".actions-panel .picker-row")];
+    return rows.findIndex((r) => r.classList.contains("sel")) === rows.length - 1;
+  }, { timeout: 3000 });
   await page.keyboard.press("Enter");
 
   await page.waitForFunction((cid) => !document.querySelector("#pane-" + CSS.escape(cid)), noteCid, { timeout: 10000 });
@@ -636,9 +639,9 @@ test("clip-actions: Cmd-K opens the panel even when a terminal is focused", () =
 
   await page.keyboard.press("Meta+k");
   await page.waitForSelector(".actions-backdrop", { state: "visible", timeout: 5000 });
-  assert.deepEqual(
-    await page.$$eval(".actions-panel .picker-row", (rs) => rs.map((r) => r.classList.contains("sel"))),
-    [true, false],
+  assert.equal(
+    await page.evaluate(() => [...document.querySelectorAll(".actions-panel .picker-row")].findIndex((r) => r.classList.contains("sel"))),
+    0,
     "panel opens with Rename selected, from focus mode",
   );
 }));

@@ -52,12 +52,38 @@
     /* main is a grid: topbar | doc. The status bar lives at body level now. */
     main { display: grid; grid-template-rows: auto 1fr; min-height: 0; overflow: hidden; }
     .topbar {
-      background: var(--chrome); padding: .15rem .75rem;
-      display: flex; align-items: center;
+      background: var(--chrome); padding: .15rem .5rem;
+      display: flex; align-items: center; gap: .4rem;
       font-size: 11px; color: var(--dim);
     }
-    .title-display { cursor: pointer; padding: 0 .25rem; border-radius: 2px; }
+    .title-display {
+      background: transparent; border: 0; color: inherit; font: inherit;
+      cursor: pointer; padding: .1rem .4rem; border-radius: 3px;
+      max-width: 44ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
     .title-display:hover { background: #2f2f2f; color: var(--fg); }
+    .topbar-spacer { flex: 1; }
+    /* Shared affordance chip for the top + status bars: advertises a key and,
+       on click, runs the same action the key would. Replaces the old flat
+       wall of binding chips -- actions now live on the top bar (New / Sort /
+       Layout) and in the clip-actions panel. */
+    .bar-btn {
+      display: inline-flex; align-items: center; gap: .4ch;
+      background: transparent; color: var(--dim);
+      border: 1px solid transparent; border-radius: 3px;
+      padding: .1rem .45rem; font: inherit; font-size: 11px; line-height: 1.5;
+      cursor: pointer;
+    }
+    .bar-btn:hover { background: #222; color: var(--fg); }
+    .bar-btn .icon { width: 1em; height: 1em; vertical-align: -0.15em; }
+    /* The primary affordance (New): outlined so it reads as the main entry. */
+    .bar-btn-primary { color: var(--fg); border-color: var(--pane-border); }
+    .bar-btn-primary:hover { background: var(--sel-blur); border-color: var(--sel-blur); color: var(--sel-fg); }
+    .bar-btn kbd, .mode-hint kbd, .row-keys kbd {
+      font-family: var(--term-font); font-size: 10px;
+      background: #1c1c1c; border: 1px solid var(--pane-border);
+      border-radius: 3px; padding: 0 .35ch; line-height: 1.4; color: var(--dim);
+    }
     .middle { display: grid; grid-template-columns: 1fr 1ch; min-height: 0; }
     /* Continuous document: every session's terminal stacked vertically, the
        whole column scrolls. Each .pane is a fixed-height live terminal whose
@@ -132,18 +158,18 @@
       font-size: 11px; line-height: 1;
       font-family: var(--term-font);
     }
-    .status-keys { display: flex; gap: .75rem; align-items: center; }
-    .status-mode { text-transform: uppercase; letter-spacing: .05em; color: var(--dim); }
-    body.mode-focus .status-mode { color: var(--sel); }
-    #status-bindings { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
-    .statusbar .binding { display: inline-flex; gap: .4ch; align-items: center; cursor: pointer; opacity: .75; }
-    .statusbar .binding:hover { opacity: 1; }
-    .statusbar .binding kbd {
-      font-family: var(--term-font); font-size: 10px;
-      background: #1c1c1c; border: 1px solid var(--pane-border);
-      border-radius: 3px; padding: 0 .4ch; line-height: 1.4;
+    .status-keys { display: flex; gap: .4rem; align-items: center; }
+    .status-mode {
+      background: transparent; border: 0; font: inherit; cursor: pointer;
+      text-transform: uppercase; letter-spacing: .05em; color: var(--dim);
+      padding: .1rem .4rem; border-radius: 3px;
     }
-    .status-meta { display: flex; gap: 1rem; align-items: center; }
+    .status-mode:hover { background: #222; color: var(--fg); }
+    body.mode-focus .status-mode { color: var(--sel); }
+    .mode-hint { display: inline-flex; gap: .2ch; opacity: .55; }
+    .status-meta { display: flex; gap: .75rem; align-items: center; }
+    /* Trailing key-hint cluster pushed to the right of a clip-actions row. */
+    .row-keys { margin-left: auto; display: inline-flex; gap: .2ch; opacity: .8; }
     /* Right-side canvas pane. Lives in body's third grid column (`auto`), so
        when :empty the column collapses to 0 and the terminal gets full width.
        Server pushes content via the same /sse stream (canvas.events). */
@@ -281,12 +307,29 @@
   <aside id="clips-list"><header>Clips</header></aside>
 
   <main>
+    <!-- Top bar: cross-clip + context. Window title (rename) on the left;
+         stack-level toggles and the New-clip entry on the right. New is the
+         visible handle for the top-right picker. -->
     <div class="topbar">
-      <span
+      <button
         class="title-display"
-        title="Rename (Alt+Shift+R)"
+        type="button"
+        title="Rename window (Alt+Shift+R)"
         data-text="$title || 'untitled'"
-        data-on:click="$draft = $title; $renameMode = 'title'; $renaming = true"></span>
+        data-on:click="$draft = $title; $renameMode = 'title'; $renaming = true"></button>
+      <span class="topbar-spacer"></span>
+      <button class="bar-btn" type="button" title="Sort clips (Alt+S)" aria-label="Sort clips" data-on:click="window.app.toggleSort()">
+        <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 16 4 4 4-4"/><path d="M7 20V4"/><path d="m21 8-4-4-4 4"/><path d="M17 4v16"/></svg>
+        <kbd>Alt</kbd><kbd>S</kbd>
+      </button>
+      <button class="bar-btn" type="button" title="Layout flow/niri (Alt+L)" aria-label="Layout" data-on:click="window.app.toggleLayout()">
+        <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M12 3v18"/></svg>
+        <kbd>Alt</kbd><kbd>L</kbd>
+      </button>
+      <button class="bar-btn bar-btn-primary" type="button" title="New clip (Alt+T)" data-on:click="$picking = true">
+        <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+        New <kbd>Alt</kbd><kbd>T</kbd>
+      </button>
     </div>
     <!-- Continuous document of session panes. The server fills #doc on init
          and appends/removes panes as sessions come and go; each pane opens
@@ -325,15 +368,21 @@
   <!-- Server-pushed canvas pane. Empty -> collapses to 0 width. -->
   <section id="canvas" class="canvas"></section>
 
-  <!-- Status bar spans the full width of the window's bottom (under the
-       sidebar and canvas too), so it is a body-level row, not nested in main.
-       Modal: the active mode's name + its clickable key bindings (filled by JS
-       on setMode); clicking a binding fires the same action a keypress would. -->
+  <!-- Status bar spans the full window width (under the sidebar and canvas
+       too), so it is a body-level row. Mode + current-clip surface: the MODE
+       label on the left toggles focus; dims and the Actions handle (the
+       bottom-right clip-actions panel) on the right. -->
   <footer class="statusbar" aria-label="Status">
-    <span class="status-keys"><span class="status-mode" id="status-mode">navigate</span><span id="status-bindings"></span></span>
+    <span class="status-keys">
+      <button class="status-mode" id="status-mode" type="button" title="Toggle focus (mod+Enter)" data-on:click="window.app.toggleFocus()">navigate</button>
+      <span class="mode-hint"><kbd class="kbd-mod">Ctrl</kbd><kbd>Enter</kbd></span>
+    </span>
     <span class="status-meta">
       <span data-text="$focusedDims"></span>
       <span data-text="$selectedSid ? ('sid ' + $selectedSid.slice(0,8)) : ''" style="opacity:.5;"></span>
+      <button class="bar-btn" type="button" title="Clip actions (mod+K)" data-on:click="window.app.openActions()">
+        Actions <kbd class="kbd-mod">Ctrl</kbd><kbd>K</kbd>
+      </button>
     </span>
   </footer>
 
@@ -379,18 +428,29 @@
     </div>
   </div>
 
-  <!-- Clip-actions panel (mod+K in navigate mode / the Actions status binding).
-       Acts on the current clip, so it rises from the bottom-right status bar.
-       Rename and Close moved in here; both stay available as Alt+R / Alt+D too.
-       Keyboard quick-select wired by __syncActions on the $acting edge. -->
+  <!-- Clip-actions panel (mod+K / the Actions status handle). Acts on the
+       current clip, so it rises from the bottom-right status bar and holds all
+       the per-clip chords -- Rename, Move, Height, Close -- which used to
+       clutter the status bar. Each keeps its Alt-chord for speed; the panel
+       just makes them discoverable. Keyboard quick-select via __syncActions on
+       the $acting edge. -->
   <div class="actions-backdrop" data-show="$acting" data-on:click="$acting = false">
     <div class="actions-panel" data-on:click="evt.stopPropagation()">
       <div class="picker-heading">Clip</div>
       <button type="button" class="picker-row" data-on:click="$acting = false; window.app.openRenameTab()">
-        <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg> Rename
+        <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg> <span>Rename</span><span class="row-keys"><kbd>Alt</kbd><kbd>R</kbd></span>
+      </button>
+      <button type="button" class="picker-row" data-on:click="$acting = false; window.app.move('up')">
+        <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg> <span>Move up</span><span class="row-keys"><kbd>Alt</kbd><kbd>Shift</kbd><kbd>K</kbd></span>
+      </button>
+      <button type="button" class="picker-row" data-on:click="$acting = false; window.app.move('down')">
+        <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg> <span>Move down</span><span class="row-keys"><kbd>Alt</kbd><kbd>Shift</kbd><kbd>J</kbd></span>
+      </button>
+      <button type="button" class="picker-row" data-on:click="$acting = false; window.app.cycleHeight()">
+        <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21 16-4 4-4-4"/><path d="M17 20V4"/><path d="m3 8 4-4 4 4"/><path d="M7 4v16"/></svg> <span>Height</span><span class="row-keys"><kbd>Alt</kbd><kbd>O</kbd></span>
       </button>
       <button type="button" class="picker-row" data-on:click="$acting = false; window.app.closeSelected()">
-        <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg> Close
+        <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg> <span>Close</span><span class="row-keys"><kbd>Alt</kbd><kbd>D</kbd></span>
       </button>
     </div>
   </div>
@@ -700,59 +760,15 @@
     // mod+Enter returns to navigate.
     const keybuf = document.querySelector('key-buffer');
 
-    // Modal status bar. Each mode lists its clickable key bindings in the
-    // footer; clicking one runs the same action the key would. Keys are
-    // ASCII labels (project convention) rather than glyphs.
+    // Status bar shows the current mode; clicking it toggles focus. The action
+    // affordances live on the top bar (New / Sort / Layout) and in the
+    // clip-actions panel now, so there's no per-chord chip list to render. The
+    // mod key is Cmd on macOS, Ctrl elsewhere; stamp it into the visible key
+    // hints (.kbd-mod on the mode toggle and the Actions handle).
     const statusMode = document.getElementById('status-mode');
-    const statusBindings = document.getElementById('status-bindings');
-    // App chords (Alt-prefixed) are global, so both modes list them. The
-    // mod+Enter focus toggle is the only focus entry/exit. The mod key is Cmd
-    // on macOS, Ctrl elsewhere -- both are mapped; the label follows the
-    // platform.
     const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '');
     const modLabel = isMac ? 'Cmd' : 'Ctrl';
-    const appChords = [
-      { label: 'New', keys: ['Alt', 'T'], run: () => window.app.newSession() },
-      { label: 'Close', keys: ['Alt', 'D'], run: () => window.app.closeSelected() },
-      { label: 'Move', keys: ['Alt', 'Shift', 'J/K'], run: () => window.app.move('down') },
-      { label: 'Sort', keys: ['Alt', 'S'], run: () => window.app.toggleSort() },
-      { label: 'Layout', keys: ['Alt', 'L'], run: () => window.app.toggleLayout() },
-      { label: 'Rename', keys: ['Alt', 'R'], run: () => window.app.openRenameTab() },
-      { label: 'Height', keys: ['Alt', 'O'], run: () => window.app.cycleHeight() },
-    ];
-    const actionsBinding = { label: 'Actions', keys: [modLabel, 'K'], run: () => window.app.openActions() };
-    const bindingsByMode = {
-      navigate: [
-        ...appChords,
-        actionsBinding,
-        { label: 'Focus', keys: [modLabel, 'Enter'], run: () => window.app.toggleFocus() },
-      ],
-      focus: [
-        ...appChords,
-        // Cmd+K works in focus mode (Meta never reaches the pty); Ctrl+K stays
-        // kill-line, so only advertise Actions here when the mod is Cmd (macOS).
-        ...(isMac ? [actionsBinding] : []),
-        { label: 'Navigate', keys: [modLabel, 'Enter'], run: () => window.app.toggleFocus() },
-      ],
-    };
-    function renderBindings(m) {
-      statusMode.textContent = m;
-      statusBindings.replaceChildren();
-      for (const b of (bindingsByMode[m] || [])) {
-        const el = document.createElement('span');
-        el.className = 'binding';
-        const lbl = document.createElement('span');
-        lbl.textContent = b.label;
-        el.appendChild(lbl);
-        for (const k of b.keys) {
-          const kbd = document.createElement('kbd');
-          kbd.textContent = k;
-          el.appendChild(kbd);
-        }
-        el.addEventListener('mousedown', (e) => { e.preventDefault(); b.run(); });
-        statusBindings.appendChild(el);
-      }
-    }
+    for (const el of document.querySelectorAll('.kbd-mod')) el.textContent = modLabel;
 
     let mode = 'navigate';
     function setMode(m) {
@@ -767,7 +783,7 @@
         keybuf.setAttribute('enabled', 'false');
         if (document.activeElement?.classList.contains('note-edit')) document.activeElement.blur();
       }
-      renderBindings(m);
+      if (statusMode) statusMode.textContent = m;
     }
     setMode('navigate');
 
