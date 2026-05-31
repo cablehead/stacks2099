@@ -1,9 +1,9 @@
 # stacks2099
 
-Stacks is a tool for thought: a collection of **stacks** of **clips** for
-managing your personal context. A **clip** is any byte sequence with a mime type
--- a note, an image, a JSON blob, a screenshot, a README. Clips gather into
-**stacks**, one per task or train of thought.
+[Stacks](https://stacks.cross.stream) is a tool for thought: a collection of
+**stacks** of **clips** for managing your personal context. A **clip** is any
+byte sequence with a mime type -- a note, an image, a JSON blob, a screenshot, a
+README. Clips gather into **stacks**, one per task or train of thought.
 
 stacks2099 is that thesis, expanded. The original
 [stacks](https://github.com/cablehead/stacks) ran on a crude event stream and a
