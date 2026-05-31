@@ -110,7 +110,7 @@ The top bar carries the cross-clip handles -- the stack breadcrumb, Sort,
 Layout, Theme, Actions, and New. The **Theme** button swaps the terminal palette
 (client-side: Default, Nord, Solarized, Railscasts, and friends).
 
-<img alt="Terminal theme picker in the top bar" width="240" src="docs/assets/theme.png">
+<img alt="Theme picker open beside a focused, themed terminal" width="640" src="docs/assets/theme.png">
 
 ## Add assets
 
