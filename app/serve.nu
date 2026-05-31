@@ -273,6 +273,34 @@ def render-stacks [proj: record]: nothing -> string {
   $"<aside id='stacks-list'><header>Stacks <button type='button' class='new-btn' data-on:click=\"@post\('/stack/new'\)\" title='New stack'>+</button></header><ul class='stacks'>($items)</ul></aside>"
 }
 
+# Stack-switcher rows: the same stacks as the rail, rendered as picker-rows for
+# the top-left switcher overlay (the rail is hidden in niri, so this is how you
+# switch/create stacks there). Selecting closes the overlay; the current stack
+# is marked active. A trailing "New stack" row keeps creation reachable.
+def render-stack-switcher [proj: record]: nothing -> string {
+  let sel = ($proj.selectedStackId | default "")
+  let rows = ($proj.stacks | sort-by lastTouched | reverse | each {|s|
+    let real = ($s.name? | default "")
+    let display = (html-escape (if ($real | is-empty) { $s.id } else { $real }))
+    let active = if $s.id == $sel { " active" } else { "" }
+    $"<button type='button' class='picker-row($active)' data-on:click=\"$stackPicking = false; @post\('/stack/select?stack=($s.id)'\)\">($display)</button>"
+  } | str join "")
+  let newrow = $"<button type='button' class='picker-row' data-on:click=\"$stackPicking = false; @post\('/stack/new'\)\"><svg class='icon' xmlns='http://www.w3.org/2000/svg' width='1em' height='1em' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M5 12h14'/><path d='M12 5v14'/></svg> New stack</button>"
+  $"<div id='stack-switcher'>($rows)($newrow)</div>"
+}
+
+# Selected stack's display name (real name, or the id when unnamed); "" when no
+# stack. Drives the top-bar breadcrumb signal so you can see which stack you're
+# on even in niri, where the rail (and its selection highlight) is gone.
+def stack-name-of [proj: record]: nothing -> string {
+  let sel = ($proj.selectedStackId | default "")
+  let s = ($proj.stacks | where id == $sel | get 0?)
+  if ($s | is-empty) { "" } else {
+    let real = ($s.name? | default "")
+    if ($real | is-empty) { $sel } else { $real }
+  }
+}
+
 # Middle column: the selected stack's clip list (a navigator over the #doc).
 # The header shows the stack's sort mode as a toggle (auto = activity order;
 # manual = curated, set by moves).
@@ -463,22 +491,24 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
             let doc_order = (mountable $clips)
 
             let sel_stack = ($proj.selectedStackId | default "")
+            let stack_name = (stack-name-of $proj)
             let layout = (layout-of $proj)
             let label = (label-of $proj)
             let stacks_patch = (render-stacks $proj | to datastar-patch-elements --selector "#stacks-list")
+            let switcher_patch = (render-stack-switcher $proj | to datastar-patch-elements --selector "#stack-switcher")
             let clips_patch = (render-clips $proj | to datastar-patch-elements --selector "#clips-list")
             let doc_patch = if (not $doc_ready) {
               (render-doc $clips | to datastar-patch-elements --selector "#doc")
             } else { null }
             # docOrder: the sorted pane order the client applies by relocating
             # existing #doc nodes (preserves live terminal grids).
-            let sel_patch = ({selectedSid: $sel, selectedStack: $sel_stack, connId: $conn_id, docReady: true, docOrder: ($doc_order | to json), docLayout: $layout, label: $label} | to datastar-patch-signals)
+            let sel_patch = ({selectedSid: $sel, selectedStack: $sel_stack, stackName: $stack_name, connId: $conn_id, docReady: true, docOrder: ($doc_order | to json), docLayout: $layout, label: $label} | to datastar-patch-signals)
             let dims_patch = ({focusedDims: $dims} | to datastar-patch-signals)
             let title_patch = ({title: $title} | to datastar-patch-signals)
             let canvas_patch = (render-canvas $canvas | to datastar-patch-elements --selector "#canvas")
 
-            let out = ([$sel_patch $dims_patch $title_patch $stacks_patch $clips_patch $canvas_patch $doc_patch] | where {|x| $x != null })
-            {out: $out, next: {proj: $proj, ready: true, rendered: $doc_order, doc_order: $doc_order, title: $title, canvas: $canvas, sel: $sel, sel_stack: $sel_stack, dims: $dims, layout: $layout, label: $label}}
+            let out = ([$sel_patch $dims_patch $title_patch $stacks_patch $switcher_patch $clips_patch $canvas_patch $doc_patch] | where {|x| $x != null })
+            {out: $out, next: {proj: $proj, ready: true, rendered: $doc_order, doc_order: $doc_order, title: $title, canvas: $canvas, sel: $sel, sel_stack: $sel_stack, stack_name: $stack_name, dims: $dims, layout: $layout, label: $label}}
 
           } else if ($topic | str starts-with "xs.") {
             # Heartbeats and other system noise.
@@ -500,14 +530,20 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
               let all_ids = ($clips | get id)
 
               let sel_stack = ($proj.selectedStackId | default "")
+              let stack_name = (stack-name-of $proj)
               # Sidebars: re-render only when a projection frame changed them.
               let stacks_patch = if $is_proj {
                 (render-stacks $proj | to datastar-patch-elements --selector "#stacks-list")
+              } else { null }
+              let switcher_patch = if $is_proj {
+                (render-stack-switcher $proj | to datastar-patch-elements --selector "#stack-switcher")
               } else { null }
               let clips_patch = if $is_proj {
                 (render-clips $proj | to datastar-patch-elements --selector "#clips-list")
               } else { null }
               let selstk_patch = if $sel_stack != $st.sel_stack { ({selectedStack: $sel_stack} | to datastar-patch-signals) } else { null }
+              # Breadcrumb name: tracks selection and a rename of the current stack.
+              let stackname_patch = if $stack_name != $st.stack_name { ({stackName: $stack_name} | to datastar-patch-signals) } else { null }
 
               # #doc reconcile (surgical -- never re-morph, to protect live
               # grids). Mount newly-ready clips; drop panes for gone clips.
@@ -590,15 +626,15 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
               } else { $st.title }
               let title_patch = if $title != $st.title { ({title: $title} | to datastar-patch-signals) } else { null }
 
-              let out = ([$stacks_patch $clips_patch]
+              let out = ([$stacks_patch $switcher_patch $clips_patch]
                 | append $add_patches
                 | append $rm_patches
-                | append [$repane $docorder_patch $layout_patch $label_patch $sel_patch $selstk_patch $dims_patch $canvas_patch $title_patch]
+                | append [$repane $docorder_patch $layout_patch $label_patch $sel_patch $selstk_patch $stackname_patch $dims_patch $canvas_patch $title_patch]
                 | where {|x| $x != null })
-              {out: $out, next: {proj: $proj, ready: true, rendered: $rendered2, doc_order: $want, title: $title, canvas: $canvas, sel: $sel, sel_stack: $sel_stack, dims: $dims, layout: $layout, label: $label}}
+              {out: $out, next: {proj: $proj, ready: true, rendered: $rendered2, doc_order: $want, title: $title, canvas: $canvas, sel: $sel, sel_stack: $sel_stack, stack_name: $stack_name, dims: $dims, layout: $layout, label: $label}}
             }
           }
-        } {proj: (projection empty), ready: false, rendered: [], doc_order: [], title: "", canvas: "", sel: "", sel_stack: "", dims: "", layout: "flow", label: ""}
+        } {proj: (projection empty), ready: false, rendered: [], doc_order: [], title: "", canvas: "", sel: "", sel_stack: "", stack_name: "", dims: "", layout: "flow", label: ""}
       | flatten
       | to sse
       | metadata set --content-type "text/event-stream"

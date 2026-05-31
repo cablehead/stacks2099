@@ -228,7 +228,14 @@
       padding: 1.5rem .75rem 0 0;
       background: transparent;
     }
-    .picker-panel, .theme-panel {
+    /* Stacks switcher drops from the top-left breadcrumb instead. */
+    .stack-backdrop {
+      position: fixed; inset: 0; z-index: 1000;
+      display: flex; align-items: flex-start; justify-content: flex-start;
+      padding: 1.5rem 0 0 .5rem;
+      background: transparent;
+    }
+    .picker-panel, .theme-panel, .stack-panel {
       min-width: 13rem;
       background: var(--chrome);
       border: 1px solid var(--pane-border);
@@ -237,6 +244,10 @@
       box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55);
       overflow: hidden;
     }
+    /* Breadcrumb sits a touch brighter than the other bar chips -- it's context,
+       not an action; ellipsize a long stack name. */
+    .stack-crumb { color: var(--fg); max-width: 22ch; overflow: hidden; }
+    .stack-crumb span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .picker-heading {
       padding: .3rem .75rem;
       font-size: 11px; letter-spacing: .04em; text-transform: uppercase;
@@ -274,7 +285,7 @@
   </style>
 </head>
 <body
-  data-signals='{"selectedSid":"","selectedStack":"","connId":"","sid":"","sel":"","termCols":0,"termRows":0,"termTitle":"","focusedDims":"","title":{{ title | default("") | tojson | e }},"docReady":false,"picking":false,"acting":false,"themePicking":false,"theme":"default","renaming":false,"renameMode":"title","renameStackId":"","draft":"","label":"","noteEditing":"","docOrder":"[]","docLayout":"flow"}'
+  data-signals='{"selectedSid":"","selectedStack":"","connId":"","sid":"","sel":"","termCols":0,"termRows":0,"termTitle":"","focusedDims":"","title":{{ title | default("") | tojson | e }},"docReady":false,"picking":false,"acting":false,"themePicking":false,"theme":"default","stackPicking":false,"stackName":"","renaming":false,"renameMode":"title","renameStackId":"","draft":"","label":"","noteEditing":"","docOrder":"[]","docLayout":"flow"}'
   data-attr:data-theme="$theme"
   data-init="@get('/sse')"
   data-effect="document.title = $title || 'ghostty-web-nu sessions'"
@@ -290,7 +301,9 @@
     "toggleLayout":"window.app.toggleLayout()",
     "rename":    "window.app.openRename()",
     "renameTab": "window.app.openRenameTab()",
-    "cycleHeight":"window.app.cycleHeight()"
+    "cycleHeight":"window.app.cycleHeight()",
+    "prevStack": "window.app.cycleStack(-1)",
+    "nextStack": "window.app.cycleStack(1)"
   }'
   data-keymap='{
     "alt+t": "new",
@@ -303,7 +316,9 @@
     "alt+l": "toggleLayout",
     "alt+r": "renameTab",
     "alt+shift+r": "rename",
-    "alt+o": "cycleHeight"
+    "alt+o": "cycleHeight",
+    "alt+[": "prevStack",
+    "alt+]": "nextStack"
   }'
 >
   <!-- Three-pane: stacks | clips | content (#doc). Server overwrites the two
@@ -312,10 +327,16 @@
   <aside id="clips-list"><header>Clips</header></aside>
 
   <main>
-    <!-- Top bar: cross-clip + context. Window title (rename) on the left;
-         stack-level toggles and the New-clip entry on the right. New is the
-         visible handle for the top-right picker. -->
+    <!-- Top bar: cross-clip + context. Stack breadcrumb + window title on the
+         left; stack-level toggles and the New-clip entry on the right. The
+         breadcrumb shows the current stack (gone from the rail in niri) and is
+         the visible handle for the top-left Stacks switcher. New is the handle
+         for the top-right picker. -->
     <div class="topbar">
+      <button class="bar-btn stack-crumb" type="button" title="Switch stack (Alt+[ / Alt+])" data-on:click="$stackPicking = true">
+        <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m6.08 9.5-3.49 1.59a1 1 0 0 0 0 1.81l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9a1 1 0 0 0 0-1.83l-3.49-1.59"/></svg>
+        <span data-text="$stackName || 'stack'"></span>
+      </button>
       <button
         class="title-display"
         type="button"
@@ -374,6 +395,8 @@
   <div data-effect="$acting; window.__syncActions && window.__syncActions($acting)" style="display:none"></div>
   <!-- Same edge-patch for the theme picker ($themePicking). -->
   <div data-effect="$themePicking; window.__syncTheme && window.__syncTheme($themePicking)" style="display:none"></div>
+  <!-- Same edge-patch for the stacks switcher ($stackPicking). -->
+  <div data-effect="$stackPicking; window.__syncStacks && window.__syncStacks($stackPicking)" style="display:none"></div>
 
   <!-- Server-pushed canvas pane. Empty -> collapses to 0 width. -->
   <section id="canvas" class="canvas"></section>
@@ -451,6 +474,17 @@
       <button type="button" class="picker-row" data-class:active="$theme === 'solarized-dark'" data-on:click="$theme = 'solarized-dark'; $themePicking = false">Solarized Dark</button>
       <button type="button" class="picker-row" data-class:active="$theme === 'solarized-light'" data-on:click="$theme = 'solarized-light'; $themePicking = false">Solarized Light</button>
       <button type="button" class="picker-row" data-class:active="$theme === 'railscasts'" data-on:click="$theme = 'railscasts'; $themePicking = false">Railscasts</button>
+    </div>
+  </div>
+
+  <!-- Stacks switcher (top-left breadcrumb / Alt+[ ]). Switch or create stacks;
+       the rail is hidden in niri, so this is how you navigate stacks there. The
+       server fills #stack-switcher with the live stack rows (current one marked
+       active) + a New stack row. Keyboard quick-select via __syncStacks. -->
+  <div class="stack-backdrop" data-show="$stackPicking" data-on:click="$stackPicking = false">
+    <div class="stack-panel" data-on:click="evt.stopPropagation()">
+      <div class="picker-heading">Stacks</div>
+      <div id="stack-switcher"></div>
     </div>
   </div>
 
@@ -687,6 +721,16 @@
         const next = items[((idx < 0 ? 0 : idx) + dir + items.length) % items.length];
         next.querySelector('.row')?.click();
       },
+      cycleStack(dir) {
+        // Prev/next stack (Alt+[ / Alt+]). Drives the same #stacks-list rows the
+        // switcher and rail use; the rows live in the DOM even when the rail is
+        // collapsed in niri, so this works in every layout.
+        const items = [...document.querySelectorAll('#stacks-list ul.stacks li')];
+        if (!items.length) return;
+        const idx = items.findIndex((li) => li.classList.contains('selected'));
+        const next = items[((idx < 0 ? 0 : idx) + dir + items.length) % items.length];
+        next.querySelector('.row')?.click();
+      },
       openRename() {
         document.querySelector('.title-display')?.click();
       },
@@ -735,9 +779,18 @@
     window.__applyDocOrder = (json) => {
       let order;
       try { order = JSON.parse(json || '[]'); } catch { return; }
+      // Only relocate panes that are actually out of position. Re-appending a
+      // pane that is already in the right slot still detaches and reinserts it,
+      // which resets its .pane-screen scroll container to the top. A new
+      // terminal shifts the whole order, so the old unconditional re-append
+      // sent every other pane's scrollback back to row 0.
+      let prev = null;
       for (const id of order) {
         const pane = doc.querySelector('#pane-' + CSS.escape(id));
-        if (pane) doc.appendChild(pane);
+        if (!pane) continue;
+        const want = prev ? prev.nextElementSibling : doc.firstElementChild;
+        if (want !== pane) doc.insertBefore(pane, want);
+        prev = pane;
       }
     };
     // Layout flip: in niri terminals fill their full-height column; in flow
@@ -821,7 +874,7 @@
     // and swallows the rest so nothing leaks to a focused terminal's
     // key-buffer. Selection is a .sel class on the rows (no signal), the way
     // the stacks.nu action panel does it. Row queries are scoped to panelSel
-    // so the two panels' rows never cross-match. Returns a sync(on) callback.
+    // so the panels' rows never cross-match. Returns a sync(on) callback.
     function makePicker(panelSel, signal) {
       let keyHandler = null;
       const rows = () => Array.from((document.querySelector(panelSel) || document).querySelectorAll('.picker-row'));
@@ -833,9 +886,18 @@
         rs.forEach((r) => r.classList.remove('sel'));
         rs[w].classList.add('sel');
       }
-      // Mouse and keyboard share one .sel highlight. Rows are static (the
-      // panels live in the shell, never morphed), so wire hover once.
-      rows().forEach((r, i) => r.addEventListener('mouseenter', () => setSel(i)));
+      // Mouse and keyboard share one .sel highlight. Delegate hover on the panel
+      // (which is static) rather than per-row, so it also covers server-morphed
+      // rows like the stacks switcher's.
+      const panelEl = document.querySelector(panelSel);
+      if (panelEl) {
+        panelEl.addEventListener('mouseover', (e) => {
+          const row = e.target.closest('.picker-row');
+          if (!row || !panelEl.contains(row)) return;
+          const i = rows().indexOf(row);
+          if (i >= 0) setSel(i);
+        });
+      }
       function open() {
         if (keyHandler) return;
         setSel(0);
@@ -863,6 +925,7 @@
     window.__syncPicker = makePicker('.picker-panel', 'picking');
     window.__syncActions = makePicker('.actions-panel', 'acting');
     window.__syncTheme = makePicker('.theme-panel', 'themePicking');
+    window.__syncStacks = makePicker('.stack-panel', 'stackPicking');
 
     // Focus a clip by id -- the one entry point for "go into this pane".
     // Terminal: point key-buffer at the pane's pty (its .pane-screen carries
@@ -933,6 +996,12 @@
       let k = e.key;
       if (e.altKey && e.code && e.code.startsWith('Key')) {
         k = e.code.slice(3).toLowerCase();
+      } else if (e.altKey && e.code === 'BracketLeft') {
+        // macOS Option remaps the printed char (Alt+[ -> a special glyph), so
+        // resolve bracket chords by physical code instead of e.key.
+        k = '[';
+      } else if (e.altKey && e.code === 'BracketRight') {
+        k = ']';
       } else if (k.length === 1 && /[a-zA-Z]/.test(k)) {
         k = k.toLowerCase();
       } else if (k === ' ') {

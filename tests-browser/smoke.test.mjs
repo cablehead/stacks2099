@@ -724,3 +724,31 @@ test("reverse video renders its color via the themable var (so it follows the th
   );
   assert.ok(styled.length > 0, "a reverse-video cell renders its color via var(--cN), not a hardcoded hex");
 }));
+
+test("stacks switcher: top-bar breadcrumb opens it; keyboard-select switches the active stack", () => withApp(async (page) => {
+  // Second stack so switching is meaningful.
+  await page.evaluate(async () => { await fetch("/stack/new", { method: "POST" }); });
+  await page.waitForFunction(() => document.querySelectorAll("#stacks-list ul.stacks li").length >= 2, { timeout: 8000 });
+  const sel0 = await page.evaluate(() => document.querySelector("#stacks-list ul.stacks li.selected .row")?.dataset.stack);
+
+  await page.click(".stack-crumb");
+  await page.waitForSelector(".stack-backdrop", { state: "visible", timeout: 5000 });
+  // Rows are the live stacks + a New stack row; exactly one stack is active.
+  const actives = await page.evaluate(() => [...document.querySelectorAll(".stack-panel .picker-row")].filter((r) => r.classList.contains("active")).length);
+  assert.equal(actives, 1, "the current stack is marked active");
+
+  // Move to a different stack (row 1) and switch via Enter.
+  await page.keyboard.press("ArrowDown");
+  await page.waitForFunction(() => [...document.querySelectorAll(".stack-panel .picker-row")].findIndex((r) => r.classList.contains("sel")) === 1, { timeout: 3000 });
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => getComputedStyle(document.querySelector(".stack-backdrop")).display === "none", { timeout: 3000 });
+  await page.waitForFunction((s) => document.querySelector("#stacks-list ul.stacks li.selected .row")?.dataset.stack !== s, sel0, { timeout: 5000 });
+}));
+
+test("Alt+] cycles to the next stack (works with the rail collapsed)", () => withApp(async (page) => {
+  await page.evaluate(async () => { await fetch("/stack/new", { method: "POST" }); });
+  await page.waitForFunction(() => document.querySelectorAll("#stacks-list ul.stacks li").length >= 2, { timeout: 8000 });
+  const sel0 = await page.evaluate(() => document.querySelector("#stacks-list ul.stacks li.selected .row")?.dataset.stack);
+  await page.keyboard.press("Alt+]");
+  await page.waitForFunction((s) => document.querySelector("#stacks-list ul.stacks li.selected .row")?.dataset.stack !== s, sel0, { timeout: 5000 });
+}));
