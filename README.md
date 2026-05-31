@@ -15,20 +15,40 @@ projected on the server from an append-only event log and patched over
 [wezterm-term](https://github.com/wezterm/wezterm) as HTML (no WASM, no
 client-side VT emulator).
 
+<img alt="A live terminal clip rendered as an HTML cell grid" width="760" src="docs/assets/terminal.png">
+
 ## Install
 
-macOS (Apple Silicon):
+Each release ships prebuilt binaries for macOS (Apple Silicon), Linux (x86_64),
+and Windows (x86_64).
+
+### [eget](https://github.com/zyedidia/eget)
+
+Grabs the right binary for your platform from the latest release:
+
+```bash
+eget cablehead/stacks2099
+```
+
+### Homebrew (macOS)
 
 ```bash
 brew install cablehead/tap/stacks2099
 ```
 
-Linux and Windows: grab a binary from the
-[releases](https://github.com/cablehead/stacks2099/releases).
+### Direct download
 
-From source (any platform with a Rust toolchain):
+Pick an archive from the
+[releases](https://github.com/cablehead/stacks2099/releases) page; the binary
+sits at the root.
+
+### cargo
+
+Not published to crates.io. Install from git, or build a checkout:
 
 ```bash
+cargo install --git https://github.com/cablehead/stacks2099
+# or, in a clone:
 cargo build --release      # -> target/release/stacks2099
 ```
 
@@ -71,15 +91,26 @@ selected stack's clips, stacked top to bottom).
 - Some clips offer **alternate views**, toggled from a button on the pane: a
   markdown note flips **edit ⇄ rendered**; a note whose body is a URL flips
   **edit ⇄ embedded** (the live iframe). A `text/uri-list` clip starts embedded.
-- A **stack** groups clips into a context. Click to switch, double-click to
-  rename, `+` to create, `×` to delete.
+- A **stack** groups clips into a context. The top-left **breadcrumb** names the
+  current stack and opens a switcher to jump between stacks or create one
+  (`Alt+\`; `Alt+[` / `Alt+]` cycle). It stays reachable when the scrollable
+  layout hides the rail.
 - Clips order **`auto`** (by activity -- newest edits float up) or **`manual`**
   (curated). The clips-header badge toggles the mode;
   `Alt+Shift+J`/`Alt+Shift+K` move the selected clip down/up (the first move
   freezes the current order into `manual`).
+- Each stack picks a **layout**: `flow` (a vertical column of panes) or `niri`
+  (a horizontal scrollable strip). The top-bar Layout button or `Alt+L` toggles
+  it.
 - **Terminal clips** bind to an embedded-Nushell pty. The binary re-execs itself
   to run the shell, so there is no external `nu` to find, and placement survives
   a restart -- the pty respawns where it was, zellij-style.
+
+The top bar carries the cross-clip handles -- the stack breadcrumb, Sort,
+Layout, Theme, Actions, and New. The **Theme** button swaps the terminal palette
+(client-side: Default, Nord, Solarized, Railscasts, and friends).
+
+<img alt="Terminal theme picker in the top bar" width="240" src="docs/assets/theme.png">
 
 ## Add assets
 
@@ -141,6 +172,7 @@ In a store-connected Nushell (`xs` gives you one) the builtin form is
 | Close clip      | `POST /clip/close?clip=`      | `clip.delete {id}`                               |
 | Move clip       | `POST /clip/move?dir=&clip=`  | `clip.patch {id, position}` (renumber on freeze) |
 | Toggle sort     | `POST /stack/sort?stack=`     | `stack.update {id, sort}`                        |
+| Toggle layout   | `POST /stack/layout?stack=`   | `stack.update {id, layout}`                      |
 | Select / switch | `POST /nav`, `/stack/select`  | bus `clip.select` / `stack.select`               |
 
 The topics and fields _are_ the protocol -- defined in `app/projection.nu`.
@@ -158,16 +190,21 @@ every mode; plain `Enter`/`Esc` go to the focused pty. See
 | Chord                         | Action                                 |
 | ----------------------------- | -------------------------------------- |
 | `mod+Enter`                   | Toggle focus (Cmd on macOS, Ctrl else) |
+| `mod+K`                       | Clip actions (rename / close / move)   |
 | `Alt+T`                       | New clip (note / terminal picker)      |
 | `Alt+D`                       | Close current clip                     |
 | `Alt+J` / `Alt+K`             | Next / previous clip                   |
 | `Alt+Shift+J` / `Alt+Shift+K` | Move clip down / up                    |
+| `Alt+\`                       | Switch stack (open the switcher)       |
+| `Alt+[` / `Alt+]`             | Previous / next stack                  |
 | `Alt+S`                       | Toggle stack sort (auto / manual)      |
+| `Alt+L`                       | Toggle stack layout (flow / niri)      |
 | `Alt+R`                       | Rename current clip                    |
 | `Alt+Shift+R`                 | Rename window title                    |
 | `Alt+O`                       | Cycle current terminal pane height     |
 
-The status bar lists the active mode's chords and they are clickable.
+The top bar carries the same actions as clickable handles (breadcrumb, Sort,
+Layout, Theme, Actions, New); the status bar lists the active mode's chords.
 
 ## Built on
 
