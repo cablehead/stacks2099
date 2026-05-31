@@ -90,7 +90,7 @@
        grid.css #screen-<sid> fills the .pane-screen below its header. */
     #doc { min-height: 0; overflow-y: auto; overflow-x: hidden; padding: .5rem; display: flex; flex-direction: column; gap: .5rem; }
     /* niri layout: the document becomes a horizontal scrollable strip -- each
-       pane a fixed-width (80ch) full-height column you pan across, rather than a
+       pane a fixed-width (100ch) full-height column you pan across, rather than a
        stacked row. Same panes (live grids intact), only the container axis flips. */
     #doc.layout-niri { flex-direction: row; overflow-x: auto; overflow-y: hidden; align-items: stretch; }
     #doc.layout-niri .pane { flex: 0 0 80ch; width: 80ch; overflow-y: auto; }
@@ -221,13 +221,14 @@
        (top-right), not the bottom status bar. The panel shares the bar's
        --chrome colour and rounds only its bottom corners, so it reads as
        extending out of the bar. We will grow this bar toward ~/stacks. */
-    .picker-backdrop {
+    /* New picker and Theme picker both drop from the top bar (top-right). */
+    .picker-backdrop, .theme-backdrop {
       position: fixed; inset: 0; z-index: 1000;
       display: flex; align-items: flex-start; justify-content: flex-end;
       padding: 1.5rem .75rem 0 0;
       background: transparent;
     }
-    .picker-panel {
+    .picker-panel, .theme-panel {
       min-width: 13rem;
       background: var(--chrome);
       border: 1px solid var(--pane-border);
@@ -248,6 +249,9 @@
     }
     /* Keyboard (.sel) and mouse (:hover) share one highlight. */
     .picker-row:hover, .picker-row.sel { background: var(--sel-blur); color: var(--sel-fg); }
+    /* The currently-applied theme: a trailing check. */
+    .picker-row.active { color: var(--sel); }
+    .picker-row.active::after { content: "\2713"; margin-left: auto; }
 
     /* Clip-actions panel. Acts on the current clip, so it rises out of the
        bottom-right status bar (rounded top corners, shadow upward) -- the
@@ -270,7 +274,8 @@
   </style>
 </head>
 <body
-  data-signals='{"selectedSid":"","selectedStack":"","connId":"","sid":"","sel":"","termCols":0,"termRows":0,"termTitle":"","focusedDims":"","title":{{ title | default("") | tojson | e }},"docReady":false,"picking":false,"acting":false,"renaming":false,"renameMode":"title","renameStackId":"","draft":"","label":"","noteEditing":"","docOrder":"[]","docLayout":"flow"}'
+  data-signals='{"selectedSid":"","selectedStack":"","connId":"","sid":"","sel":"","termCols":0,"termRows":0,"termTitle":"","focusedDims":"","title":{{ title | default("") | tojson | e }},"docReady":false,"picking":false,"acting":false,"themePicking":false,"theme":"default","renaming":false,"renameMode":"title","renameStackId":"","draft":"","label":"","noteEditing":"","docOrder":"[]","docLayout":"flow"}'
+  data-attr:data-theme="$theme"
   data-init="@get('/sse')"
   data-effect="document.title = $title || 'ghostty-web-nu sessions'"
   data-class:nav-collapsed="$docLayout === 'niri'"
@@ -326,6 +331,9 @@
         <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M12 3v18"/></svg>
         <kbd>Alt</kbd><kbd>L</kbd>
       </button>
+      <button class="bar-btn" type="button" title="Theme" aria-label="Theme" data-on:click="$themePicking = true">
+        <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.563-2.512 5.563-5.563C22 6.012 17.51 2 12 2z"/></svg>
+      </button>
       <button class="bar-btn bar-btn-primary" type="button" title="New clip (Alt+T)" data-on:click="$picking = true">
         <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
         New <kbd>Alt</kbd><kbd>T</kbd>
@@ -364,6 +372,8 @@
   <div data-effect="$picking; window.__syncPicker && window.__syncPicker($picking)" style="display:none"></div>
   <!-- Same edge-patch for the clip-actions panel ($acting). -->
   <div data-effect="$acting; window.__syncActions && window.__syncActions($acting)" style="display:none"></div>
+  <!-- Same edge-patch for the theme picker ($themePicking). -->
+  <div data-effect="$themePicking; window.__syncTheme && window.__syncTheme($themePicking)" style="display:none"></div>
 
   <!-- Server-pushed canvas pane. Empty -> collapses to 0 width. -->
   <section id="canvas" class="canvas"></section>
@@ -425,6 +435,22 @@
       <button type="button" class="picker-row" data-on:click="$picking = false; @post('/clip/new?type=note')">
         <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg> Note
       </button>
+    </div>
+  </div>
+
+  <!-- Theme picker (the Theme button in the top bar). A workspace-appearance
+       concept, so it drops from the top-right like New. Each row sets $theme;
+       data-attr:data-theme on <body> recolors the terminal live via the CSS
+       vars (grid.css). In-memory: resets to default on refresh. Keyboard
+       quick-select via __syncTheme on the $themePicking edge. -->
+  <div class="theme-backdrop" data-show="$themePicking" data-on:click="$themePicking = false">
+    <div class="theme-panel" data-on:click="evt.stopPropagation()">
+      <div class="picker-heading">Theme</div>
+      <button type="button" class="picker-row" data-class:active="$theme === 'default'" data-on:click="$theme = 'default'; $themePicking = false">Default</button>
+      <button type="button" class="picker-row" data-class:active="$theme === 'nord'" data-on:click="$theme = 'nord'; $themePicking = false">Nord</button>
+      <button type="button" class="picker-row" data-class:active="$theme === 'solarized-dark'" data-on:click="$theme = 'solarized-dark'; $themePicking = false">Solarized Dark</button>
+      <button type="button" class="picker-row" data-class:active="$theme === 'solarized-light'" data-on:click="$theme = 'solarized-light'; $themePicking = false">Solarized Light</button>
+      <button type="button" class="picker-row" data-class:active="$theme === 'railscasts'" data-on:click="$theme = 'railscasts'; $themePicking = false">Railscasts</button>
     </div>
   </div>
 
@@ -836,6 +862,7 @@
     }
     window.__syncPicker = makePicker('.picker-panel', 'picking');
     window.__syncActions = makePicker('.actions-panel', 'acting');
+    window.__syncTheme = makePicker('.theme-panel', 'themePicking');
 
     // Focus a clip by id -- the one entry point for "go into this pane".
     // Terminal: point key-buffer at the pane's pty (its .pane-screen carries

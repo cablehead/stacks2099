@@ -685,3 +685,42 @@ test("layout flip to niri resizes the pty to the niri column, not the flow width
     assert.ok(c <= cap + 1, `niri resize cols=${c} must fit the niri pane (~${cap}); a wider value is the stale flow width`);
   }
 }));
+
+test("theme picker: top-bar button opens it; Nord recolors the terminal", () => withApp(async (page) => {
+  await page.click('.topbar .bar-btn[title="Theme"]');
+  await page.waitForSelector(".theme-backdrop", { state: "visible", timeout: 5000 });
+  // Default is the active (current) theme at open.
+  assert.equal(
+    await page.evaluate(() => [...document.querySelectorAll(".theme-panel .picker-row")].findIndex((r) => r.classList.contains("active"))),
+    0,
+    "Default is marked active on open",
+  );
+  // Quick-select Nord (row 1) and apply.
+  await page.keyboard.press("ArrowDown");
+  await page.waitForFunction(() => [...document.querySelectorAll(".theme-panel .picker-row")].findIndex((r) => r.classList.contains("sel")) === 1, { timeout: 3000 });
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => document.body.getAttribute("data-theme") === "nord", { timeout: 3000 });
+  // The terminal pane background now resolves to Nord's --term-bg (#2e3440).
+  const bg = await page.evaluate(() => getComputedStyle(document.querySelector("#doc .pane")).backgroundColor);
+  assert.equal(bg, "rgb(46, 52, 64)", `pane background recolors to Nord (got ${bg})`);
+}));
+
+test("reverse video renders its color via the themable var (so it follows the theme)", () => withApp(async (page) => {
+  // The experiment's key discovery: reverse-video cells emit color *inline*
+  // (fg/bg swapped server-side), and that inline color must be var(--cN), not a
+  // hardcoded hex, or a theme swap wouldn't reach reverse cells. SGR 7 (reverse)
+  // + 31 (red fg) makes the cell background palette index 1 -> background:var(--c1).
+  await page.waitForFunction(() => !!document.querySelector("[id^='grid-'] .row"), { timeout: 15000 });
+  const sid = await page.evaluate(() => document.querySelector("[id^='screen-']").getAttribute("data-sid"));
+  await page.evaluate(async (sid) => {
+    await fetch("/pty/input?sid=" + encodeURIComponent(sid), { method: "POST", body: "print $\"(ansi -e '7;31m')REVCELL(ansi reset)\"\n" });
+  }, sid);
+  await page.waitForFunction(
+    () => [...document.querySelectorAll("[id^='grid-'] [style]")].some((e) => /var\(--c\d/.test(e.getAttribute("style") || "")),
+    { timeout: 8000 },
+  );
+  const styled = await page.evaluate(() =>
+    [...document.querySelectorAll("[id^='grid-'] [style]")].map((e) => e.getAttribute("style")).filter((s) => s.includes("var(--c"))
+  );
+  assert.ok(styled.length > 0, "a reverse-video cell renders its color via var(--cN), not a hardcoded hex");
+}));

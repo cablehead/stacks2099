@@ -138,6 +138,13 @@ fn append_color_inline(out: &mut String, prop: &str, c: ColorAttribute, default_
                 let _ = write!(out, "{prop}:var({default_var});");
             }
         }
+        ColorAttribute::PaletteIndex(i) if i < 16 => {
+            // The 16 palette is themable via CSS vars (grid.css --c0..--c15).
+            // Reverse video is the only caller that reaches here with i < 16
+            // (the normal path emits .fN/.bN classes instead); routing it
+            // through the var keeps reverse cells in step with the theme.
+            let _ = write!(out, "{prop}:var(--c{i});");
+        }
         ColorAttribute::PaletteIndex(i) => {
             let (r, g, b) = palette_to_rgb(i);
             let _ = write!(out, "{prop}:#{r:02x}{g:02x}{b:02x};");

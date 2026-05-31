@@ -44,8 +44,31 @@
 }
 
 :root {
+  /* Default theme: xterm-ish 16 palette on a VS Code Dark+ background. The
+     palette is the source of truth for terminal color -- both the .fN/.bN
+     classes (normal cells) and the reverse-video inline styles emitted by
+     pty.rs read these vars, so a theme that overrides --c0..--c15 +
+     --term-fg/--term-bg recolors the whole grid, reverse video included.
+     Themes are selected by a data-theme attribute on <body> (see the
+     [data-theme="..."] blocks below); absence of the attribute = this. */
   --term-bg: #1e1e1e;
   --term-fg: #d4d4d4;
+  --c0: #000000;
+  --c1: #cd0000;
+  --c2: #00cd00;
+  --c3: #cdcd00;
+  --c4: #1e90ff;
+  --c5: #cd00cd;
+  --c6: #00cdcd;
+  --c7: #e5e5e5;
+  --c8: #4d4d4d;
+  --c9: #ff5454;
+  --c10: #54ff54;
+  --c11: #ffff54;
+  --c12: #5454ff;
+  --c13: #ff54ff;
+  --c14: #54ffff;
+  --c15: #ffffff;
   /* Integer pixel row height so a whole number of rows tiles the scroll
      container exactly -- a fractional (em-based) line-height leaves a
      sub-pixel sliver clipped at the top when scrolled to the bottom. */
@@ -143,40 +166,120 @@
   cursor: pointer;
 }
 
-/* ANSI 16 palette - standard xterm-ish dark theme */
-.f0  { color: #000000; }
-.f1  { color: #cd0000; }
-.f2  { color: #00cd00; }
-.f3  { color: #cdcd00; }
-.f4  { color: #1e90ff; }
-.f5  { color: #cd00cd; }
-.f6  { color: #00cdcd; }
-.f7  { color: #e5e5e5; }
-.f8  { color: #4d4d4d; }
-.f9  { color: #ff5454; }
-.f10 { color: #54ff54; }
-.f11 { color: #ffff54; }
-.f12 { color: #5454ff; }
-.f13 { color: #ff54ff; }
-.f14 { color: #54ffff; }
-.f15 { color: #ffffff; }
+/* ANSI 16 palette. The colors live in --c0..--c15 (set per theme above /
+   below); these rules just bind class -> var so a theme swap recolors every
+   cell without touching the classes pty.rs emits. */
+.f0  { color: var(--c0); }
+.f1  { color: var(--c1); }
+.f2  { color: var(--c2); }
+.f3  { color: var(--c3); }
+.f4  { color: var(--c4); }
+.f5  { color: var(--c5); }
+.f6  { color: var(--c6); }
+.f7  { color: var(--c7); }
+.f8  { color: var(--c8); }
+.f9  { color: var(--c9); }
+.f10 { color: var(--c10); }
+.f11 { color: var(--c11); }
+.f12 { color: var(--c12); }
+.f13 { color: var(--c13); }
+.f14 { color: var(--c14); }
+.f15 { color: var(--c15); }
 
-.b0  { background: #000000; }
-.b1  { background: #cd0000; }
-.b2  { background: #00cd00; }
-.b3  { background: #cdcd00; }
-.b4  { background: #1e90ff; }
-.b5  { background: #cd00cd; }
-.b6  { background: #00cdcd; }
-.b7  { background: #e5e5e5; }
-.b8  { background: #4d4d4d; }
-.b9  { background: #ff5454; }
-.b10 { background: #54ff54; }
-.b11 { background: #ffff54; }
-.b12 { background: #5454ff; }
-.b13 { background: #ff54ff; }
-.b14 { background: #54ffff; }
-.b15 { background: #ffffff; }
+.b0  { background: var(--c0); }
+.b1  { background: var(--c1); }
+.b2  { background: var(--c2); }
+.b3  { background: var(--c3); }
+.b4  { background: var(--c4); }
+.b5  { background: var(--c5); }
+.b6  { background: var(--c6); }
+.b7  { background: var(--c7); }
+.b8  { background: var(--c8); }
+.b9  { background: var(--c9); }
+.b10 { background: var(--c10); }
+.b11 { background: var(--c11); }
+.b12 { background: var(--c12); }
+.b13 { background: var(--c13); }
+.b14 { background: var(--c14); }
+.b15 { background: var(--c15); }
+
+/* Themes. Selected by data-theme on <body>; the vars cascade to every cell
+   (and to body's own background/foreground via term.css). Override just the
+   16 palette + bg/fg -- everything else is shared. */
+
+/* Nord (https://www.nordtheme.com). */
+[data-theme="nord"] {
+  --term-bg: #2e3440;
+  --term-fg: #d8dee9;
+  --c0: #3b4252;
+  --c1: #bf616a;
+  --c2: #a3be8c;
+  --c3: #ebcb8b;
+  --c4: #81a1c1;
+  --c5: #b48ead;
+  --c6: #88c0d0;
+  --c7: #e5e9f0;
+  --c8: #4c566a;
+  --c9: #bf616a;
+  --c10: #a3be8c;
+  --c11: #ebcb8b;
+  --c12: #81a1c1;
+  --c13: #b48ead;
+  --c14: #8fbcbb;
+  --c15: #eceff4;
+}
+
+/* Solarized (https://ethanschoonover.com/solarized). The 16 accent colors
+   are identical for dark and light; only the base bg/fg swap. */
+[data-theme="solarized-dark"],
+[data-theme="solarized-light"] {
+  --c0: #073642;
+  --c1: #dc322f;
+  --c2: #859900;
+  --c3: #b58900;
+  --c4: #268bd2;
+  --c5: #d33682;
+  --c6: #2aa198;
+  --c7: #eee8d5;
+  --c8: #002b36;
+  --c9: #cb4b16;
+  --c10: #586e75;
+  --c11: #657b83;
+  --c12: #839496;
+  --c13: #6c71c4;
+  --c14: #93a1a1;
+  --c15: #fdf6e3;
+}
+[data-theme="solarized-dark"] {
+  --term-bg: #002b36;
+  --term-fg: #839496;
+}
+[data-theme="solarized-light"] {
+  --term-bg: #fdf6e3;
+  --term-fg: #657b83;
+}
+
+/* Railscasts (Ryan Bates' TextMate theme). */
+[data-theme="railscasts"] {
+  --term-bg: #2b2b2b;
+  --term-fg: #e6e1dc;
+  --c0: #2b2b2b;
+  --c1: #da4939;
+  --c2: #a5c261;
+  --c3: #ffc66d;
+  --c4: #6d9cbe;
+  --c5: #b6b3eb;
+  --c6: #519f50;
+  --c7: #e6e1dc;
+  --c8: #777777;
+  --c9: #da4939;
+  --c10: #a5c261;
+  --c11: #ffc66d;
+  --c12: #6d9cbe;
+  --c13: #b6b3eb;
+  --c14: #519f50;
+  --c15: #f9f7f3;
+}
 
 /* Cursor overlay: a single absolutely-positioned cell-sized box anchored at
  * (--cursor-row, --cursor-col). mix-blend-mode: difference XORs whatever's
