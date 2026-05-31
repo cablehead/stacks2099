@@ -598,6 +598,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             eprintln!("warning: nu_std::load_standard_library failed: {e:?}");
         }
 
+        // The embedded shell is interactive; set this before building the $nu
+        // constant and before evaluating config, so user configs that branch on
+        // $nu.is-interactive take the interactive path.
+        engine.state.is_interactive = true;
+
+        // Create the $nu constant (default-config-dir, config-path, current-exe,
+        // is-interactive, ...) the way stock nushell does -- BEFORE evaluating
+        // env.nu/config.nu, so they can read $nu.* (including in parse-time
+        // `const` contexts like NU_LIB_DIRS / NU_PLUGIN_DIRS). nushell's main.rs
+        // does exactly this with the same "need $nu available in them" rationale.
+        engine.state.generate_nu_constant();
+
         // Build a fresh Stack and bootstrap default env+config, then layer
         // the user's ~/.config/nushell/{env,config}.nu on top (same order
         // stock nushell uses via read_config_file). Restore nushell's stock
@@ -655,8 +667,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             ws.add_decl(Box::new(nu_cli::Print));
             engine.state.merge_delta(ws.render())?;
         }
-
-        engine.state.is_interactive = true;
 
         let _ = nu_cli::evaluate_repl(
             &mut engine.state,
