@@ -1,7 +1,7 @@
 ---
 allowed-tools: Bash, Edit, Read, Glob
 argument-hint: [version] (e.g., 0.1.0)
-description: Release process - version bump, tag, GitHub Actions build, Homebrew tap
+description: Release process - version bump, changelog, tag, GitHub Actions build, Homebrew tap
 ---
 
 # Release Process for stacks2099
@@ -26,10 +26,33 @@ Current version: !`grep '^version' Cargo.toml | head -1`
 - Set `version` in `Cargo.toml` to `$ARGUMENTS`.
 - `cargo check` to update `Cargo.lock`.
 
-### 2. Commit and tag
+### 2. Generate changelog
+
+Get commits since the last stable release:
 
 ```bash
-git add Cargo.toml Cargo.lock
+last_tag=$(git tag --sort=-version:refname | grep -v dev | head -1)
+git log --pretty=format:"* %s (%ad)" --date=short ${last_tag}..HEAD
+```
+
+Create `changes/v$ARGUMENTS.md` with:
+
+- `# v$ARGUMENTS` header
+- `## Highlights` section with notable user-facing changes
+- `## Raw commits` section with the commit list above
+- **No soft line breaks** -- paragraphs are single long lines, not wrapped at 80
+  columns. GitHub renders markdown with soft wraps, so hard breaks mid-paragraph
+  show up as unwanted newlines in the release notes.
+
+### 3. Review
+
+**REVIEW REQUIRED**: Show the changelog for user approval before proceeding. Do
+not tag until the highlights read well.
+
+### 4. Commit and tag
+
+```bash
+git add Cargo.toml Cargo.lock changes/v$ARGUMENTS.md
 git commit -m "chore: release v$ARGUMENTS"
 git tag v$ARGUMENTS
 git push && git push origin v$ARGUMENTS
@@ -54,9 +77,12 @@ All three targets must go green:
 gh release view v$ARGUMENTS
 ```
 
-Confirm all three archives are attached. Release notes are auto-generated
-(`generate_release_notes`); refine with `gh release edit v$ARGUMENTS --notes ...`
-if needed.
+Confirm all three archives are attached. Set the release body from the
+changelog:
+
+```bash
+gh release edit v$ARGUMENTS --notes-file changes/v$ARGUMENTS.md
+```
 
 ### 5. Update the Homebrew tap (cablehead/tap)
 
@@ -65,6 +91,7 @@ directly. Wait ~10s after the build for the GitHub CDN, then:
 
 ```bash
 cd /tmp && rm -rf homebrew-tap && gh repo clone cablehead/homebrew-tap && cd homebrew-tap
+git pull
 arm="https://github.com/cablehead/stacks2099/releases/download/v$ARGUMENTS/stacks2099-aarch64-apple-darwin.tar.gz"
 sha=$(curl -sL "$arm" | sha256sum | cut -d' ' -f1)
 echo "$sha"
@@ -116,3 +143,12 @@ git push
 
 - GitHub release: https://github.com/cablehead/stacks2099/releases/tag/v$ARGUMENTS
 - Homebrew: `brew install cablehead/tap/stacks2099`
+
+## Rollback
+
+If something is wrong before the build publishes:
+
+1. Delete the tag: `git tag -d v$ARGUMENTS && git push --delete origin v$ARGUMENTS`
+2. Delete the GitHub release if created: `gh release delete v$ARGUMENTS`
+3. Revert the homebrew formula change if pushed.
+4. Fix and re-run from step 1.
