@@ -80,14 +80,25 @@ jobs:
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
+
+      # Use changes/<tag>.md as the release body when present (the maintained
+      # changelog); otherwise fall back to GitHub's auto-generated notes.
+      - name: Resolve release notes
+        id: notes
+        run: |
+          f="changes/${{ github.ref_name }}.md"
+          [ -f "$f" ] && echo "body_path=$f" >> "$GITHUB_OUTPUT" || true
 
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/*
           # Tags containing -dev. (e.g. v0.1.0-dev.1) publish as prereleases.
           prerelease: ${{ contains(github.ref_name, '-dev.') }}
-          generate_release_notes: true
+          body_path: ${{ steps.notes.outputs.body_path }}
+          generate_release_notes: ${{ steps.notes.outputs.body_path == '' }}
