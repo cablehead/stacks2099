@@ -7,10 +7,10 @@ managing your personal context. A **clip** is any byte sequence with a mime type
 
 stacks2099 is that thesis, expanded. The original
 [stacks](https://github.com/cablehead/stacks) ran on a crude event stream and a
-throwaway first-draft UI. It was paused to build the two pieces it was reaching
-for: [cross.stream](https://github.com/cablehead/xs) for the event stream
-([stacks#46](https://github.com/cablehead/stacks/issues/46)) and
-[Datastar](https://data-star.dev) for the UI
+throwaway first-draft UI. Its event stream was spun out and matured into
+[cross.stream](https://github.com/cablehead/xs)
+([stacks#46](https://github.com/cablehead/stacks/issues/46)); the UI it was
+missing arrived as [Datastar](https://data-star.dev)
 ([stacks#58](https://github.com/cablehead/stacks/issues/58)). stacks2099 is
 stacks rebuilt on both.
 
