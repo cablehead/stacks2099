@@ -1,21 +1,28 @@
 # stacks2099
 
-Stacks is a clip manager -- a tool for capturing and working with your current
-context, your "locus of attention." A **clip** is any byte sequence with a mime
-type: a note, an image, a JSON blob, a screenshot, a README. Clips gather into
+Stacks is a tool for thought: a collection of **stacks** of **clips** for
+managing your personal context. A **clip** is any byte sequence with a mime type
+-- a note, an image, a JSON blob, a screenshot, a README. Clips gather into
 **stacks**, one per task or train of thought.
 
-stacks2099 takes that idea **live**: a clip can also be a running terminal or an
-embedded URL -- so a stack holds not just static captures but the working
-context itself, the shells you're in and the site you're building.
+stacks2099 is that thesis, expanded. The original
+[stacks](https://github.com/cablehead/stacks) ran on a crude event stream and a
+throwaway first-draft UI. It was paused to build the two pieces it was reaching
+for: [cross.stream](https://github.com/cablehead/xs) for the event stream
+([stacks#46](https://github.com/cablehead/stacks/issues/46)) and
+[Datastar](https://data-star.dev) for the UI
+([stacks#58](https://github.com/cablehead/stacks/issues/58)). stacks2099 is
+stacks rebuilt on both.
 
-The browser holds no state. Selection, layout, and the visible HTML are all
-projected on the server from an append-only event log and patched over
-[Datastar](https://data-star.dev) SSE -- terminals included, rendered from
-[wezterm-term](https://github.com/wezterm/wezterm) as HTML (no WASM, no
+It also widens what a clip can be. Besides notes and images, a clip can be a
+running terminal or an embedded URL, so a stack holds the working context itself
+-- the shells you're in, the site you're building. The page is a pure projection
+of the event log: selection, layout, and the visible HTML are computed on the
+server and patched over Datastar SSE. Terminals included, rendered from
+[wezterm-term](https://github.com/wezterm/wezterm) as an HTML grid (no WASM, no
 client-side VT emulator).
 
-<img alt="A live terminal clip rendered as an HTML cell grid" width="760" src="docs/assets/terminal.png">
+<img alt="A terminal clip rendered as an HTML cell grid" width="760" src="docs/assets/terminal.png">
 
 ## Install
 
