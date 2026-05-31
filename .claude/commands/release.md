@@ -77,8 +77,9 @@ All three targets must go green:
 gh release view v$ARGUMENTS
 ```
 
-Confirm all three archives are attached. Set the release body from the
-changelog:
+Confirm all three archives are attached and the body rendered from
+`changes/v$ARGUMENTS.md` -- `release.yml` sets it via `body_path`, so no manual
+notes step is needed. Override only if something is off:
 
 ```bash
 gh release edit v$ARGUMENTS --notes-file changes/v$ARGUMENTS.md
@@ -141,8 +142,15 @@ git push
 
 ## Done
 
-- GitHub release: https://github.com/cablehead/stacks2099/releases/tag/v$ARGUMENTS
-- Homebrew: `brew install cablehead/tap/stacks2099`
+End by printing a terse summary of what shipped, e.g.:
+
+```
+v$ARGUMENTS shipped
+- Release: https://github.com/cablehead/stacks2099/releases/tag/v$ARGUMENTS
+- Install: brew install cablehead/tap/stacks2099
+- Notes:   body rendered from changes/v$ARGUMENTS.md
+- main bumped to the next -dev
+```
 
 ## Rollback
 
