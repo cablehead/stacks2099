@@ -38,6 +38,12 @@ async function cropTo(selector, out) {
   console.log(`shot ${out} (${box ? Math.round(box.width) + "x" + Math.round(box.height) : "?"})`);
 }
 
+// Focus a clip so its pane renders at full opacity. The app dims every pane in
+// navigate mode (.3) and lights only the focused/active one in focus mode.
+async function focusClip(cid) {
+  await page.evaluate((id) => window.__focusClip && window.__focusClip(id), cid);
+}
+
 const shots = [];
 
 // 1. One top bar -- the merged bar with New + Actions handles.
@@ -79,6 +85,14 @@ shots.push(async () => {
     await page.waitForSelector("#doc.layout-niri", { timeout: 6000 }).catch(() => {});
     await page.waitForTimeout(800);
   }
+  // Focus a pane so the strip isn't dimmed; prefer a terminal (a focused note
+  // flips to its raw editor).
+  const stripCid = await page.evaluate(() => {
+    const panes = [...document.querySelectorAll("#doc .pane[data-clip]")];
+    const term = panes.find((p) => p.querySelector("[id^='grid-'] *"));
+    return (term || panes[0])?.getAttribute("data-clip") || null;
+  });
+  if (stripCid) { await focusClip(stripCid); await page.waitForTimeout(500); }
   await cropTo("#doc", "layout-niri.png");
   // leave the stack as we found it
   if (!before) {
@@ -90,16 +104,15 @@ shots.push(async () => {
 // 6. Live terminal pane (server-rendered grid + HUD).
 shots.push(async () => {
   await load();
-  const sel = await page.evaluate(() => {
-    const panes = [...document.querySelectorAll(".pane")];
+  const cid = await page.evaluate(() => {
+    const panes = [...document.querySelectorAll(".pane[data-clip]")];
     const term = panes.find((p) => p.querySelector("[id^='grid-'] *"));
-    if (!term) return null;
-    if (!term.id) term.id = "shot-term-pane";
-    return "#" + term.id;
+    return term ? term.getAttribute("data-clip") : null;
   });
-  if (!sel) { console.log("skip terminal.png (no terminal pane in focused stack)"); return; }
-  await page.waitForTimeout(600);
-  await cropTo(sel, "terminal.png", { pad: 2 });
+  if (!cid) { console.log("skip terminal.png (no terminal pane in focused stack)"); return; }
+  await focusClip(cid); // light the pane (otherwise dimmed at .3 opacity)
+  await page.waitForTimeout(700);
+  await cropTo(`.pane[data-clip="${cid}"]`, "terminal.png");
 });
 
 for (const s of shots) {
