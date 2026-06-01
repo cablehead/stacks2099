@@ -60,7 +60,16 @@ function keyEventToInput(ev) {
       }
     }
     if (ev.altKey && !ev.ctrlKey && !ev.metaKey) {
-      // Meta-prefix: ESC + char (bash readline convention).
+      // Option/AltGr is a character-compose modifier on most non-US layouts:
+      // the OS already produced a printable glyph (Danish Option+I -> "|"),
+      // delivered as a one-char ev.key that differs from the physical key's
+      // letter (ev.code "KeyI"). Send that glyph literally. Only a true
+      // Alt+letter chord (ev.key === the code's letter) is Meta-prefixed
+      // (ESC + char, bash readline convention).
+      const codeLetter = /^Key([A-Z])$/.exec(ev.code)?.[1]?.toLowerCase();
+      if (codeLetter && ch.toLowerCase() !== codeLetter) {
+        return { bytes: ch, display: ch };
+      }
       return { bytes: '\x1b' + ch, display: 'M-' + ch };
     }
     if (ev.metaKey) {

@@ -646,6 +646,59 @@ test("clip-actions: Cmd-K opens the panel even when a terminal is focused", () =
   );
 }));
 
+// macOS Option (and AltGr on non-US layouts) is a character-compose modifier:
+// pressing it produces a printable character with altKey=true (e.g. Danish
+// Option+I -> "|"). key-buffer must forward that character literally to the pty,
+// NOT as a Meta sequence (ESC + char). Sending ESC|, the shell never sees the
+// pipe.
+test("key-buffer forwards an Option-composed character literally (not ESC-prefixed)", () => withApp(async (page) => {
+  await page.waitForFunction(() => !!document.querySelector("[id^='grid-'] .row"), { timeout: 15000 });
+  const cid = await page.evaluate(() => document.querySelector("#doc .pane[data-render='terminal']")?.dataset.clip);
+  await page.evaluate((cid) => window.__focusClip(cid), cid);
+  await page.waitForTimeout(150);
+
+  // Capture exactly what key-buffer POSTs to the pty.
+  const sent = await page.evaluate(() => {
+    return new Promise((resolve) => {
+      const orig = window.fetch;
+      window.fetch = function (url, opts) {
+        if (typeof url === "string" && url.includes("/pty/input") && opts?.body != null) {
+          window.fetch = orig;
+          resolve(typeof opts.body === "string" ? opts.body : "");
+        }
+        return orig.apply(this, arguments);
+      };
+      // Synthesize the keydown a Danish keyboard fires for Option+I = "|":
+      // a printable key with altKey set (the OS already composed the glyph).
+      window.dispatchEvent(new KeyboardEvent("keydown", {
+        key: "|", code: "KeyI", altKey: true, bubbles: true, cancelable: true,
+      }));
+    });
+  });
+
+  assert.equal(sent, "|", `pty must receive the literal "|", got ${JSON.stringify(sent)}`);
+
+  // A genuine Alt+letter chord (ev.key matches the physical key's letter, no
+  // composition) still goes through as Meta -- ESC + letter -- for TUIs that
+  // bind Meta keys.
+  const meta = await page.evaluate(() => {
+    return new Promise((resolve) => {
+      const orig = window.fetch;
+      window.fetch = function (url, opts) {
+        if (typeof url === "string" && url.includes("/pty/input") && opts?.body != null) {
+          window.fetch = orig;
+          resolve(typeof opts.body === "string" ? opts.body : "");
+        }
+        return orig.apply(this, arguments);
+      };
+      window.dispatchEvent(new KeyboardEvent("keydown", {
+        key: "b", code: "KeyB", altKey: true, bubbles: true, cancelable: true,
+      }));
+    });
+  });
+  assert.equal(meta, "\x1bb", `a true Alt+letter chord stays Meta-prefixed, got ${JSON.stringify(meta)}`);
+}));
+
 test("layout flip to niri resizes the pty to the niri column, not the flow width", () => withApp(async (page) => {
   // Regression: flipping flow->niri measured the pane before the niri 80ch
   // width (and sidebar collapse) had reflowed, so __applyLayout pushed a
