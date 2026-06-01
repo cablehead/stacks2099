@@ -977,6 +977,10 @@
       if (!sid) return;
       keybuf.setAttribute('sid', sid);
       keybuf.setAttribute('enabled', 'true');
+      // Park focus on key-buffer's hidden input so the OS composes dead keys /
+      // IME (Option+e e -> accented char) into a real input element before the
+      // finished character is forwarded to the pty.
+      keybuf.focusInput?.();
       setMode('focus');
     };
 

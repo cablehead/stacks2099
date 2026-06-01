@@ -700,6 +700,42 @@ test("key-buffer forwards an Option-composed character literally (not ESC-prefix
   assert.equal(meta, "\x1bb", `a true Alt+letter chord stays Meta-prefixed, got ${JSON.stringify(meta)}`);
 }));
 
+// Dead-key / IME composition (macOS Option+e then e -> an accented char, or any
+// CJK IME) only happens inside a real focused input element. A focused terminal
+// parks DOM focus on key-buffer's hidden input so the OS composes there; the
+// finished string from compositionend is what reaches the pty -- not the raw
+// dead-key keydowns, which would collapse to the base letter.
+test("focused terminal sends the composed character (compositionend) to the pty", () => withApp(async (page) => {
+  await page.waitForFunction(() => !!document.querySelector("[id^='grid-'] .row"), { timeout: 15000 });
+  const cid = await page.evaluate(() => document.querySelector("#doc .pane[data-render='terminal']")?.dataset.clip);
+  await page.evaluate((cid) => window.__focusClip(cid), cid);
+  await page.waitForTimeout(150);
+
+  const sent = await page.evaluate(() => {
+    return new Promise((resolve) => {
+      const orig = window.fetch;
+      window.fetch = function (url, opts) {
+        if (typeof url === "string" && url.includes("/pty/input") && opts?.body != null) {
+          window.fetch = orig;
+          resolve(typeof opts.body === "string" ? opts.body : "");
+        }
+        return orig.apply(this, arguments);
+      };
+      // The hidden input key-buffer focused for the terminal. Replay the events
+      // a browser fires for Option+e then e: a composition session that ends
+      // with the finished accented character. The provisional keydowns during
+      // composition carry isComposing and must be ignored; only compositionend
+      // produces output.
+      const inp = document.querySelector("key-buffer textarea");
+      inp.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+      inp.dispatchEvent(new KeyboardEvent("keydown", { key: "e", isComposing: true, bubbles: true }));
+      inp.dispatchEvent(new CompositionEvent("compositionend", { data: "é", bubbles: true }));
+    });
+  });
+
+  assert.equal(sent, "é", `the composed character must reach the pty, got ${JSON.stringify(sent)}`);
+}));
+
 // ADR 0005: a focused clip gets every key raw outside a tiny carve-out. On a
 // Danish layout the "~" dead key is Option + the physical BracketRight key, so
 // the keydown carries altKey + key:"~" + code:"BracketRight". The old global
