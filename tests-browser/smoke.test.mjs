@@ -799,6 +799,34 @@ test("focusInput does not steal focus (and collapse the selection) while selecti
   assert.ok(kept.still, "the selection survives __focusClip/focusInput");
 }));
 
+// Regression: Cmd+C to copy a grid selection must not refocus the hidden input
+// (which would collapse the selection before the browser's native copy runs).
+// Refocus-on-keypress only fires for keys we forward to the pty; Cmd/Ctrl
+// shortcuts (keyEventToInput -> null) leave the selection intact.
+test("Cmd+C over a grid selection keeps the selection (no refocus)", () => withApp(async (page) => {
+  await page.waitForFunction(() => !!document.querySelector("[id^='grid-'] .row"), { timeout: 15000 });
+  const cid = await page.evaluate(() => document.querySelector("#doc .pane[data-render='terminal']")?.dataset.clip);
+  await page.evaluate((cid) => window.__focusClip(cid), cid);
+  await page.waitForTimeout(150);
+
+  const r = await page.evaluate(() => {
+    const row = document.querySelector("[id^='grid-'] .row");
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    const range = document.createRange();
+    range.selectNodeContents(row);
+    sel.addRange(range);
+    document.querySelector("key-buffer textarea").blur(); // selection blurs the input
+    const had = sel.toString().length > 0;
+    // Cmd+C (Meta+c): keyEventToInput returns null, so no refocus, no forward.
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "c", code: "KeyC", metaKey: true, bubbles: true }));
+    return { had, still: window.getSelection().toString().length > 0 };
+  });
+
+  assert.ok(r.had, "text was selected");
+  assert.ok(r.still, "Cmd+C kept the selection (did not refocus/collapse it)");
+}));
+
 // ADR 0005: a focused clip gets every key raw outside a tiny carve-out. On a
 // Danish layout the "~" dead key is Option + the physical BracketRight key, so
 // the keydown carries altKey + key:"~" + code:"BracketRight". The old global

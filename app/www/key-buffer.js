@@ -270,17 +270,17 @@ class KeyBuffer extends HTMLElement {
         return;
       }
     }
-    // The hidden input may have lost focus because the user clicked the grid to
-    // select text. Typing means they're done selecting: re-park focus on the
-    // input (synchronously, so composition for the NEXT key works) and let the
-    // browser clear the selection as it normally does when you type. This key
-    // itself still routes through the logic below; only subsequent composition
-    // needs the input focused.
+    const tr = keyEventToInput(ev);
+    if (!tr) return;
+    // Only now -- once we know this is a key we forward to the pty (real
+    // typing, not Cmd/Ctrl shortcuts, which keyEventToInput drops to null) --
+    // re-park focus on the hidden input. It may have blurred because the user
+    // clicked the grid to select text; typing means they're done selecting, so
+    // the browser clears the selection as usual. Crucially we DON'T do this for
+    // Cmd+C and friends, which must leave the selection intact for the copy.
     if (this._input && document.activeElement !== this._input) {
       this._input.focus();
     }
-    const tr = keyEventToInput(ev);
-    if (!tr) return;
     // Let the browser handle browser-level shortcuts (Cmd-R, Ctrl-Shift-I,
     // etc) but swallow anything we're forwarding to the pty so it doesn't
     // also trigger e.g. browser quick-find on '/'. Clear any stray character
