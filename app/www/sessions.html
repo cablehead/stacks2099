@@ -16,13 +16,13 @@
       --chrome: #252525;
     }
     html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--fg); font: 14px var(--term-font); }
-    /* Top row holds sidebar | main | canvas; the bottom row is the status bar
+    /* Top row holds stacks | clips | main; the bottom row is the status bar
        spanning all three columns (full window width). */
-    body { display: grid; grid-template-columns: 14rem 16rem 1fr auto; grid-template-rows: 1fr auto; height: 100dvh; }
+    body { display: grid; grid-template-columns: 14rem 16rem 1fr; grid-template-rows: 1fr auto; height: 100dvh; }
     /* niri reclaims the screen: collapse the stacks + clips rails so the strip
        gets the full width. Navigation is Alt+J/K + the panning strip; Alt+L
        restores flow (and the rails). */
-    body.nav-collapsed { grid-template-columns: 0 0 1fr auto; }
+    body.nav-collapsed { grid-template-columns: 0 0 1fr; }
     body.nav-collapsed > #stacks-list, body.nav-collapsed > #clips-list { overflow: hidden; }
     aside { background: var(--pane); border-right: 1px solid var(--pane-border); overflow-y: auto; min-height: 0; }
     aside header { padding: .4rem .5rem .4rem .75rem; border-bottom: 1px solid var(--pane-border); font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: var(--dim); display: flex; align-items: center; justify-content: space-between; }
@@ -150,7 +150,7 @@
     body.mode-focus .mode-badge { color: var(--sel); }
     .rightbar { background: var(--chrome); }
     .statusbar {
-      grid-column: 1 / -1; /* span sidebar + main + canvas */
+      grid-column: 1 / -1; /* span stacks + clips + main */
       display: flex; justify-content: space-between; align-items: center;
       padding: .4rem 1rem;
       background: var(--chrome); color: var(--fg);
@@ -170,27 +170,6 @@
     .status-meta { display: flex; gap: .75rem; align-items: center; }
     /* Trailing key-hint cluster pushed to the right of a clip-actions row. */
     .row-keys { margin-left: auto; display: inline-flex; gap: .2ch; opacity: .8; }
-    /* Right-side canvas pane. Lives in body's third grid column (`auto`), so
-       when :empty the column collapses to 0 and the terminal gets full width.
-       Server pushes content via the same /sse stream (canvas.events). */
-    .canvas {
-      position: relative;
-      width: var(--canvas-w, 32rem); min-height: 0; overflow: auto;
-      background: var(--pane); border-left: 1px solid var(--pane-border);
-      padding: .75rem; box-sizing: border-box;
-      font-size: 12px;
-    }
-    .canvas:empty { display: none; }
-    .canvas pre { margin: 0; white-space: pre; }
-    .canvas-resizer {
-      position: absolute; left: -3px; top: 0; bottom: 0; width: 6px;
-      cursor: col-resize; background: transparent;
-      transition: background .15s;
-    }
-    .canvas-resizer:hover, body.canvas-dragging .canvas-resizer { background: var(--sel); }
-    .canvas-content { height: 100%; }
-    body.canvas-dragging { user-select: none; cursor: col-resize; }
-    body.canvas-dragging .term-wrap, body.canvas-dragging .canvas-content { pointer-events: none; }
 
     /* Rename modal. */
     .modal-backdrop {
@@ -400,11 +379,8 @@
   <!-- Same edge-patch for the stacks switcher ($stackPicking). -->
   <div data-effect="$stackPicking; window.__syncStacks && window.__syncStacks($stackPicking)" style="display:none"></div>
 
-  <!-- Server-pushed canvas pane. Empty -> collapses to 0 width. -->
-  <section id="canvas" class="canvas"></section>
-
-  <!-- Status bar spans the full window width (under the sidebar and canvas
-       too), so it is a body-level row. Mode + current-clip surface: the MODE
+  <!-- Status bar spans the full window width (under the rails too), so it is a
+       body-level row. Mode + current-clip surface: the MODE
        label on the left toggles focus; dims and the Actions handle (the
        bottom-right clip-actions panel) on the right. -->
   <footer class="statusbar" aria-label="Status">
@@ -529,12 +505,6 @@
     import { mergePatch } from '{{ datastar_js_path | safe }}';
     await ensureTermFont();
 
-    // Restore the canvas width set by the last drag.
-    {
-      const w = localStorage.getItem('canvas-w');
-      if (w) document.body.style.setProperty('--canvas-w', w);
-    }
-
     const doc = document.getElementById('doc');
     const PANE_ROWS = 24;
     // Current stack layout (mirrors the $docLayout signal). In flow each
@@ -642,27 +612,6 @@
       }).catch(() => {});
     });
 
-    // Drag-to-resize the canvas pane (delegated; .canvas-resizer is
-    // re-created on every #canvas patch).
-    document.addEventListener('mousedown', (e) => {
-      if (!(e.target instanceof HTMLElement) || !e.target.classList.contains('canvas-resizer')) return;
-      e.preventDefault();
-      document.body.classList.add('canvas-dragging');
-      const onMove = (ev) => {
-        const min = 12 * 16, maxTake = window.innerWidth - 24 * 16;
-        const w = Math.max(min, Math.min(maxTake, window.innerWidth - ev.clientX));
-        document.body.style.setProperty('--canvas-w', w + 'px');
-      };
-      const onUp = () => {
-        document.removeEventListener('mousemove', onMove);
-        document.removeEventListener('mouseup', onUp);
-        document.body.classList.remove('canvas-dragging');
-        const w = document.body.style.getPropertyValue('--canvas-w');
-        if (w) localStorage.setItem('canvas-w', w);
-      };
-      document.addEventListener('mousemove', onMove);
-      document.addEventListener('mouseup', onUp);
-    });
 
     // Paste an image anywhere -> add it as an image clip in the current stack.
     // Only images are intercepted; text paste falls through to the terminal /
@@ -984,7 +933,7 @@
       setMode('focus');
     };
 
-    // Clicking truly outside a pane (topbar, canvas, empty doc area) drops
+    // Clicking truly outside a pane (topbar, empty doc area) drops
     // back to navigate mode. Exempt surfaces: a pane (its own handler focuses
     // it), the sidebar (selecting a clip carries focus, like Alt+J/K -- and
     // cycle() drives selection via a synthetic sidebar click), the rename

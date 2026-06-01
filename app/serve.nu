@@ -19,13 +19,11 @@
 #   clip.patch  {id, label?, ...}                  field merge (rename, ...)
 #   clip.delete {id}
 #   ghostty.title {val}                            window title; latest wins
-#   ghostty.canvas {sid}                           per-clip canvas html; body = CAS
-#   stacks2099.focus {sid}                         last-focused clip (ttl last:1; out-of-proc /canvas)
+#   stacks2099.focus {sid}                         last-focused clip (ttl last:1)
 # Ephemeral bus topics:
 #   clip.select {id}|{action}                      global selection cursor
 #   clip.events {}                                 "re-evaluate panes" nudge (post-spawn)
 #   title.events {connId, title}                   live title echo (connId-filtered)
-#   canvas.events {sid}                            canvas changed for a clip
 #
 # Endpoints:
 #   GET  /                  -> static sessions.html shell
@@ -36,7 +34,6 @@
 #   POST /clip/close?clip=  -> tombstone a clip (+ kill its pty)
 #   POST /pty/label         -> rename the selected clip
 #   POST /title             -> set the window title
-#   POST /canvas            -> external canvas-pane content (per clip)
 #   POST /pty/input?sid=    -> raw input bytes to pty stdin
 #   POST /pty/resize?sid=   -> resize pty (cols, rows in JSON body)
 #   GET  /pty/view?sid=     -> SSE of HTML grid frames (datastar morph)
@@ -66,23 +63,9 @@ def save-title [new: string]: nothing -> nothing {
   null | .append "ghostty.title" --meta {val: $new} --ttl forever | ignore
 }
 
-# Per-clip canvas content: `ghostty.canvas` frames keyed by meta.sid, body is
-# the HTML (empty body = cleared). The latest frame for a sid wins.
-def load-canvas [sid: string]: nothing -> string {
-  if $sid == "" { return "" }
-  let f = (.cat | where {|f| $f.topic == "ghostty.canvas" and (($f.meta.sid? | default "") == $sid) } | last)
-  if ($f | is-empty) { return "" }
-  if ($f.hash? | is-empty) { "" } else { (.cas $f.hash) }
-}
-
-def save-canvas [sid: string, html: string]: nothing -> nothing {
-  if $sid == "" { return }
-  $html | .append "ghostty.canvas" --meta {sid: $sid} --ttl forever | ignore
-}
-
-# Last clip the user selected, so out-of-process /canvas posters land on the
-# clip in front. `stacks2099.focus` frames, ttl last:1 -- the store keeps only
-# the most recent, so this latest-wins value never accumulates in the log.
+# Last clip the user selected, used on reconnect to land on the right stack and
+# reported by /api/state. `stacks2099.focus` frames, ttl last:1 -- the store
+# keeps only the most recent, so this latest-wins value never accumulates.
 def load-focused-sid []: nothing -> string {
   let f = (.last "stacks2099.focus")
   if ($f | is-empty) { "" } else { ($f.meta.sid? | default "") }
@@ -352,17 +335,6 @@ def render-doc [clips: list]: nothing -> string {
   $"<div id='doc' class='doc' data-class:layout-niri=\"$docLayout === 'niri'\">($panes)</div>"
 }
 
-# Outer-replace markup for the #canvas pane. Empty html -> bare section
-# (matches CSS :empty, collapses the column).
-def render-canvas [html: string]: nothing -> string {
-  let inner = if $html == "" {
-    ""
-  } else {
-    $"<div class='canvas-resizer'></div><div class='canvas-content'>($html)</div>"
-  }
-  $"<section id='canvas' class='canvas'>($inner)</section>"
-}
-
 # "cols x rows" of the selected clip's terminal, or "" for content / none.
 def focused-dims [clips: list, selected: string]: nothing -> string {
   if $selected == "" { return "" }
@@ -459,8 +431,8 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
       }
 
       # Persistent frames come from `.cat -f` (history + xs.threshold + live
-      # appends). Ephemeral nudges (selection, canvas/title pings, the post-
-      # spawn "re-evaluate panes" tick) come from the in-process bus, wrapped
+      # appends). Ephemeral nudges (selection, title pings, the post-spawn
+      # "re-evaluate panes" tick) come from the in-process bus, wrapped
       # frame-shaped so apply-frame folds them uniformly.
       (null | interleave
         { .cat -f }
@@ -487,7 +459,6 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
             let sel = $v.sel
             let dims = (focused-dims $clips $sel)
             let title = (load-title)
-            let canvas = (load-canvas $sel)
             let doc_order = (mountable $clips)
 
             let sel_stack = ($proj.selectedStackId | default "")
@@ -505,10 +476,9 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
             let sel_patch = ({selectedSid: $sel, selectedStack: $sel_stack, stackName: $stack_name, connId: $conn_id, docReady: true, docOrder: ($doc_order | to json), docLayout: $layout, label: $label} | to datastar-patch-signals)
             let dims_patch = ({focusedDims: $dims} | to datastar-patch-signals)
             let title_patch = ({title: $title} | to datastar-patch-signals)
-            let canvas_patch = (render-canvas $canvas | to datastar-patch-elements --selector "#canvas")
 
-            let out = ([$sel_patch $dims_patch $title_patch $stacks_patch $switcher_patch $clips_patch $canvas_patch $doc_patch] | where {|x| $x != null })
-            {out: $out, next: {proj: $proj, ready: true, rendered: $doc_order, doc_order: $doc_order, title: $title, canvas: $canvas, sel: $sel, sel_stack: $sel_stack, stack_name: $stack_name, dims: $dims, layout: $layout, label: $label}}
+            let out = ([$sel_patch $dims_patch $title_patch $stacks_patch $switcher_patch $clips_patch $doc_patch] | where {|x| $x != null })
+            {out: $out, next: {proj: $proj, ready: true, rendered: $doc_order, doc_order: $doc_order, title: $title, sel: $sel, sel_stack: $sel_stack, stack_name: $stack_name, dims: $dims, layout: $layout, label: $label}}
 
           } else if ($topic | str starts-with "xs.") {
             # Heartbeats and other system noise.
@@ -612,13 +582,6 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
               let dims = (focused-dims $clips $sel)
               let dims_patch = if $dims != $st.dims { ({focusedDims: $dims} | to datastar-patch-signals) } else { null }
 
-              # Canvas: reload on selection change or a canvas.events ping.
-              let reload_canvas = ($sel != $st.sel) or ($topic == "canvas.events")
-              let canvas = if $reload_canvas { (load-canvas $sel) } else { $st.canvas }
-              let canvas_patch = if $canvas != $st.canvas {
-                (render-canvas $canvas | to datastar-patch-elements --selector "#canvas")
-              } else { null }
-
               # Title: live cross-tab echo via title.events, filtered so the
               # typer's own connection doesn't clobber its focused <input>.
               let title = if ($topic == "title.events") and (($ev.meta.connId? | default "") != $conn_id) {
@@ -629,12 +592,12 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
               let out = ([$stacks_patch $switcher_patch $clips_patch]
                 | append $add_patches
                 | append $rm_patches
-                | append [$repane $docorder_patch $layout_patch $label_patch $sel_patch $selstk_patch $stackname_patch $dims_patch $canvas_patch $title_patch]
+                | append [$repane $docorder_patch $layout_patch $label_patch $sel_patch $selstk_patch $stackname_patch $dims_patch $title_patch]
                 | where {|x| $x != null })
-              {out: $out, next: {proj: $proj, ready: true, rendered: $rendered2, doc_order: $want, title: $title, canvas: $canvas, sel: $sel, sel_stack: $sel_stack, stack_name: $stack_name, dims: $dims, layout: $layout, label: $label}}
+              {out: $out, next: {proj: $proj, ready: true, rendered: $rendered2, doc_order: $want, title: $title, sel: $sel, sel_stack: $sel_stack, stack_name: $stack_name, dims: $dims, layout: $layout, label: $label}}
             }
           }
-        } {proj: (projection empty), ready: false, rendered: [], doc_order: [], title: "", canvas: "", sel: "", sel_stack: "", stack_name: "", dims: "", layout: "flow", label: ""}
+        } {proj: (projection empty), ready: false, rendered: [], doc_order: [], title: "", sel: "", sel_stack: "", stack_name: "", dims: "", layout: "flow", label: ""}
       | flatten
       | to sse
       | metadata set --content-type "text/event-stream"
@@ -642,8 +605,8 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
 
     [POST, "/nav"] => {
       # Move the global selection cursor. clip.select is ephemeral (bus); the
-      # /sse fold turns it into selectedClipId. Also persist ghostty.focused so
-      # out-of-process /canvas posters land on the clip in front.
+      # /sse fold turns it into selectedClipId. Also persist the focused sid so a
+      # reconnect lands on the right stack and /api/state can report it.
       let signals = $body | from datastar-signals $req
       let sid = ($signals.sid? | default "")
       if $sid != "" {
@@ -894,44 +857,6 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
       save-title $new
       {connId: ($signals.connId? | default ""), title: $new} | .bus pub "title.events"
       null | metadata set { merge {'http.response': {status: 204}} }
-    }
-
-    [POST, "/canvas"] => {
-      # External entry point for the canvas pane. Body becomes the canvas
-      # content for the sid in ?sid=<sid> (empty body clears it); without it,
-      # falls back to the last-focused clip. Dispatch on Content-Type:
-      #
-      #   text/markdown               -> .md
-      #   text/html (or unset)        -> raw HTML
-      #   text/plain  + ?lang=<l>     -> .highlight <l>, wrapped in <pre>
-      #   text/plain                  -> wrapped in <pre> as-is
-      let qsid = ($req.query.sid? | default "" | str trim)
-      let sid = if $qsid == "" { load-focused-sid } else { $qsid }
-      if $sid == "" {
-        "no focused sid" | metadata set { merge {'http.response': {status: 400}} }
-      } else {
-        let ct = (($req.headers | get "content-type" | default "") | split row ";" | get 0 | str trim | str downcase)
-        let body_s = ($body | default "")
-        let html = if $body_s == "" {
-          ""
-        } else {
-          match $ct {
-            "text/markdown" => ($body_s | .md | get __html)
-            "text/plain" => {
-              let lang = ($req.query.lang? | default "")
-              if $lang != "" {
-                $"<pre>($body_s | .highlight $lang)</pre>"
-              } else {
-                $"<pre>($body_s)</pre>"
-              }
-            }
-            _ => $body_s
-          }
-        }
-        save-canvas $sid $html
-        {sid: $sid} | .bus pub "canvas.events"
-        null | metadata set { merge {'http.response': {status: 204}} }
-      }
     }
 
     [POST, "/pty/input"] => {

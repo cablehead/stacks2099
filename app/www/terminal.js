@@ -166,7 +166,7 @@ export function mountTerminal({ screen, grid, onResize, fixedRows }) {
 
   window.addEventListener('resize', () => reflow(false));
   // Catch pane-geometry changes that don't fire window resize: the sidebar
-  // or canvas resizing in the sessions surface, topbar growth, etc.
+  // collapsing in the sessions surface, topbar growth, etc.
   if (screen.parentElement && typeof ResizeObserver !== 'undefined') {
     new ResizeObserver(() => reflow(false)).observe(screen.parentElement);
   }
