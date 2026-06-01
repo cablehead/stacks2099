@@ -174,9 +174,14 @@ class KeyBuffer extends HTMLElement {
   }
 
   // Park DOM focus on the hidden input (terminal focus) so the OS composes
-  // into it. Deferred so it lands after any morph/layout settles.
+  // into it. Deferred so it lands after any morph/layout settles. Skip while
+  // the user has an active text selection: focusing the input would collapse
+  // it, so a click that selects grid text would immediately deselect. Typing
+  // re-parks focus via _onKey, so composition still resumes when they type.
   focusInput() {
     requestAnimationFrame(() => {
+      const sel = window.getSelection();
+      if (sel && !sel.isCollapsed) return;
       try {
         this._input?.focus();
       } catch { /* gone */ }

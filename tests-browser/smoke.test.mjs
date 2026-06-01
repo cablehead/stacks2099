@@ -770,6 +770,35 @@ test("typing after a grid selection refocuses the hidden input and still reaches
   assert.ok(refocused, "the hidden input regained focus so composition works again");
 }));
 
+// Regression: clicking the grid to select text runs __focusClip -> focusInput.
+// Focusing the hidden textarea collapses the document selection, so a fresh
+// selection would vanish the instant it's made. focusInput must skip while a
+// non-collapsed selection exists.
+test("focusInput does not steal focus (and collapse the selection) while selecting", () => withApp(async (page) => {
+  await page.waitForFunction(() => !!document.querySelector("[id^='grid-'] .row"), { timeout: 15000 });
+  const cid = await page.evaluate(() => document.querySelector("#doc .pane[data-render='terminal']")?.dataset.clip);
+  await page.evaluate((cid) => window.__focusClip(cid), cid);
+  await page.waitForTimeout(150);
+
+  const kept = await page.evaluate(async (cid) => {
+    // Select some rendered grid text.
+    const row = document.querySelector("[id^='grid-'] .row");
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    const r = document.createRange();
+    r.selectNodeContents(row);
+    sel.addRange(r);
+    const had = sel.toString().length > 0;
+    // Re-focus the clip the way a grid click does, then let the rAF run.
+    window.__focusClip(cid);
+    await new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));
+    return { had, still: window.getSelection().toString().length > 0 };
+  }, cid);
+
+  assert.ok(kept.had, "text was selected to begin with");
+  assert.ok(kept.still, "the selection survives __focusClip/focusInput");
+}));
+
 // ADR 0005: a focused clip gets every key raw outside a tiny carve-out. On a
 // Danish layout the "~" dead key is Option + the physical BracketRight key, so
 // the keydown carries altKey + key:"~" + code:"BracketRight". The old global
