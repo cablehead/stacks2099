@@ -736,6 +736,40 @@ test("focused terminal sends the composed character (compositionend) to the pty"
   assert.equal(sent, "é", `the composed character must reach the pty, got ${JSON.stringify(sent)}`);
 }));
 
+// Selecting grid text blurs the hidden input (so the browser's native text
+// selection works). The next keypress means the user is done selecting: the
+// input must regain focus (so composition works again) AND the key still
+// reaches the pty.
+test("typing after a grid selection refocuses the hidden input and still reaches the pty", () => withApp(async (page) => {
+  await page.waitForFunction(() => !!document.querySelector("[id^='grid-'] .row"), { timeout: 15000 });
+  const cid = await page.evaluate(() => document.querySelector("#doc .pane[data-render='terminal']")?.dataset.clip);
+  await page.evaluate((cid) => window.__focusClip(cid), cid);
+  await page.waitForTimeout(150);
+
+  // Simulate clicking the grid to select: blur the hidden input.
+  await page.evaluate(() => document.querySelector("key-buffer textarea").blur());
+  const blurred = await page.evaluate(() => document.activeElement !== document.querySelector("key-buffer textarea"));
+  assert.ok(blurred, "the hidden input is blurred after selecting");
+
+  const sent = await page.evaluate(() => {
+    return new Promise((resolve) => {
+      const orig = window.fetch;
+      window.fetch = function (url, opts) {
+        if (typeof url === "string" && url.includes("/pty/input") && opts?.body != null) {
+          window.fetch = orig;
+          resolve(typeof opts.body === "string" ? opts.body : "");
+        }
+        return orig.apply(this, arguments);
+      };
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "x", code: "KeyX", bubbles: true }));
+    });
+  });
+
+  assert.equal(sent, "x", `the key after selection reaches the pty, got ${JSON.stringify(sent)}`);
+  const refocused = await page.evaluate(() => document.activeElement === document.querySelector("key-buffer textarea"));
+  assert.ok(refocused, "the hidden input regained focus so composition works again");
+}));
+
 // ADR 0005: a focused clip gets every key raw outside a tiny carve-out. On a
 // Danish layout the "~" dead key is Option + the physical BracketRight key, so
 // the keydown carries altKey + key:"~" + code:"BracketRight". The old global
