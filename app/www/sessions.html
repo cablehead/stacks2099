@@ -1068,17 +1068,11 @@
         window.app.openActions();
         return;
       }
-      // Alt app-chords: active in every mode. Save a note being edited first
-      // (blur renders the <pre> and persists) so Alt+J/K leaves it clean.
-      const altId = e.altKey ? readJson('keymap')[combo] : null;
-      if (altId) {
-        e.preventDefault();
-        e.stopPropagation();
-        if (editingNote) document.activeElement.blur();
-        runAction(altId);
-        return;
-      }
-      // Non-Alt keys from here.
+      // A focused clip owns every other key (ADR 0005). mod+Enter and mod+K
+      // above are the only carve-outs; from here the keystroke reaches the
+      // focused clip untouched -- a note's textarea handles it (Escape ends the
+      // edit), a terminal's pty gets it raw via key-buffer. Intercepting nothing
+      // else is what lets Option/AltGr-composed characters (|, ~, \) through.
       if (editingNote) {
         if (e.key === 'Escape') {
           e.preventDefault();
@@ -1087,7 +1081,8 @@
         return; // textarea owns the rest, including Enter for a newline
       }
       if (mode === 'focus') return; // focused terminal: pty owns everything
-      const id = readJson('keymap')[combo]; // navigate: any non-Alt binding
+      // Navigate mode: the app keymap owns keys (Alt chords + plain bindings).
+      const id = readJson('keymap')[combo];
       if (!id) return;
       e.preventDefault();
       e.stopPropagation();

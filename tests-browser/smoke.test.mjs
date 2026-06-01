@@ -520,27 +520,28 @@ test("new-clip picker: Ctrl-n/Ctrl-p and arrows move selection; Enter creates th
 }));
 
 // The picker is modal while open: it must own every key, so nothing leaks to a
-// focused terminal underneath. Regression guard for the capture-phase handler's
-// stopImmediatePropagation (without it, key-buffer forwards picker keys to the pty).
-test("new-clip picker: while open, keystrokes don't leak to a focused terminal", () => withApp(async (page) => {
+// terminal. Regression guard for the picker's scoped capture handler
+// (stopImmediatePropagation) -- picker keys must never reach the pty. App
+// chords like Alt+T are navigate-only now (ADR 0005: a focused clip owns all
+// keys), so opening goes through navigate.
+test("new-clip picker: while open, keystrokes don't leak to the terminal", () => withApp(async (page) => {
   await page.waitForFunction(() => !!document.querySelector("[id^='grid-'] .row"), { timeout: 15000 });
   const cid = await page.evaluate(() => document.querySelector("#doc .pane[data-render='terminal']")?.dataset.clip);
   assert.ok(cid, "a terminal pane is present");
-  // Focus it: key-buffer enabled and pointed at the pty (focus mode).
-  await page.evaluate((cid) => window.__focusClip(cid), cid);
-  await page.waitForTimeout(150);
 
-  // Open the picker over the focused terminal and type characters that would
-  // otherwise reach the pty. They must be swallowed.
+  // Open the picker (navigate mode) and type characters that would reach the
+  // pty if they leaked. They must be swallowed by the picker.
   await page.keyboard.press("Alt+t");
   await page.waitForSelector(".picker-backdrop", { state: "visible", timeout: 5000 });
   await page.keyboard.type("LEAKZZZ");
   await page.keyboard.press("Escape");
   await page.waitForFunction(() => getComputedStyle(document.querySelector(".picker-backdrop")).display === "none", { timeout: 3000 });
 
-  // Still focused: a sentinel typed now DOES reach the pty and echoes. pty input
-  // is ordered, so once the sentinel shows, any leaked LEAKZZZ would be on the
-  // line too.
+  // Focus the terminal and type a sentinel that DOES reach the pty and echoes.
+  // pty input is ordered, so once the sentinel shows, any leaked LEAKZZZ would
+  // be on the line too.
+  await page.evaluate((cid) => window.__focusClip(cid), cid);
+  await page.waitForTimeout(150);
   await page.keyboard.type("SENT9");
   await page.waitForFunction(
     () => [...document.querySelectorAll("[id^='grid-'] .row")].some((r) => r.textContent.includes("SENT9")),
@@ -697,6 +698,43 @@ test("key-buffer forwards an Option-composed character literally (not ESC-prefix
     });
   });
   assert.equal(meta, "\x1bb", `a true Alt+letter chord stays Meta-prefixed, got ${JSON.stringify(meta)}`);
+}));
+
+// ADR 0005: a focused clip gets every key raw outside a tiny carve-out. On a
+// Danish layout the "~" dead key is Option + the physical BracketRight key, so
+// the keydown carries altKey + key:"~" + code:"BracketRight". The old global
+// keymap matched physical BracketRight -> "]" -> nextStack and swallowed it, so
+// "~" never reached the terminal. With the mode-projected keymap, focus mode
+// has no bracket binding, so the character reaches the pty.
+test("focus mode passes an Option-composed ~ (physical BracketRight) to the pty, not stack-cycle", () => withApp(async (page) => {
+  await page.waitForFunction(() => !!document.querySelector("[id^='grid-'] .row"), { timeout: 15000 });
+  const cid = await page.evaluate(() => document.querySelector("#doc .pane[data-render='terminal']")?.dataset.clip);
+  await page.evaluate((cid) => window.__focusClip(cid), cid);
+  await page.waitForTimeout(150);
+
+  const sent = await page.evaluate(() => {
+    return new Promise((resolve) => {
+      let landed = null;
+      const orig = window.fetch;
+      window.fetch = function (url, opts) {
+        if (typeof url === "string" && url.includes("/pty/input") && opts?.body != null) {
+          landed = typeof opts.body === "string" ? opts.body : "";
+          window.fetch = orig;
+          resolve(landed);
+        }
+        return orig.apply(this, arguments);
+      };
+      // Dispatch on document so the event traverses both the capture-phase app
+      // keymap (document) and key-buffer (window) -- exactly like a real press.
+      document.dispatchEvent(new KeyboardEvent("keydown", {
+        key: "~", code: "BracketRight", altKey: true, bubbles: true, cancelable: true,
+      }));
+      // If nothing was forwarded (the chord was intercepted), resolve empty.
+      setTimeout(() => { window.fetch = orig; resolve(landed); }, 500);
+    });
+  });
+
+  assert.equal(sent, "~", `focused pty must receive "~", got ${JSON.stringify(sent)}`);
 }));
 
 test("layout flip to niri resizes the pty to the niri column, not the flow width", () => withApp(async (page) => {

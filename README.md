@@ -189,26 +189,34 @@ Terminal clips are the exception: their pty is spawned by a `POST` to
 ## Keys
 
 Two modes. **Navigate** browses (read-only, dimmed); **focus** drives the
-selected pane (a terminal gets your keystrokes, a note opens its editor).
-`mod+Enter` toggles between them. App chords are `Alt`-prefixed and fire in
-every mode; plain `Enter`/`Esc` go to the focused pty. See
-[docs/adr/0004-keyspace.md](docs/adr/0004-keyspace.md).
+selected pane (a terminal gets your keystrokes, a note opens its editor). A
+focused clip owns every key except the two carve-outs below, so composed
+characters (`|`, `~`, `\`) reach the terminal untouched. App chords live in
+navigate mode; from a focused clip, `mod+Enter` out first. See
+[docs/adr/0005-mode-projected-keymap.md](docs/adr/0005-mode-projected-keymap.md).
 
-| Chord                         | Action                                 |
-| ----------------------------- | -------------------------------------- |
-| `mod+Enter`                   | Toggle focus (Cmd on macOS, Ctrl else) |
-| `mod+K`                       | Clip actions (rename / close / move)   |
-| `Alt+T`                       | New clip (note / terminal picker)      |
-| `Alt+D`                       | Close current clip                     |
-| `Alt+J` / `Alt+K`             | Next / previous clip                   |
-| `Alt+Shift+J` / `Alt+Shift+K` | Move clip down / up                    |
-| `Alt+\`                       | Switch stack (open the switcher)       |
-| `Alt+[` / `Alt+]`             | Previous / next stack                  |
-| `Alt+S`                       | Toggle stack sort (auto / manual)      |
-| `Alt+L`                       | Toggle stack layout (flow / niri)      |
-| `Alt+R`                       | Rename current clip                    |
-| `Alt+Shift+R`                 | Rename window title                    |
-| `Alt+O`                       | Cycle current terminal pane height     |
+Carve-outs (work even with a clip focused):
+
+| Chord       | Action                                 |
+| ----------- | -------------------------------------- |
+| `mod+Enter` | Toggle focus (Cmd on macOS, Ctrl else) |
+| `mod+K`     | Clip actions (rename / close / move)   |
+
+Navigate-mode chords:
+
+| Chord                         | Action                             |
+| ----------------------------- | ---------------------------------- |
+| `Alt+T`                       | New clip (note / terminal picker)  |
+| `Alt+D`                       | Close current clip                 |
+| `Alt+J` / `Alt+K`             | Next / previous clip               |
+| `Alt+Shift+J` / `Alt+Shift+K` | Move clip down / up                |
+| `Alt+\`                       | Switch stack (open the switcher)   |
+| `Alt+[` / `Alt+]`             | Previous / next stack              |
+| `Alt+S`                       | Toggle stack sort (auto / manual)  |
+| `Alt+L`                       | Toggle stack layout (flow / niri)  |
+| `Alt+R`                       | Rename current clip                |
+| `Alt+Shift+R`                 | Rename window title                |
+| `Alt+O`                       | Cycle current terminal pane height |
 
 The top bar carries the same actions as clickable handles (breadcrumb, Sort,
 Layout, Theme, Actions, New); the status bar lists the active mode's chords.

@@ -61,13 +61,14 @@ function keyEventToInput(ev) {
     }
     if (ev.altKey && !ev.ctrlKey && !ev.metaKey) {
       // Option/AltGr is a character-compose modifier on most non-US layouts:
-      // the OS already produced a printable glyph (Danish Option+I -> "|"),
-      // delivered as a one-char ev.key that differs from the physical key's
-      // letter (ev.code "KeyI"). Send that glyph literally. Only a true
-      // Alt+letter chord (ev.key === the code's letter) is Meta-prefixed
-      // (ESC + char, bash readline convention).
+      // the OS already produced a printable glyph (Danish Option+I -> "|",
+      // Option+BracketRight -> "~"), delivered as ev.key. A composed glyph is
+      // never a plain ASCII letter, so send any non-letter altKey character
+      // literally. A true Alt+letter chord (ev.key is the code's own letter)
+      // stays Meta-prefixed (ESC + char, bash readline convention) for TUIs.
       const codeLetter = /^Key([A-Z])$/.exec(ev.code)?.[1]?.toLowerCase();
-      if (codeLetter && ch.toLowerCase() !== codeLetter) {
+      const isAltLetterChord = codeLetter && ch.toLowerCase() === codeLetter;
+      if (!isAltLetterChord) {
         return { bytes: ch, display: ch };
       }
       return { bytes: '\x1b' + ch, display: 'M-' + ch };

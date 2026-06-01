@@ -2,7 +2,19 @@
 
 ## Status
 
-Draft. Supersedes [0004](0004-keyspace.md).
+Accepted, partially implemented. Supersedes [0004](0004-keyspace.md).
+
+Done: the focus-mode carve-out (a focused clip owns every key except `mod+Enter`
+and `mod+K`); key-buffer forwards Option/AltGr-composed characters literally;
+Alt chords are navigate-only (leave-then-navigate). This fixed the `|`/`~`/`\`
+swallowing.
+
+Still pending (migration steps 1-2, 4, 6 below): moving `mode` into the
+projected stream, rendering `data-keymap` per mode from a single table,
+converting the modals to modes, and deleting `comboKey`/`makePicker`/the client
+`mode` variable. The keymap is still a static client-side map today; the
+carve-out is enforced in the capture handler rather than by what the server
+projected.
 
 ## Context
 
