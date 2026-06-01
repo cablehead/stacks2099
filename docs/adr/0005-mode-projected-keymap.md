@@ -61,12 +61,16 @@ into `<main data-keymap>`; one mode-agnostic listener runs whatever is there;
    `preventDefault`, no `stopPropagation`. The keystroke reaches whatever is
    focused as if no keybinding layer existed.
 4. **Focus mode is raw passthrough plus a tiny carve-out.** When a clip is
-   focused the keymap holds ONLY the keys that must work over a focused clip:
-   move to next/prev clip, open the clip-actions modal, leave focus. Every other
-   key MUST reach the focused clip -- a terminal's pty or a note's textarea --
-   untouched. This rule is what makes the i18n failures impossible: in focus
-   mode there is no handler on the page for `|`/`~`/`\`, so nothing can
-   intercept them.
+   focused the keymap holds ONLY two bindings: `mod+Enter` (leave focus) and
+   `mod+K` (clip-actions modal). Every other key MUST reach the focused clip --
+   a terminal's pty or a note's textarea -- untouched. This is what makes the
+   i18n failures impossible: in focus mode there is no handler on the page for
+   `|`/`~`/`\`, so nothing can intercept them. Both carve-out chords are on
+   `mod` (Cmd/Ctrl), which key-buffer already drops before the pty, so they cost
+   the focused clip nothing and never collide with Option/AltGr composition.
+   Cross-clip movement is **leave-then-navigate**: `mod+Enter` to drop to
+   navigate, `j`/`k` to move, `mod+Enter` to re-focus -- matching `stacks.nu`,
+   rather than keeping a next/prev chord live under focus.
 5. **A modal is a mode.** Opening a modal swaps the keymap entirely; closing
    restores the base map. App chords and open/close go through the projected
    keymap. A modal's _internal_ nav (arrow/enter/filter, the `.sel` cursor) may
@@ -79,18 +83,20 @@ into `<main data-keymap>`; one mode-agnostic listener runs whatever is there;
 
 The carve-outs must not be characters any supported layout composes with
 Option/AltGr, or we reintroduce the bug we are fixing. `Alt+letter` does not
-qualify. Prefer combos `key-buffer` already hands to the browser:
+qualify. The carve-out is exactly two `mod` chords, both of which `key-buffer`
+already drops before the pty:
 
-| Action             | Proposed chord | Why safe over a focused clip                                     |
-| ------------------ | -------------- | ---------------------------------------------------------------- |
-| Leave focus        | `mod+Enter`    | key-buffer drops Meta; pty can't tell Ctrl+Enter from Enter      |
-| Clip-actions modal | `mod+K`        | key-buffer drops Meta                                            |
-| Next / prev clip   | TBD            | needs a combo that is neither Option-composed nor pty-meaningful |
+| Action             | Chord       | Why safe over a focused clip                                |
+| ------------------ | ----------- | ----------------------------------------------------------- |
+| Leave focus        | `mod+Enter` | key-buffer drops Meta; pty can't tell Ctrl+Enter from Enter |
+| Clip-actions modal | `mod+K`     | key-buffer drops Meta                                       |
 
-Next/prev-clip-while-focused is the open question: `Alt+J`/`Alt+K` is what users
-know but it is exactly the colliding class. Options: move it to a `mod` combo,
-introduce a leader, or accept that cross-clip movement requires `mod+Enter` to
-navigate first. Decide before porting.
+Next/prev clip is deliberately NOT in the focus carve-out. `Alt+J`/`Alt+K` is
+the colliding class (Option compose), and adding a live movement chord widens
+the focus keymap past the minimum. Decision: **leave-then-navigate**, matching
+`stacks.nu` -- `j`/`k` live only in navigate mode; from a focused clip you
+`mod+Enter` out, move, and `mod+Enter` back. This keeps the focus keymap at two
+bindings and the i18n guarantee absolute.
 
 ### Two layers, both required
 
