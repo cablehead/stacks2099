@@ -224,12 +224,14 @@ def render-content [c: record]: nothing -> string {
   }
 }
 
-def render-clip-row [c: record, selected: string]: nothing -> string {
+# The `selected` highlight is reactive on the client's $selectedSid signal (the
+# same mechanism the #doc panes use via data-class:active), so the server never
+# bakes it in -- it just emits every row and the client decides which is current.
+def render-clip-row [c: record]: nothing -> string {
   let label = (html-escape (clip-display-label $c))
-  let cls = if $c.id == $selected { "selected" } else { "" }
   let onclick = $"$sid = '($c.id)'; @post\('/nav'\)"
   let onclose = $"@post\('/clip/close?clip=($c.id)'\)"
-  $"<li class='($cls)'><button type='button' class='row' data-on:click=\"($onclick)\">(icon-svg (clip-render-type $c))($label)<small>($c.id | str substring 0..8)</small></button><button type='button' class='close' data-on:click=\"($onclose)\" title='Close'>×</button></li>"
+  $"<li data-class:selected=\"$selectedSid == '($c.id)'\"><button type='button' class='row' data-on:click=\"($onclick)\">(icon-svg (clip-render-type $c))($label)<small>($c.id | str substring 0..8)</small></button><button type='button' class='close' data-on:click=\"($onclose)\" title='Close'>×</button></li>"
 }
 
 # A stack row: click switches (stack.select), double-click renames (reuses the
@@ -293,7 +295,7 @@ def render-clips [proj: record]: nothing -> string {
   let sort = if ($stack | is-empty) { "auto" } else { ($stack.sort | default "auto") }
   let sid = ($proj.selectedStackId | default "")
   let sort_btn = $"<button type='button' class='sort-btn' data-on:click=\"@post\('/stack/sort?stack=($sid)'\)\" title='Sort: ($sort) -- click to toggle'>($sort)</button>"
-  let items = ($v.clips | each {|c| render-clip-row $c $v.sel } | str join "")
+  let items = ($v.clips | each {|c| render-clip-row $c } | str join "")
   $"<aside id='clips-list'><header>Clips ($sort_btn)<button type='button' class='new-btn' data-on:click=\"$picking = true\" title='New clip'>+</button></header><ul class='clips'>($items)</ul></aside>"
 }
 
