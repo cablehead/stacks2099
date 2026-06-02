@@ -224,14 +224,16 @@ def render-content [c: record]: nothing -> string {
   }
 }
 
-# The `selected` highlight is reactive on the client's $selectedSid signal (the
+# The `selected` highlight is reactive on the client's $cursor signal (the
 # same mechanism the #doc panes use via data-class:active), so the server never
 # bakes it in -- it just emits every row and the client decides which is current.
 def render-clip-row [c: record]: nothing -> string {
   let label = (html-escape (clip-display-label $c))
-  let onclick = $"$sid = '($c.id)'; @post\('/nav'\)"
+  # Set the cursor signal locally (instant reactive highlight), then ping the
+  # server so it can remember the stack's cursor + answer /api/state.
+  let onclick = $"$cursor = '($c.id)'; @post\('/nav'\)"
   let onclose = $"@post\('/clip/close?clip=($c.id)'\)"
-  $"<li data-class:selected=\"$selectedSid == '($c.id)'\"><button type='button' class='row' data-on:click=\"($onclick)\">(icon-svg (clip-render-type $c))($label)<small>($c.id | str substring 0..8)</small></button><button type='button' class='close' data-on:click=\"($onclose)\" title='Close'>×</button></li>"
+  $"<li data-class:selected=\"$cursor == '($c.id)'\"><button type='button' class='row' data-on:click=\"($onclick)\">(icon-svg (clip-render-type $c))($label)<small>($c.id | str substring 0..8)</small></button><button type='button' class='close' data-on:click=\"($onclose)\" title='Close'>×</button></li>"
 }
 
 # A stack row: click switches (stack.select), double-click renames (reuses the
@@ -302,7 +304,7 @@ def render-clips [proj: record]: nothing -> string {
 # Render one continuous-document pane for a clip, keyed by clip id. A terminal
 # clip renders a live grid (view stream by its bound sid, into #grid-<clip>); a
 # content clip renders an editable body (textarea on focus, <pre> otherwise --
-# managed client-side). Active highlight is reactive on $selectedSid.
+# managed client-side). Active highlight is reactive on $cursor.
 def render-pane [c: record]: nothing -> string {
   let cid = $c.id
   let label = (clip-display-label $c)
@@ -310,7 +312,7 @@ def render-pane [c: record]: nothing -> string {
   # can update just this header rather than re-morph the whole <section>
   # (which would wipe the live `<div id='grid-{cid}'>` underneath).
   let head = $"<header class='pane-head' id='pane-head-($cid)'>($label)<small>($cid | str substring 0..8)</small></header>"
-  let onsel = $"$sid = '($cid)'; @post\('/nav'\); window.__focusClip && window.__focusClip\('($cid)'\)"
+  let onsel = $"$cursor = '($cid)'; @post\('/nav'\); window.__focusClip && window.__focusClip\('($cid)'\)"
   let rtype = (clip-render-type $c)
   let body = if $c.kind == "terminal" {
     let sid = (sid-for-clip $cid)
@@ -326,7 +328,7 @@ def render-pane [c: record]: nothing -> string {
   # data-render tells the client how to mount: terminal grid, editable note, or
   # a static preview (image/file/html) it leaves alone.
   let render_attr = match $rtype { "terminal" => "terminal", "note" => "note", _ => "static" }
-  $"<section class='pane' id='pane-($cid)' data-clip='($cid)' data-kind='($c.kind)' data-render='($render_attr)' data-class:active=\"$selectedSid == '($cid)'\" data-on:click=\"($onsel)\">($head)($body)</section>"
+  $"<section class='pane' id='pane-($cid)' data-clip='($cid)' data-kind='($c.kind)' data-render='($render_attr)' data-class:active=\"$cursor == '($cid)'\" data-on:click=\"($onsel)\">($head)($body)</section>"
 }
 
 # Full continuous document, every clip's pane in render order. The layout-niri
@@ -412,7 +414,7 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
       let signals = ("" | from datastar-signals $req)
       let prior_conn = ($signals.connId? | default "")
       let conn_id = if $prior_conn == "" { random uuid } else { $prior_conn }
-      let requested_sid = ($signals.selectedSid? | default "")
+      let requested_sid = ($signals.cursor? | default "")
       # docReady is replayed true on a reconnect (tab away/back): the panes and
       # their (openWhenHidden) view streams are still live client-side, so we
       # skip re-rendering #doc, which would clobber the live grids.
@@ -475,7 +477,7 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
             } else { null }
             # docOrder: the sorted pane order the client applies by relocating
             # existing #doc nodes (preserves live terminal grids).
-            let sel_patch = ({selectedSid: $sel, selectedStack: $sel_stack, stackName: $stack_name, connId: $conn_id, docReady: true, docOrder: ($doc_order | to json), docLayout: $layout, label: $label} | to datastar-patch-signals)
+            let sel_patch = ({cursor: $sel, selectedStack: $sel_stack, stackName: $stack_name, connId: $conn_id, docReady: true, docOrder: ($doc_order | to json), docLayout: $layout, label: $label} | to datastar-patch-signals)
             let dims_patch = ({focusedDims: $dims} | to datastar-patch-signals)
             let title_patch = ({title: $title} | to datastar-patch-signals)
 
@@ -579,7 +581,7 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
               } else { null }
 
               # Reactive selection highlight + client focus.
-              let sel_patch = if $sel != $st.sel { ({selectedSid: $sel} | to datastar-patch-signals) } else { null }
+              let sel_patch = if $sel != $st.sel { ({cursor: $sel} | to datastar-patch-signals) } else { null }
 
               let dims = (focused-dims $clips $sel)
               let dims_patch = if $dims != $st.dims { ({focusedDims: $dims} | to datastar-patch-signals) } else { null }
@@ -606,11 +608,12 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
     }
 
     [POST, "/nav"] => {
-      # Move the global selection cursor. clip.select is ephemeral (bus); the
-      # /sse fold turns it into selectedClipId. Also persist the focused sid so a
-      # reconnect lands on the right stack and /api/state can report it.
+      # The client owns the cursor ($cursor signal); this is its best-effort
+      # ping so the server can remember the stack's cursor + answer /api/state.
+      # clip.select on the bus keeps other surfaces in sync for now (removed in
+      # a later step once the cursor is fully client-side).
       let signals = $body | from datastar-signals $req
-      let sid = ($signals.sid? | default "")
+      let sid = ($signals.cursor? | default "")
       if $sid != "" {
         save-focused-sid $sid
         {id: $sid} | .bus pub "clip.select"
@@ -840,7 +843,7 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
       # which propagates via `.cat -f` so every sidebar re-renders. Mirror onto
       # the live pty's meta if it's a terminal with a bound pty.
       let signals = $body | from datastar-signals $req
-      let cid = ($signals.selectedSid? | default "")
+      let cid = ($signals.cursor? | default "")
       let new = ($signals.label? | default "" | str trim)
       if $cid != "" {
         set-clip-label $cid $new

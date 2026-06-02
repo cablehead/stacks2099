@@ -680,7 +680,7 @@
     </style>
   </head>
   <body
-    data-signals='{"selectedSid":"","selectedStack":"","connId":"","sid":"","sel":"","termCols":0,"termRows":0,"termTitle":"","focusedDims":"","title":{{ title | default("") | tojson | e }},"docReady":false,"picking":false,"acting":false,"themePicking":false,"theme":"default","stackPicking":false,"stackName":"","renaming":false,"renameMode":"title","renameStackId":"","draft":"","label":"","noteEditing":"","docOrder":"[]","docLayout":"flow"}'
+    data-signals='{"cursor":"","selectedStack":"","connId":"","termCols":0,"termRows":0,"termTitle":"","focusedDims":"","title":{{ title | default("") | tojson | e }},"docReady":false,"picking":false,"acting":false,"themePicking":false,"theme":"default","stackPicking":false,"stackName":"","renaming":false,"renameMode":"title","renameStackId":"","draft":"","label":"","noteEditing":"","docOrder":"[]","docLayout":"flow"}'
     data-attr:data-theme="$theme"
     data-init="@get('/sse')"
     data-effect="document.title = $title || 'ghostty-web-nu sessions'"
@@ -871,19 +871,19 @@
       <!-- Continuous document of session panes. The server fills #doc on init
          and appends/removes panes as sessions come and go; each pane opens
          its own view stream and mounts terminal.js. Selection highlight is
-         reactive via data-class on $selectedSid. -->
+         reactive via data-class on $cursor. -->
       <div id="doc" class="doc"></div>
     </main>
 
     <!-- Scroll the active pane into view (stacks-style offset) whenever the
        selection changes. Lives in the static shell so the server never
-       morphs it away; data-effect fires on $selectedSid change. -->
-    <!-- Lead with a bare $selectedSid read so Datastar registers it as a
+       morphs it away; data-effect fires on $cursor change. -->
+    <!-- Lead with a bare $cursor read so Datastar registers it as a
        dependency even on the first eval, when the deferred module hasn't
        defined window.__onSelect yet (a `&&` guard would short-circuit
-       before $selectedSid is read, and the effect would never re-run). -->
+       before $cursor is read, and the effect would never re-run). -->
     <div
-      data-effect="$selectedSid; window.__onSelect && window.__onSelect($selectedSid)"
+      data-effect="$cursor; window.__onSelect && window.__onSelect($cursor)"
       style="display: none"
     >
     </div>
@@ -959,7 +959,7 @@
       <span class="status-meta">
         <span data-text="$focusedDims"></span>
         <span
-          data-text="$selectedSid ? ('sid ' + $selectedSid.slice(0,8)) : ''"
+          data-text="$cursor ? ('sid ' + $cursor.slice(0,8)) : ''"
           style="opacity: 0.5"
         ></span>
         <button
@@ -1360,7 +1360,7 @@
         });
         // A freshly created note arrives empty -- focus it (== edit it) straight
         // away. __onSelect would do this too, but only in focus mode and only
-        // once $selectedSid arrives, which can race the pane's DOM append; the
+        // once $cursor arrives, which can race the pane's DOM append; the
         // empty-body case is handled here deterministically on first wire. A
         // reloaded note has a body, so it stays in display mode until selected.
         if (ta.value === "") window.__focusClip(cid);
@@ -1557,7 +1557,7 @@
       const heightIdx = new Map();
 
       // The selected clip id, read from the active pane (datastar sets .active
-      // reactively from $selectedSid, which now holds the selected clip id).
+      // reactively from $cursor, which now holds the selected clip id).
       const currentClip = () =>
         doc.querySelector(".pane.active")?.dataset.clip || "";
 
