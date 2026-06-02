@@ -680,9 +680,9 @@
     </style>
   </head>
   <body
-    data-signals='{"cursor":"","selectedStack":"","connId":"","termCols":0,"termRows":0,"termTitle":"","focusedDims":"","title":{{ title | default("") | tojson | e }},"docReady":false,"picking":false,"acting":false,"themePicking":false,"theme":"default","stackPicking":false,"stackName":"","renaming":false,"renameMode":"title","renameStackId":"","draft":"","label":"","noteEditing":"","docOrder":"[]","docLayout":"flow"}'
+    data-signals='{"cursor":"","selectedStack":{{ stack_id | default("") | tojson | e }},"connId":"","termCols":0,"termRows":0,"termTitle":"","focusedDims":"","title":{{ title | default("") | tojson | e }},"docReady":false,"picking":false,"acting":false,"themePicking":false,"theme":"default","stackPicking":false,"stackName":"","renaming":false,"renameMode":"title","renameStackId":"","draft":"","label":"","noteEditing":"","docOrder":"[]","docLayout":"flow"}'
     data-attr:data-theme="$theme"
-    data-init="@get('/sse')"
+    data-init="@get('/sse?stack=' + encodeURIComponent($selectedStack))"
     data-effect="document.title = $title || 'ghostty-web-nu sessions'"
     data-class:nav-collapsed="$docLayout === 'niri'"
     data-actions='{

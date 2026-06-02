@@ -420,6 +420,10 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
       let prior_conn = ($signals.connId? | default "")
       let conn_id = if $prior_conn == "" { random uuid } else { $prior_conn }
       let requested_sid = ($signals.cursor? | default "")
+      # MPA: the page is /stack/<id>, so the client opens /sse?stack=<id>. This
+      # connection shows that stack (the fold still tracks every stack for now;
+      # scoping the fold itself is a later slice).
+      let requested_stack = ($req.query.stack? | default "")
       # docReady is replayed true on a reconnect (tab away/back): the panes and
       # their (openWhenHidden) view streams are still live client-side, so we
       # skip re-rendering #doc, which would clobber the live grids.
@@ -450,14 +454,23 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
           let topic = $ev.topic
 
           if $topic == "xs.threshold" {
-            # Cold replay done. Wipe selection and reconcile to a default
-            # (most-recently-touched), then honour the client's requested
+            # Cold replay done. Select the stack the URL asked for (the page is
+            # /stack/<id>), then reconcile -- which fills in that stack's clip
+            # cursor. If no/unknown stack was requested, fall back to the default
+            # (most-recently-touched). Then honour the client's requested clip
             # selection if it still exists. Then emit the full initial render.
-            let reset = ($st.proj
-              | update selectedStackId null
-              | update selectedClipId null
-              | update selectionExplicit false
-              | projection reconcile-selection)
+            let with_stack = if $requested_stack != "" {
+              ($st.proj
+                | update selectedStackId $requested_stack
+                | update selectedClipId null
+                | update selectionExplicit true)
+            } else {
+              ($st.proj
+                | update selectedStackId null
+                | update selectedClipId null
+                | update selectionExplicit false)
+            }
+            let reset = ($with_stack | projection reconcile-selection)
             let proj = if $requested_sid != "" {
               (projection apply-frame $reset {topic: "clip.select", id: "req", hash: null, meta: {id: $requested_sid}}
                | projection reconcile-selection)

@@ -1687,3 +1687,72 @@ test("Alt+\\ opens the stacks switcher", () =>
       "Alt+\\ opens the stacks switcher",
     );
   }));
+
+// ADR 0006 MPA: each stack is its own page (/stack/<id>), and /sse?stack=<id>
+// scopes the view to that stack. Loading a given stack's URL shows only that
+// stack's clips. (Switching stacks via navigation is a later slice; here we
+// address each stack URL directly and put clips in each via ?stack=.)
+test("loading /stack/<id> scopes the view to that stack", () =>
+  withApp(async (page, app) => {
+    const stackA = new URL(page.url()).pathname.replace("/stack/", "");
+    // A second stack via the API, plus a distinct clip in each (?stack= targets).
+    const stackB = await page.evaluate(async () => {
+      await fetch("/stack/new", { method: "POST" });
+      // /api/state lists stacks; pick the one that isn't currently shown.
+      const st = await (await fetch("/api/state")).json();
+      return st.stacks.map((s) => s.id);
+    });
+    const bId = stackB.find((id) => id !== stackA);
+    await page.evaluate(async (a) => {
+      await fetch("/clip/add?stack=" + a, {
+        method: "POST",
+        headers: { "content-type": "text/markdown" },
+        body: "CLIP-IN-A",
+      });
+    }, stackA);
+    await page.evaluate(async (b) => {
+      await fetch("/clip/add?stack=" + b, {
+        method: "POST",
+        headers: { "content-type": "text/markdown" },
+        body: "CLIP-IN-B",
+      });
+    }, bId);
+
+    // A's page: shows A's clip, not B's.
+    await page.goto(`${app.base}/stack/${stackA}`);
+    await page.waitForSelector("#clips-list li[data-clip]", { timeout: 15000 });
+    await page.waitForFunction(
+      () =>
+        [...document.querySelectorAll("#doc .pane")].some((p) =>
+          p.textContent.includes("CLIP-IN-A")
+        ),
+      { timeout: 10000 },
+    );
+    assert.ok(
+      !(await page.evaluate(() =>
+        [...document.querySelectorAll("#doc .pane")].some((p) =>
+          p.textContent.includes("CLIP-IN-B")
+        )
+      )),
+      "stack A's page does not show stack B's clip",
+    );
+
+    // B's page: shows B's clip, not A's.
+    await page.goto(`${app.base}/stack/${bId}`);
+    await page.waitForSelector("#clips-list li[data-clip]", { timeout: 15000 });
+    await page.waitForFunction(
+      () =>
+        [...document.querySelectorAll("#doc .pane")].some((p) =>
+          p.textContent.includes("CLIP-IN-B")
+        ),
+      { timeout: 10000 },
+    );
+    assert.ok(
+      !(await page.evaluate(() =>
+        [...document.querySelectorAll("#doc .pane")].some((p) =>
+          p.textContent.includes("CLIP-IN-A")
+        )
+      )),
+      "stack B's page does not show stack A's clip",
+    );
+  }));
