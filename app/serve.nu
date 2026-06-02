@@ -629,17 +629,15 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
     })
 
     (route {method: "POST", path: "/nav"} {|req ctx|
-      # The client owns the cursor ($cursor signal); this is its best-effort
-      # ping so the server can remember the stack's cursor + answer /api/state.
-      # clip.select on the bus keeps other surfaces in sync for now (removed in
-      # a later step once the cursor is fully client-side).
+      # The client owns the cursor ($cursor signal). This is a best-effort ping
+      # so the server can persist the focused clip (reconnect landing +
+      # /api/state). It does NOT publish clip.select / re-fold selection: the
+      # client already moved $cursor locally, and echoing it back would re-render
+      # the sidebars mid-click and clobber the cursor (the morph race).
       let body = $in
       let signals = $body | from datastar-signals $req
       let sid = ($signals.cursor? | default "")
-      if $sid != "" {
-        save-focused-sid $sid
-        {id: $sid} | .bus pub "clip.select"
-      }
+      if $sid != "" { save-focused-sid $sid }
       null | metadata set { merge {'http.response': {status: 204}} }
     })
 
