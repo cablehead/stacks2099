@@ -4,6 +4,7 @@
     "exclude": [
       "changes/",
       "src/stdlib/datastar/",
+      "app/www/stellar.css",
       "tests/fixtures/"
     ]
   }

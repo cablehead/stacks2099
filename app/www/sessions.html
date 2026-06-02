@@ -1288,8 +1288,7 @@
       // terminal is a constant PANE_ROWS tall; in niri its column is full-height,
       // so terminals fill it (fixedRows = null -> rows from available height).
       let currentLayout = "flow";
-      const layoutRows =
-        () => (currentLayout === "niri" ? null : PANE_ROWS);
+      const layoutRows = () => (currentLayout === "niri" ? null : PANE_ROWS);
 
       // Panes are keyed by clip id. Terminal panes mount terminal.js on their
       // live grid; note panes wire textarea<->pre editing. Both happen as the
@@ -1581,9 +1580,7 @@
         for (const id of order) {
           const pane = doc.querySelector("#pane-" + CSS.escape(id));
           if (!pane) continue;
-          const want = prev
-            ? prev.nextElementSibling
-            : doc.firstElementChild;
+          const want = prev ? prev.nextElementSibling : doc.firstElementChild;
           if (want !== pane) doc.insertBefore(pane, want);
           prev = pane;
         }
