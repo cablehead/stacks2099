@@ -113,3 +113,26 @@ on the POSTs it already makes.
    patch to the originating connection (no broadcast); remove live
    `reconcile-selection`.
 6. Keep `clipCursors` and the stack-default reconcile (the non-cursor parts).
+
+### Update: steps 4-6 superseded by per-stack MPA
+
+Steps 4-5 above kept one `/sse` per connection spanning every stack, which forced
+`clip.select` through the fold (for `clipCursors`) and made the fold re-render the
+sidebars and echo the cursor on every selection -- the echo masked a morph race
+where re-rendering `#clips-list` on a click clobbered the just-clicked row.
+
+Instead, make each stack its own page (MPA). Switching stacks is real navigation:
+the old `/sse` connection drops and a new one opens scoped to the target stack,
+which immediately repaints that stack's view. Consequences:
+
+- `/sse` only ever sees **one stack**, so cross-stack machinery leaves the fold
+  entirely: `clipCursors`, `stack.select`, the stack-default reconcile, and the
+  cursor echo. The special-casing of `clip.select` in the fold disappears because
+  the fold no longer drives selection rendering at all.
+- The cursor is trivially per-page (per stack, per tab). Per-stack memory is just
+  "the page you navigate back to re-derives its own default cursor."
+- Back/forward, refresh-to-current-stack, and deep links come free from the
+  platform; the hard stack divide is enforced by the URL.
+- Open question to iterate on: keep the shell and only reconnect `/sse` (warm
+  runtime, no flash) vs. a full document load. Start with the simplest MPA and
+  revisit if the reload flash or losing key-buffer continuity matters.
