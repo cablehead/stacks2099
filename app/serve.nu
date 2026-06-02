@@ -39,6 +39,7 @@
 #   GET  /pty/view?sid=     -> SSE of HTML grid frames (datastar morph)
 
 use http-nu/datastar *
+use http-nu/router *
 use ./projection.nu
 use ./render.nu *   # pure render helpers (html-escape, is-url, clip-render-type, ...)
 
@@ -400,17 +401,15 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
 }
 
 {|req|
-  let body = $in
-  match [$req.method, $req.path] {
-
-    [GET, "/"] => {
+  dispatch $req [
+    (route {method: "GET", path: "/"} {|req ctx|
       {
         datastar_js_path: $DATASTAR_JS_PATH
         title: (load-title)
       } | .mj ($STATIC | path join "sessions.html")
-    }
+    })
 
-    [GET, "/sse"] => {
+    (route {method: "GET", path: "/sse"} {|req ctx|
       let signals = ("" | from datastar-signals $req)
       let prior_conn = ($signals.connId? | default "")
       let conn_id = if $prior_conn == "" { random uuid } else { $prior_conn }
@@ -605,13 +604,14 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
       | flatten
       | to sse
       | metadata set --content-type "text/event-stream"
-    }
+    })
 
-    [POST, "/nav"] => {
+    (route {method: "POST", path: "/nav"} {|req ctx|
       # The client owns the cursor ($cursor signal); this is its best-effort
       # ping so the server can remember the stack's cursor + answer /api/state.
       # clip.select on the bus keeps other surfaces in sync for now (removed in
       # a later step once the cursor is fully client-side).
+      let body = $in
       let signals = $body | from datastar-signals $req
       let sid = ($signals.cursor? | default "")
       if $sid != "" {
@@ -619,15 +619,16 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
         {id: $sid} | .bus pub "clip.select"
       }
       null | metadata set { merge {'http.response': {status: 204}} }
-    }
+    })
 
-    [POST, "/clip/new"] => {
+    (route {method: "POST", path: "/clip/new"} {|req ctx|
       # Create a clip of ?type= (note | terminal) in the currently-selected
       # stack (carried in the $selectedStack signal; live selection isn't
       # persisted, so the client tells us). The clip.add frame propagates to
       # every /sse via `.cat -f`. A terminal also gets a freshly-spawned pty
       # bound to it; a `clip.events` nudge then prompts the streams to mount
       # its pane once the pty is live. Select the new clip.
+      let body = $in
       let signals = $body | from datastar-signals $req
       let target = ($signals.selectedStack? | default "")
       let stack = if $target == "" { (default-stack-id) } else { $target }
@@ -643,25 +644,26 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
       {} | .bus pub "clip.events"
       {id: $cid} | .bus pub "clip.select"
       null | metadata set { merge {'http.response': {status: 204}} }
-    }
+    })
 
-    [POST, "/stack/new"] => {
+    (route {method: "POST", path: "/stack/new"} {|req ctx|
       # Create a new (manual-sort) stack and switch to it. No name -- the UI
       # shows the stack's scru128 id until it's renamed.
       let f = (null | .append "stack.add" --meta {sort: "manual"} --ttl forever)
       {id: $f.id} | .bus pub "stack.select"
       null | metadata set { merge {'http.response': {status: 204}} }
-    }
+    })
 
-    [POST, "/stack/select"] => {
+    (route {method: "POST", path: "/stack/select"} {|req ctx|
       # Switch the global stack cursor (ephemeral; folded by /sse).
       let sid = ($req.query.stack? | default "")
       if $sid != "" { {id: $sid} | .bus pub "stack.select" }
       null | metadata set { merge {'http.response': {status: 204}} }
-    }
+    })
 
-    [POST, "/stack/rename"] => {
+    (route {method: "POST", path: "/stack/rename"} {|req ctx|
       # Rename a stack (persisted stack.update; propagates via `.cat -f`).
+      let body = $in
       let signals = $body | from datastar-signals $req
       let sid = ($signals.renameStackId? | default "")
       let nm = ($signals.draft? | default "" | str trim)
@@ -669,9 +671,9 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
         null | .append "stack.update" --meta {id: $sid, name: $nm} --ttl forever | ignore
       }
       null | metadata set { merge {'http.response': {status: 204}} }
-    }
+    })
 
-    [POST, "/stack/close"] => {
+    (route {method: "POST", path: "/stack/close"} {|req ctx|
       # Delete a stack (and kill its terminal clips' ptys). Guarded so the last
       # stack can't be removed -- there must always be somewhere for clips.
       let sid = ($req.query.stack? | default "")
@@ -687,9 +689,9 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
         null | .append "stack.delete" --meta {id: $sid} --ttl forever | ignore
       }
       null | metadata set { merge {'http.response': {status: 204}} }
-    }
+    })
 
-    [POST, "/stack/sort"] => {
+    (route {method: "POST", path: "/stack/sort"} {|req ctx|
       # Toggle a stack between auto (activity order) and manual (curated). When
       # switching to manual, freeze the current visual order into positions so
       # nothing jumps; switching to auto just flips the flag (positions ignored).
@@ -705,9 +707,9 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
         }
       }
       null | metadata set { merge {'http.response': {status: 204}} }
-    }
+    })
 
-    [POST, "/stack/layout"] => {
+    (route {method: "POST", path: "/stack/layout"} {|req ctx|
       # Toggle a stack's pane layout between flow (vertical document column) and
       # niri (horizontal scrollable strip). Presentation only -- no reorder.
       let sid = ($req.query.stack? | default "")
@@ -718,9 +720,9 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
         null | .append "stack.update" --meta {id: $sid, layout: $next} --ttl forever | ignore
       }
       null | metadata set { merge {'http.response': {status: 204}} }
-    }
+    })
 
-    [POST, "/clip/move"] => {
+    (route {method: "POST", path: "/clip/move"} {|req ctx|
       # Move the selected clip up/down within its stack. The first move in an
       # auto stack (or a manual one with unset positions) renumbers the whole
       # stack in the new order; after that each move is one position patch.
@@ -755,9 +757,9 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
         }
       }
       null | metadata set { merge {'http.response': {status: 204}} }
-    }
+    })
 
-    [GET, "/clip/blob"] => {
+    (route {method: "GET", path: "/clip/blob"} {|req ctx|
       # Serve a clip's CAS body with its mime_type -- used by <img src> for
       # image clips and download links for other binaries.
       let cid = ($req.query.clip? | default "")
@@ -768,9 +770,9 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
       } else {
         .cas $c.hash | metadata set --content-type ($c.mime_type? | default "application/octet-stream")
       }
-    }
+    })
 
-    [POST, "/clip/add"] => {
+    (route {method: "POST", path: "/clip/add"} {|req ctx|
       # Add an asset to a stack from the raw request body -- the primary
       # command-line entry point. Mime comes from ?mime_type= or the
       # Content-Type header (so `curl -H 'content-type: image/png'` just
@@ -780,6 +782,7 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
       #   curl --data-binary @diagram.png -H 'content-type: image/png' :5099/clip/add
       #   cat notes.md | curl --data-binary @- -H 'content-type: text/markdown' :5099/clip/add
       #   curl --data-binary @logo.svg -H 'content-type: image/svg+xml' ':5099/clip/add?stack=design'
+      let body = $in
       let ct = (($req.headers | get "content-type" | default "") | split row ";" | get 0 | str trim | str downcase)
       let mime = ($req.query.mime_type? | default (if $ct == "" { "application/octet-stream" } else { $ct }))
       let proj = (.cat | projection project)
@@ -789,9 +792,9 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
       {} | .bus pub "clip.events"
       {id: $cid} | .bus pub "clip.select"
       $cid | metadata set { merge {'http.response': {status: 201}} }
-    }
+    })
 
-    [POST, "/clip/view"] => {
+    (route {method: "POST", path: "/clip/view"} {|req ctx|
       # Toggle a clip's view between 'embed' (live <iframe>) and 'raw' (render
       # by mime). Persisted as clip.patch {view}; propagates via `.cat -f`.
       let cid = ($req.query.clip? | default "")
@@ -800,9 +803,9 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
         null | .append "clip.patch" --meta {id: $cid, view: $view} --ttl forever | ignore
       }
       null | metadata set { merge {'http.response': {status: 204}} }
-    }
+    })
 
-    [GET, "/api/state"] => {
+    (route {method: "GET", path: "/api/state"} {|req ctx|
       # Discovery for command-line tooling: stack ids/names + the current
       # (last-focused) stack, so scripts can target ?stack=<id|name>.
       let proj = (.cat | projection project)
@@ -811,21 +814,22 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
         focusedStack: (clip-stack-of $proj (load-focused-sid))
         stacks: ($proj.stacks | each {|s| {id: $s.id, name: ($s.name? | default null), clips: ($s.clips | length)} })
       } | to json | metadata set --content-type "application/json"
-    }
+    })
 
-    [POST, "/clip/update"] => {
+    (route {method: "POST", path: "/clip/update"} {|req ctx|
       # Replace an existing clip's body (clip.update -> CAS): a note's text on
       # blur, or any asset re-posted from the CLI --
       #   curl --data-binary @diagram.png 'localhost:5099/clip/update?clip=<id>'
       # Mime is unchanged; the clip's pane refreshes live. A note's editor
       # textarea is data-ignore-morph, so an open draft survives the refresh
       # (the <pre> picks up the new body underneath).
+      let body = $in
       let cid = ($req.query.clip? | default "")
       if $cid != "" { $body | set-clip-body $cid }
       null | metadata set { merge {'http.response': {status: 204}} }
-    }
+    })
 
-    [POST, "/clip/close"] => {
+    (route {method: "POST", path: "/clip/close"} {|req ctx|
       # Tombstone the clip (won't respawn) and, if it's a terminal, kill its
       # pty. The clip.delete frame propagates via `.cat -f`; each /sse drops
       # the pane in its #doc reconcile.
@@ -836,12 +840,13 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
         delete-clip $cid
       }
       null | metadata set { merge {'http.response': {status: 204}} }
-    }
+    })
 
-    [POST, "/pty/label"] => {
+    (route {method: "POST", path: "/pty/label"} {|req ctx|
       # Rename the selected clip. The label persists on the clip (clip.patch),
       # which propagates via `.cat -f` so every sidebar re-renders. Mirror onto
       # the live pty's meta if it's a terminal with a bound pty.
+      let body = $in
       let signals = $body | from datastar-signals $req
       let cid = ($signals.cursor? | default "")
       let new = ($signals.label? | default "" | str trim)
@@ -851,31 +856,34 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
         if $sid != "" { pty meta set $sid "label" $new }
       }
       null | metadata set { merge {'http.response': {status: 204}} }
-    }
+    })
 
-    [POST, "/title"] => {
+    (route {method: "POST", path: "/title"} {|req ctx|
       # Set the per-server window title. Persist (ghostty.title) for reconnects
       # and broadcast (title.events, connId-tagged) so other tabs update live
       # without echoing back into the typer's focused <input>.
+      let body = $in
       let signals = $body | from datastar-signals $req
       let new = ($signals.title? | default "" | str trim)
       save-title $new
       {connId: ($signals.connId? | default ""), title: $new} | .bus pub "title.events"
       null | metadata set { merge {'http.response': {status: 204}} }
-    }
+    })
 
-    [POST, "/pty/input"] => {
+    (route {method: "POST", path: "/pty/input"} {|req ctx|
+      let body = $in
       $body | pty write $req.query.sid
       null | metadata set { merge {'http.response': {status: 204}} }
-    }
+    })
 
-    [POST, "/pty/resize"] => {
+    (route {method: "POST", path: "/pty/resize"} {|req ctx|
+      let body = $in
       let cfg = $body | from json
       pty resize $req.query.sid $cfg.cols $cfg.rows
       null | metadata set { merge {'http.response': {status: 204}} }
-    }
+    })
 
-    [GET, "/pty/view"] => {
+    (route {method: "GET", path: "/pty/view"} {|req ctx|
       let sid = $req.query.sid
       let target = ($req.query.target? | default "grid")
       let nosig = (($req.query.nosig? | default "") != "")
@@ -886,9 +894,9 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
         pty view $sid --target $target
         | metadata set --content-type "text/event-stream"
       }
-    }
+    })
 
-    [GET, "/md.css"] => {
+    (route {method: "GET", path: "/md.css"} {|req ctx|
       # Markdown-clip styling: the syntect highlight theme (generated by the
       # `.highlight` builtin, so it matches `.md`'s code classes) plus element
       # rules scoped to `.clip-md`. Vendored from the theme, not hand-painted.
@@ -914,11 +922,11 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
 .clip-md hr { border: 0; border-top: 1px solid var(--pane-border); }
 "
       $"($theme)\n($md)" | metadata set --content-type "text/css"
-    }
+    })
 
-    _ => {
+    (route true {|req ctx|
       let path = if $req.path == "/" { "/sessions.html" } else { $req.path }
       .static $STATIC $path
-    }
-  }
+    })
+  ]
 }
