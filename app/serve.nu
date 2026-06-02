@@ -335,17 +335,6 @@ def render-doc [clips: list]: nothing -> string {
   $"<div id='doc' class='doc' data-class:layout-niri=\"$docLayout === 'niri'\">($panes)</div>"
 }
 
-# "cols x rows" of the selected clip's terminal, or "" for content / none.
-def focused-dims [clips: list, selected: string]: nothing -> string {
-  if $selected == "" { return "" }
-  let c = ($clips | where id == $selected | get 0?)
-  if ($c | is-empty) or ($c.kind != "terminal") { return "" }
-  let sid = (sid-for-clip $selected)
-  if $sid == "" { return "" }
-  let p = pty list | where sid == $sid | get 0?
-  if ($p | is-empty) { "" } else { $"($p.cols)x($p.rows)" }
-}
-
 # The selected stack's clips in render order, plus the selected clip id.
 def view-of [proj: record]: nothing -> record {
   let stack = ($proj.stacks | where id == $proj.selectedStackId | get 0?)
@@ -480,7 +469,6 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
             let v = (view-of $proj)
             let clips = $v.clips
             let sel = $v.sel
-            let dims = (focused-dims $clips $sel)
             let title = (load-title)
             let doc_order = (mountable $clips)
 
@@ -497,11 +485,10 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
             # docOrder: the sorted pane order the client applies by relocating
             # existing #doc nodes (preserves live terminal grids).
             let sel_patch = ({cursor: $sel, selectedStack: $sel_stack, stackName: $stack_name, connId: $conn_id, docReady: true, docOrder: ($doc_order | to json), docLayout: $layout, label: $label} | to datastar-patch-signals)
-            let dims_patch = ({focusedDims: $dims} | to datastar-patch-signals)
             let title_patch = ({title: $title} | to datastar-patch-signals)
 
-            let out = ([$sel_patch $dims_patch $title_patch $stacks_patch $switcher_patch $clips_patch $doc_patch] | where {|x| $x != null })
-            {out: $out, next: {proj: $proj, ready: true, rendered: $doc_order, doc_order: $doc_order, title: $title, sel: $sel, sel_stack: $sel_stack, stack_name: $stack_name, dims: $dims, layout: $layout, label: $label}}
+            let out = ([$sel_patch $title_patch $stacks_patch $switcher_patch $clips_patch $doc_patch] | where {|x| $x != null })
+            {out: $out, next: {proj: $proj, ready: true, rendered: $doc_order, doc_order: $doc_order, title: $title, sel: $sel, sel_stack: $sel_stack, stack_name: $stack_name, layout: $layout, label: $label}}
 
           } else if ($topic | str starts-with "xs.") {
             # Heartbeats and other system noise.
@@ -604,9 +591,6 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
               # Reactive selection highlight + client focus.
               let sel_patch = if $sel != $st.sel { ({cursor: $sel} | to datastar-patch-signals) } else { null }
 
-              let dims = (focused-dims $clips $sel)
-              let dims_patch = if $dims != $st.dims { ({focusedDims: $dims} | to datastar-patch-signals) } else { null }
-
               # Title: live cross-tab echo via title.events, filtered so the
               # typer's own connection doesn't clobber its focused <input>.
               let title = if ($topic == "title.events") and (($ev.meta.connId? | default "") != $conn_id) {
@@ -617,12 +601,12 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
               let out = ([$stacks_patch $switcher_patch $clips_patch]
                 | append $add_patches
                 | append $rm_patches
-                | append [$repane $docorder_patch $layout_patch $label_patch $sel_patch $selstk_patch $stackname_patch $dims_patch $title_patch]
+                | append [$repane $docorder_patch $layout_patch $label_patch $sel_patch $selstk_patch $stackname_patch $title_patch]
                 | where {|x| $x != null })
-              {out: $out, next: {proj: $proj, ready: true, rendered: $rendered2, doc_order: $want, title: $title, sel: $sel, sel_stack: $sel_stack, stack_name: $stack_name, dims: $dims, layout: $layout, label: $label}}
+              {out: $out, next: {proj: $proj, ready: true, rendered: $rendered2, doc_order: $want, title: $title, sel: $sel, sel_stack: $sel_stack, stack_name: $stack_name, layout: $layout, label: $label}}
             }
           }
-        } {proj: (projection empty), ready: false, rendered: [], doc_order: [], title: "", sel: "", sel_stack: "", stack_name: "", dims: "", layout: "flow", label: ""}
+        } {proj: (projection empty), ready: false, rendered: [], doc_order: [], title: "", sel: "", sel_stack: "", stack_name: "", layout: "flow", label: ""}
       | flatten
       | to sse
       | metadata set --content-type "text/event-stream"

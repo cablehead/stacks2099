@@ -1294,6 +1294,14 @@
       // live grid; note panes wire textarea<->pre editing. Both happen as the
       // server appends panes; terminal handles are torn down on removal.
       const mounted = new Map(); // clip id -> terminal handle
+      // Live "<cols>x<rows>" per terminal pane (from its onResize). The status
+      // bar's $focusedDims reflects the focused clip's entry -- empty for a
+      // note or no selection.
+      const paneDims = new Map(); // clip id -> "80x24"
+      function refreshDims() {
+        const cur = doc.querySelector(".pane.active")?.dataset.clip;
+        mergePatch({ focusedDims: (cur && paneDims.get(cur)) || "" });
+      }
       function mountTerminalPane(pane) {
         const cid = pane.dataset.clip;
         if (!cid || mounted.has(cid)) return;
@@ -1306,6 +1314,10 @@
           grid,
           fixedRows: layoutRows(),
           onResize: (cols, rows) => {
+            // Stash this terminal's live geometry and, if it's the focused
+            // clip, reflect it in the status bar (client owns $focusedDims now).
+            paneDims.set(cid, cols + "x" + rows);
+            refreshDims();
             if (!sid) return;
             fetch("/pty/resize?sid=" + encodeURIComponent(sid), {
               method: "POST",
@@ -1376,6 +1388,7 @@
         for (const cid of [...mounted.keys()]) {
           if (!doc.querySelector("#pane-" + CSS.escape(cid))) {
             mounted.delete(cid);
+            paneDims.delete(cid);
           }
         }
       }
@@ -1615,6 +1628,9 @@
         });
       };
       window.__onSelect = (cid) => {
+        // The status-bar dims follow the cursor: this clip's geometry if it's a
+        // terminal, empty otherwise.
+        refreshDims();
         if (cid) {
           // Reveal the selected pane's bottom (a terminal's prompt sits there).
           const pane = doc.querySelector("#pane-" + CSS.escape(cid));
