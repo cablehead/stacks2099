@@ -5,7 +5,7 @@
 // STACKS2099_BIN. Chromium defaults to the system browser; override with
 // CHROMIUM_PATH (CI sets it from the installed Chrome).
 import { chromium } from "playwright-core";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -26,12 +26,23 @@ export async function spawnApp() {
   const proc = spawn(BIN, ["--dev", `127.0.0.1:${port}`, "--store", store], {
     stdio: "ignore",
   });
+  // --dev runs a watcher that re-execs the server into its own process group,
+  // so killing `proc` (or its group) orphans that child -- it reparents to init
+  // and keeps running, accumulating across the suite. Reap every process for
+  // this server by its unique --store path instead. e2e runs on Linux CI, so
+  // pkill is available; proc.kill also stops the parent we spawned directly.
+  const reap = () => {
+    try {
+      proc.kill("SIGKILL");
+    } catch { /* gone */ }
+    spawnSync("pkill", ["-9", "-f", "--", store]);
+  };
   for (let i = 0;; i++) {
     try {
       if ((await fetch(`${base}/`)).ok) break;
     } catch { /* not up yet */ }
     if (i >= 120) {
-      proc.kill("SIGKILL");
+      reap();
       throw new Error("stacks2099 did not start");
     }
     await new Promise((r) => setTimeout(r, 100));
@@ -40,9 +51,7 @@ export async function spawnApp() {
     base,
     store,
     close() {
-      try {
-        proc.kill("SIGTERM");
-      } catch { /* gone */ }
+      reap();
       try {
         rmSync(store, { recursive: true, force: true });
       } catch { /* gone */ }
