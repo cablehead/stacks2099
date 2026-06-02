@@ -11,8 +11,8 @@
 // projection-frame echo. Programs that consume keys without echoing (vim
 // normal mode etc) still drain correctly because the POST itself acks.
 //
-// Props down, events up: this component only reads `sid` from its attribute
-// and POSTs to /pty/input. It doesn't manage the projection.
+// Props down, events up: this component only reads `pty` (the pty session id)
+// from its attribute and POSTs to /pty/input. It doesn't manage the projection.
 
 /** Map a KeyboardEvent into the bytes a pty expects to receive.
  *  Returns null for keys we can't sensibly translate (pure modifiers,
@@ -106,11 +106,11 @@ function isEditableTarget(t) {
 }
 
 class KeyBuffer extends HTMLElement {
-  static observedAttributes = ["sid", "enabled"];
+  static observedAttributes = ["pty", "enabled"];
 
   constructor() {
     super();
-    this._sid = "";
+    this._pty = "";
     // Enabled by default; the sessions surface gates this on focus mode so
     // keystrokes only reach the pty when a terminal is focused. Single-pane
     // never sets the attribute, so it stays enabled.
@@ -130,7 +130,7 @@ class KeyBuffer extends HTMLElement {
       this._composing = false;
       const data = ev.data || this._input.value;
       this._input.value = "";
-      if (data && this._enabled && this._sid) this._send(data, data);
+      if (data && this._enabled && this._pty) this._send(data, data);
     };
   }
 
@@ -193,7 +193,7 @@ class KeyBuffer extends HTMLElement {
     const id = this._nextId++;
     this._pending.push({ id, display });
     this._render();
-    fetch("/pty/input?sid=" + encodeURIComponent(this._sid), {
+    fetch("/pty/input?sid=" + encodeURIComponent(this._pty), {
       method: "POST",
       headers: { "content-type": "application/octet-stream" },
       body: bytes,
@@ -219,7 +219,7 @@ class KeyBuffer extends HTMLElement {
   }
 
   _onPaste(ev) {
-    if (!this._enabled || !this._sid) return;
+    if (!this._enabled || !this._pty) return;
     const text = ev.clipboardData?.getData("text");
     if (!text) return;
     ev.preventDefault();
@@ -233,8 +233,8 @@ class KeyBuffer extends HTMLElement {
   }
 
   attributeChangedCallback(name, _old, value) {
-    if (name === "sid") {
-      this._sid = value || "";
+    if (name === "pty") {
+      this._pty = value || "";
     } else if (name === "enabled") {
       // Absent attribute -> enabled. Present -> enabled unless "false".
       this._enabled = value !== "false";
@@ -246,7 +246,7 @@ class KeyBuffer extends HTMLElement {
   }
 
   _onKey(ev) {
-    if (!this._enabled || !this._sid) return;
+    if (!this._enabled || !this._pty) return;
     // A composing keydown (ev.isComposing, or the IME's keyCode 229) is part of
     // building a character in the hidden input. Ignore it -- compositionend
     // sends the finished string. Without this, the dead key's keydown would be

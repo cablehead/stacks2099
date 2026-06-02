@@ -10,23 +10,23 @@
     <script type="module" src="/key-buffer.js"></script>
   </head>
   <body
-    data-signals="{sid: '', termCols: 0, termRows: 0, termTitle: ''}"
-    data-on:sid-ready__window="$sid = evt.detail.sid"
+    data-signals="{pty: '', termCols: 0, termRows: 0, termTitle: ''}"
+    data-on:sid-ready__window="$pty = evt.detail.sid"
     data-effect="document.title = $termTitle || 'ghostty-web-nu'"
   >
     <div
       id="status"
-      data-text="$termCols > 0 ? ('sid ' + ($sid ? $sid.slice(0,8) : '') + ' (' + $termCols + 'x' + $termRows + ')') : 'connecting...'"
+      data-text="$termCols > 0 ? ('sid ' + ($pty ? $pty.slice(0,8) : '') + ' (' + $termCols + 'x' + $termRows + ')') : 'connecting...'"
     >
       connecting...
     </div>
     <div
       id="screen"
-      data-effect="$sid && @get('/pty/view?sid=' + $sid, {openWhenHidden: true})"
+      data-effect="$pty && @get('/pty/view?sid=' + $pty, {openWhenHidden: true})"
     >
       <div id="grid"></div>
     </div>
-    <key-buffer data-attr:sid="$sid"></key-buffer>
+    <key-buffer data-attr:pty="$pty"></key-buffer>
 
     <script type="module">
       import { ensureTermFont, mountTerminal } from "./terminal.js";

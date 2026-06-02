@@ -320,7 +320,7 @@ def render-pane [c: record]: nothing -> string {
       "<div class='pane-screen pane-dead'>[exited]</div>"
     } else {
       let view = $"@get\('/pty/view?sid=($sid)&target=grid-($cid)&nosig=1', {openWhenHidden: true}\)"
-      $"<div id='screen-($cid)' class='pane-screen' data-sid='($sid)' data-effect=\"($view)\"><div id='grid-($cid)'></div></div>"
+      $"<div id='screen-($cid)' class='pane-screen' data-pty='($sid)' data-effect=\"($view)\"><div id='grid-($cid)'></div></div>"
     }
   } else {
     (render-content $c)

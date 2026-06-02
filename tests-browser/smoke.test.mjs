@@ -140,10 +140,10 @@ test("terminal row ids stay stable across scrollback purge", () =>
     await page.waitForSelector("#doc .pane", { timeout: 15000 });
     await page.waitForFunction(() => {
       const s = document.querySelector("[id^='screen-']");
-      return s && s.getAttribute("data-sid");
+      return s && s.getAttribute("data-pty");
     }, { timeout: 15000 });
     const sid = await page.evaluate(() =>
-      document.querySelector("[id^='screen-']").getAttribute("data-sid")
+      document.querySelector("[id^='screen-']").getAttribute("data-pty")
     );
     const gridSel = await page.evaluate(() =>
       "#" + document.querySelector("[id^='grid-']").id
@@ -222,10 +222,10 @@ test("seqno-diff: post-cap keystroke ships a bounded patch", () =>
     await page.waitForSelector("#doc .pane", { timeout: 15000 });
     await page.waitForFunction(() => {
       const s = document.querySelector("[id^='screen-']");
-      return s && s.getAttribute("data-sid");
+      return s && s.getAttribute("data-pty");
     }, { timeout: 15000 });
     const sid = await page.evaluate(() =>
-      document.querySelector("[id^='screen-']").getAttribute("data-sid")
+      document.querySelector("[id^='screen-']").getAttribute("data-pty")
     );
 
     const sizes = await page.evaluate(async (sid) => {
@@ -328,10 +328,10 @@ test("seqno-diff: appended rows are direct siblings with no text node between th
     await page.waitForSelector("#doc .pane", { timeout: 15000 });
     await page.waitForFunction(() => {
       const s = document.querySelector("[id^='screen-']");
-      return s && s.getAttribute("data-sid");
+      return s && s.getAttribute("data-pty");
     }, { timeout: 15000 });
     const sid = await page.evaluate(() =>
-      document.querySelector("[id^='screen-']").getAttribute("data-sid")
+      document.querySelector("[id^='screen-']").getAttribute("data-pty")
     );
 
     // Drive a burst that forces a multi-row append in a single diff frame.
@@ -375,10 +375,10 @@ test("seqno-diff: alternate-screen flip replaces the grid then restores main on 
     await page.waitForSelector("#doc .pane", { timeout: 15000 });
     await page.waitForFunction(() => {
       const s = document.querySelector("[id^='screen-']");
-      return s && s.getAttribute("data-sid");
+      return s && s.getAttribute("data-pty");
     }, { timeout: 15000 });
     const sid = await page.evaluate(() =>
-      document.querySelector("[id^='screen-']").getAttribute("data-sid")
+      document.querySelector("[id^='screen-']").getAttribute("data-pty")
     );
     const send = (cmd) =>
       page.evaluate(
@@ -1517,7 +1517,7 @@ test("reverse video renders its color via the themable var (so it follows the th
       { timeout: 15000 },
     );
     const sid = await page.evaluate(() =>
-      document.querySelector("[id^='screen-']").getAttribute("data-sid")
+      document.querySelector("[id^='screen-']").getAttribute("data-pty")
     );
     await page.evaluate(async (sid) => {
       await fetch("/pty/input?sid=" + encodeURIComponent(sid), {
