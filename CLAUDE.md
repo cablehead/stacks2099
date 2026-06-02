@@ -22,9 +22,10 @@ When committing: review `git diff`
 ## Code Quality
 
 Always run `./scripts/check.sh` before committing -- it runs the nu unit tests
-(`tests/test_*.nu`), `deno fmt README.md --check`, `cargo fmt`, clippy, and
-`cargo test`. Browser e2e lives in `tests-browser/` (`npm test`). Use `cargo
-fmt` and `deno fmt README.md` to fix formatting.
+(`tests/test_*.nu`), `deno fmt --check` (whole repo; scope + excludes in
+`deno.json`), `cargo fmt`, clippy, and `cargo test`. Browser e2e lives in
+`tests-browser/` (`npm test`). Use `cargo fmt` and `deno fmt` to fix formatting.
+nu/sh have no formatter here, so match the existing style by hand.
 
 To see the live UI, screenshot a running instance with `node
 tests-browser/shoot.mjs` (defaults to the `--dev` server at 127.0.0.1:5099). See

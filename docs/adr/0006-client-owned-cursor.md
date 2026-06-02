@@ -105,7 +105,7 @@ on the POSTs it already makes.
 2. Add client `setCursor(id)`; route `j`/`k`/click/add/delete through it.
 3. Client picks next clip on close; sets cursor to new clip on add.
 4. Carry the cursor signal on existing POSTs; server reads it for `clipCursors`
-   + `save-focused-sid`. Replay the stack's cursor on stack switch.
+   and `save-focused-sid`. Replay the stack's cursor on stack switch.
 5. Delete `/nav`, the `clip.select` fold + bus publish, `selectedSid` patches,
    and live `reconcile-selection`.
 6. Keep `clipCursors` and the stack-default reconcile (the non-cursor parts).
