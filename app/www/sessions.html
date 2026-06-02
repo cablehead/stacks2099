@@ -2121,7 +2121,17 @@
           return; // textarea owns the rest, including Enter for a newline
         }
         if (mode === "focus") return; // focused terminal: pty owns everything
-        // Navigate mode: the app keymap owns keys (Alt chords + plain bindings).
+        // Navigate mode: plain Enter focuses the selected clip (mod+Enter also
+        // works, in any mode). Safe here -- a focused pty owns Enter via the
+        // return above, and a note's textarea owns it via the editingNote
+        // branch, so this only fires while browsing.
+        if (e.key === "Enter" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+          e.preventDefault();
+          e.stopPropagation();
+          window.app.toggleFocus();
+          return;
+        }
+        // The app keymap owns the rest (Alt chords + bare j/k bindings).
         const id = readJson("keymap")[combo];
         if (!id) return;
         e.preventDefault();

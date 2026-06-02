@@ -1156,6 +1156,29 @@ test("bare j/k navigate clips in navigate mode", () =>
     assert.notEqual(after, before, "bare j moved the cursor in navigate mode");
   }));
 
+// Plain Enter focuses the selected clip in navigate mode (mod+Enter also works
+// in any mode). Safe: a focused pty / note textarea own Enter in their modes.
+test("plain Enter focuses the selected clip in navigate mode", () =>
+  withApp(async (page) => {
+    await page.waitForFunction(
+      () => !!document.querySelector("[id^='grid-'] .row"),
+      { timeout: 15000 },
+    );
+    assert.equal(
+      await page.evaluate(() =>
+        document.body.classList.contains("mode-navigate")
+      ),
+      true,
+      "starts in navigate mode",
+    );
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(
+      () => document.body.classList.contains("mode-focus"),
+      { timeout: 5000 },
+    );
+    assert.ok(true, "plain Enter entered focus mode");
+  }));
+
 // ADR 0008: mod+K while the panel is active dismisses it (prefix-prefix close).
 test("mod+K again closes the actions panel", () =>
   withApp(async (page) => {

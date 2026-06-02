@@ -106,9 +106,9 @@ independently. The UI is three columns: **stacks** | **clips** | **content**
   (`Alt+\`; `Alt+[` / `Alt+]` cycle). It stays reachable when the scrollable
   layout hides the rail.
 - Clips order **`auto`** (by activity -- newest edits float up) or **`manual`**
-  (curated). The clips-header badge toggles the mode;
-  `Alt+Shift+J`/`Alt+Shift+K` move the selected clip down/up (the first move
-  freezes the current order into `manual`).
+  (curated). The clips-header badge toggles the mode; `mod+K` then `J`/`K` moves
+  the selected clip down/up (the first move freezes the current order into
+  `manual`).
 - Each stack picks a **layout**: `flow` (a vertical column of panes) or `niri`
   (a horizontal scrollable strip). The top-bar Layout button or `Alt+L` toggles
   it.
@@ -195,36 +195,44 @@ Terminal clips are the exception: their pty is spawned by a `POST` to
 
 Two modes. **Navigate** browses (read-only, dimmed); **focus** drives the
 selected pane (a terminal gets your keystrokes, a note opens its editor). A
-focused clip owns every key except the two carve-outs below, so composed
-characters (`|`, `~`, `\`) reach the terminal untouched. App chords live in
-navigate mode; from a focused clip, `mod+Enter` out first. See
+focused clip owns every key except `mod+K` (and `mod+Enter` to leave), so
+international keyboards type cleanly into the terminal: composed characters
+(`|`, `~`, `\`), and dead-key / IME composition (macOS Option+e e -> an accented
+char) reach the pty via a hidden input. See
 [docs/adr/0005-mode-projected-keymap.md](docs/adr/0005-mode-projected-keymap.md).
 
-Carve-outs (work even with a clip focused):
+**Focus.** `Enter` (or `mod+Enter`) focuses the selected clip; `mod+Enter`
+leaves. `mod` is Cmd on macOS, Ctrl elsewhere.
 
-| Chord       | Action                                 |
-| ----------- | -------------------------------------- |
-| `mod+Enter` | Toggle focus (Cmd on macOS, Ctrl else) |
-| `mod+K`     | Clip actions (rename / close / move)   |
+**Navigate** (read-only browsing):
 
-Navigate-mode chords:
+| Key               | Action                            |
+| ----------------- | --------------------------------- |
+| `j` / `k`         | Next / previous clip              |
+| `Enter`           | Focus the selected clip           |
+| `Alt+[` / `Alt+]` | Previous / next stack             |
+| `Alt+\`           | Switch stack (open the switcher)  |
+| `Alt+S`           | Toggle stack sort (auto / manual) |
+| `Alt+L`           | Toggle stack layout (flow / niri) |
+| `Alt+T`           | New clip (note / terminal picker) |
 
-| Chord                         | Action                             |
-| ----------------------------- | ---------------------------------- |
-| `Alt+T`                       | New clip (note / terminal picker)  |
-| `Alt+D`                       | Close current clip                 |
-| `Alt+J` / `Alt+K`             | Next / previous clip               |
-| `Alt+Shift+J` / `Alt+Shift+K` | Move clip down / up                |
-| `Alt+\`                       | Switch stack (open the switcher)   |
-| `Alt+[` / `Alt+]`             | Previous / next stack              |
-| `Alt+S`                       | Toggle stack sort (auto / manual)  |
-| `Alt+L`                       | Toggle stack layout (flow / niri)  |
-| `Alt+R`                       | Rename current clip                |
-| `Alt+Shift+R`                 | Rename window title                |
-| `Alt+O`                       | Cycle current terminal pane height |
+**Clip actions -- the `mod+K` leader** (works in any mode, even over a focused
+terminal). `mod+K` then a letter runs a clip command; pausing opens the
+clip-actions panel as a which-key cheatsheet (`mod+K` again, or `Esc`, closes
+it). See [docs/adr/0008-leader-keymap.md](docs/adr/0008-leader-keymap.md).
 
-The top bar carries the same actions as clickable handles (breadcrumb, Sort,
-Layout, Theme, Actions, New); the status bar lists the active mode's chords.
+| Chord            | Action                |
+| ---------------- | --------------------- |
+| `mod+K` then `j` | Next clip             |
+| `mod+K` then `k` | Previous clip         |
+| `mod+K` then `r` | Rename clip           |
+| `mod+K` then `d` | Close clip            |
+| `mod+K` then `o` | Cycle terminal height |
+| `mod+K` then `J` | Move clip down        |
+| `mod+K` then `K` | Move clip up          |
+
+The top bar carries the cross-clip handles (breadcrumb, Sort, Layout, Theme,
+New) as clickable buttons; the status bar shows the active mode.
 
 ## Built on
 
