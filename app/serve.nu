@@ -397,9 +397,21 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
 {|req|
   dispatch $req [
     (route {method: "GET", path: "/"} {|req ctx|
+      # MPA: each stack is its own page (/stack/<id>). Bounce the bare root to
+      # the current stack (focused, else default) so the address bar always
+      # shows which stack you're on.
+      let cur = (resolve-stack (.cat | projection project) "")
+      "" | metadata set { merge {'http.response': {status: 302 headers: {location: $"/stack/($cur)"}}} }
+    })
+
+    (route {method: "GET", path-matches: "/stack/:id"} {|req ctx|
+      # The shell for one stack. The stack id rides in the URL; the client reads
+      # it (slice 2 scopes /sse to it). An unknown id still serves the shell --
+      # /sse will fall back to the default stack.
       {
         datastar_js_path: $DATASTAR_JS_PATH
         title: (load-title)
+        stack_id: $ctx.id
       } | .mj ($STATIC | path join "sessions.html")
     })
 

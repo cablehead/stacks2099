@@ -1,14 +1,9 @@
 use std/assert
 
-# Drive the real /clip/add handler (serve.nu's dispatch closure) against a temp
-# store and assert the uploaded body lands in CAS. This is the
+# Drive the real /clip/add + /clip/update handlers (serve.nu's dispatch closure)
+# against a temp store and assert the uploaded body lands in CAS. This is the
 # `source serve.nu; do $closure $req` endpoint-test pattern from http-nu, run via
 # `stacks2099 eval --store` so .cat/.append are available.
-#
-# It pins the streaming upload path: the handler must consume the request body
-# implicitly into `.append` while resolving the target stack via `.cat` inside
-# the --meta argument (an isolating `def`, so the .cat doesn't steal the piped
-# body). If that breaks, the stored blob is empty / wrong and these fail.
 
 const script_dir = path self | path dirname
 let handler = source ($script_dir | path join ".." "app" "serve.nu")
