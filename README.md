@@ -17,8 +17,9 @@ stacks rebuilt on both.
 It also widens what a clip can be. Besides notes and images, a clip can be a
 running terminal or an embedded URL, so a stack holds the working context itself
 -- the shells you're in, the site you're building. The page is a pure projection
-of the event log: selection, layout, and the visible HTML are computed on the
-server and patched over Datastar SSE. Terminals included, rendered from
+of the event log: layout and the visible HTML are computed on the server and
+patched over Datastar SSE (the per-tab cursor is the one bit the client owns).
+Terminals included, rendered from
 [wezterm-term](https://github.com/wezterm/wezterm) as
 [an HTML grid (no WASM, no client-side VT emulator)](journey.md).
 
@@ -84,11 +85,13 @@ Only changing the Rust (the pty projection, new builtins) needs `cargo build`.
 
 ## Model
 
-Everything -- clips, stacks, selection, the window title -- is frames in an
-append-only [cross.stream](https://cross.stream) log. The page is a pure
-projection of that log, so every client sees the same state and a restart
-replays it. The UI is three columns: **stacks** | **clips** | **content** (the
-selected stack's clips, stacked top to bottom).
+Clips, stacks, and the window title are frames in an append-only
+[cross.stream](https://cross.stream) log; the page is a pure projection of that
+log, and a restart replays it. Each stack is its own page (`/stack/<id>`), and
+its `/sse` stream is scoped to that stack. The **cursor** (which clip is
+focused) is client-owned per tab -- not a logged frame -- so two tabs browse
+independently. The UI is three columns: **stacks** | **clips** | **content**
+(the current stack's clips, stacked top to bottom).
 
 - A **clip** is any byte sequence with a mime type, rendered by what it is: an
   editable **note** (`text/*`), an inline **image** (`image/*`), a live
@@ -149,10 +152,11 @@ lists the stacks (ids, names, clip counts) for scripting.
 
 ## API and events
 
-The HTTP routes are thin wrappers: each appends a frame to the log (selection
-aside -- that rides the in-process bus). The store serves an `xs` API on its
-socket, so you can write the same frames yourself; the API is just sugar over
-the event log.
+The HTTP routes are thin wrappers: each appends a frame to the log. The store
+serves an `xs` API on its socket, so you can write the same frames yourself; the
+API is just sugar over the event log. (The cursor is the exception -- it is
+client-owned per tab and never hits the log; `/nav` only persists a best-effort
+"focused clip" pointer for `/api/state` and reconnect landing.)
 
 ```bash
 # add a markdown clip via the HTTP API
@@ -167,20 +171,21 @@ cat notes.md | xs append ./store clip.add --ttl forever \
 In a store-connected Nushell (`xs` gives you one) the builtin form is
 `<body> | .append <topic> --meta {...}` -- exactly what each route runs.
 
-| Action          | HTTP                          | Frame appended                                   |
-| --------------- | ----------------------------- | ------------------------------------------------ |
-| New stack       | `POST /stack/new`             | `stack.add {sort}`                               |
-| Rename stack    | `POST /stack/rename`          | `stack.update {id, name}`                        |
-| Delete stack    | `POST /stack/close?stack=`    | `stack.delete {id}`                              |
-| Add clip        | `POST /clip/add`              | `clip.add {stack_id, kind, mime_type}` + body    |
-| Update clip     | `POST /clip/update?clip=`     | `clip.update {id}` + body                        |
-| Rename clip     | `POST /pty/label`             | `clip.patch {id, label}`                         |
-| Set view        | `POST /clip/view?clip=&view=` | `clip.patch {id, view}`                          |
-| Close clip      | `POST /clip/close?clip=`      | `clip.delete {id}`                               |
-| Move clip       | `POST /clip/move?dir=&clip=`  | `clip.patch {id, position}` (renumber on freeze) |
-| Toggle sort     | `POST /stack/sort?stack=`     | `stack.update {id, sort}`                        |
-| Toggle layout   | `POST /stack/layout?stack=`   | `stack.update {id, layout}`                      |
-| Select / switch | `POST /nav`, `/stack/select`  | bus `clip.select` / `stack.select`               |
+| Action        | HTTP                          | Frame appended                                   |
+| ------------- | ----------------------------- | ------------------------------------------------ |
+| New stack     | `POST /stack/new`             | `stack.add {sort}`                               |
+| Rename stack  | `POST /stack/rename`          | `stack.update {id, name}`                        |
+| Delete stack  | `POST /stack/close?stack=`    | `stack.delete {id}`                              |
+| Add clip      | `POST /clip/add`              | `clip.add {stack_id, kind, mime_type}` + body    |
+| Update clip   | `POST /clip/update?clip=`     | `clip.update {id}` + body                        |
+| Rename clip   | `POST /pty/label`             | `clip.patch {id, label}`                         |
+| Set view      | `POST /clip/view?clip=&view=` | `clip.patch {id, view}`                          |
+| Close clip    | `POST /clip/close?clip=`      | `clip.delete {id}`                               |
+| Move clip     | `POST /clip/move?dir=&clip=`  | `clip.patch {id, position}` (renumber on freeze) |
+| Toggle sort   | `POST /stack/sort?stack=`     | `stack.update {id, sort}`                        |
+| Toggle layout | `POST /stack/layout?stack=`   | `stack.update {id, layout}`                      |
+| Switch stack  | navigate to `/stack/<id>`     | (the URL is the stack; a fresh `/sse?stack=`)    |
+| Move cursor   | `POST /nav` (best-effort)     | persists focused clip; cursor is client-owned    |
 
 The topics and fields _are_ the protocol -- defined in `app/projection.nu`.
 Terminal clips are the exception: their pty is spawned by a `POST` to

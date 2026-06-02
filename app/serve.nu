@@ -21,14 +21,15 @@
 #   ghostty.title {val}                            window title; latest wins
 #   stacks2099.focus {sid}                         last-focused clip (ttl last:1)
 # Ephemeral bus topics:
-#   clip.select {id}|{action}                      global selection cursor
+#   clip.select {id}|{action}                      cursor on add/reconnect (client owns live moves)
 #   clip.events {}                                 "re-evaluate panes" nudge (post-spawn)
 #   title.events {connId, title}                   live title echo (connId-filtered)
 #
 # Endpoints:
-#   GET  /                  -> static sessions.html shell
-#   GET  /sse               -> projected UX state stream (datastar patches)
-#   POST /nav               -> move the selection cursor (clip.select)
+#   GET  /                  -> 302 redirect to /stack/<current stack>
+#   GET  /stack/:id         -> the sessions shell for one stack (MPA page)
+#   GET  /sse?stack=<id>    -> projected UX state stream for that stack (datastar)
+#   POST /nav               -> best-effort cursor ping (persists focused clip)
 #   POST /clip/new?type=    -> create a clip (terminal | note) and select it
 #   POST /clip/update?clip= -> persist a note body
 #   POST /clip/close?clip=  -> tombstone a clip (+ kill its pty)

@@ -2,7 +2,15 @@
 
 ## Status
 
-Draft.
+Implemented (via the per-stack MPA, see the "Update" below). The client owns the
+live cursor; the server no longer folds, echoes, or needs it to render. Rapid
+clip clicks track the cursor every time -- the morph race that motivated this is
+gone.
+
+One piece is deliberately deferred: the cursor set on **add** is still server
+-decided (the id is server-minted) and broadcast on the bus, so every connection
+on that stack adopts it. Per-tab scoping of the add-cursor is a follow-up; with
+`/sse` now scoped to a single stack the blast radius is one stack's connections.
 
 ## Context
 
