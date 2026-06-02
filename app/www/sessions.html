@@ -1432,6 +1432,16 @@
         closeSelected() {
           const cid = currentClip();
           if (!cid) return;
+          // Client owns the cursor: pick the neighbour now and move the cursor
+          // to it, so closing is instant and doesn't wait for the server to
+          // fold the delete and echo a new selection. Prefer the next clip,
+          // else the previous; empty string if this was the last one.
+          const items = [
+            ...document.querySelectorAll("#clips-list li[data-clip]"),
+          ];
+          const idx = items.findIndex((li) => li.dataset.clip === cid);
+          const neighbour = items[idx + 1] || items[idx - 1];
+          mergePatch({ cursor: neighbour?.dataset.clip || "" });
           fetch("/clip/close?clip=" + encodeURIComponent(cid), {
             method: "POST",
           }).catch(() => {});

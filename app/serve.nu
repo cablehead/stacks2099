@@ -233,7 +233,7 @@ def render-clip-row [c: record]: nothing -> string {
   # server so it can remember the stack's cursor + answer /api/state.
   let onclick = $"$cursor = '($c.id)'; @post\('/nav'\)"
   let onclose = $"@post\('/clip/close?clip=($c.id)'\)"
-  $"<li data-class:selected=\"$cursor == '($c.id)'\"><button type='button' class='row' data-on:click=\"($onclick)\">(icon-svg (clip-render-type $c))($label)<small>($c.id | str substring 0..8)</small></button><button type='button' class='close' data-on:click=\"($onclose)\" title='Close'>×</button></li>"
+  $"<li data-clip='($c.id)' data-class:selected=\"$cursor == '($c.id)'\"><button type='button' class='row' data-on:click=\"($onclick)\">(icon-svg (clip-render-type $c))($label)<small>($c.id | str substring 0..8)</small></button><button type='button' class='close' data-on:click=\"($onclose)\" title='Close'>×</button></li>"
 }
 
 # A stack row: click switches (stack.select), double-click renames (reuses the

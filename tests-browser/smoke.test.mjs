@@ -1005,6 +1005,58 @@ test("clip-actions: Close removes the selected clip", () =>
     );
   }));
 
+// ADR 0006 step 3: the client owns the cursor, so closing the focused clip
+// moves it to a neighbour client-side (no wait for a server fold). After the
+// close the cursor must point at a clip that still exists.
+test("closing the focused clip moves the cursor to a surviving neighbour", () =>
+  withApp(async (page) => {
+    // Two notes on top of the seed terminal -> three clips.
+    await page.evaluate(async () => {
+      for (const b of ["one", "two"]) {
+        await fetch("/clip/add", {
+          method: "POST",
+          headers: { "content-type": "text/markdown" },
+          body: b,
+        });
+      }
+    });
+    await page.waitForFunction(
+      () => document.querySelectorAll("#clips-list li[data-clip]").length >= 3,
+      { timeout: 10000 },
+    );
+    // Select the first clip row, then close it.
+    const firstCid = await page.evaluate(() => {
+      const li = document.querySelector("#clips-list li[data-clip]");
+      li.querySelector(".row").click();
+      return li.dataset.clip;
+    });
+    await page.waitForFunction(
+      (cid) =>
+        document.querySelector("#pane-" + CSS.escape(cid))?.classList.contains(
+          "active",
+        ),
+      firstCid,
+      { timeout: 5000 },
+    );
+    await page.evaluate(() => window.app.closeSelected());
+
+    // The closed clip's pane is gone, and the cursor now points at a clip that
+    // is still present (a neighbour), not the closed one.
+    await page.waitForFunction(
+      (cid) => !document.querySelector("#pane-" + CSS.escape(cid)),
+      firstCid,
+      { timeout: 10000 },
+    );
+    const ok = await page.evaluate((closed) => {
+      const ids = [
+        ...document.querySelectorAll("#clips-list li[data-clip]"),
+      ].map((li) => li.dataset.clip);
+      const cur = document.querySelector("#doc .pane.active")?.dataset.clip;
+      return cur && cur !== closed && ids.includes(cur);
+    }, firstCid);
+    assert.ok(ok, "cursor moved to a surviving neighbour after close");
+  }));
+
 test("clip-actions: Ctrl-K stays with a focused terminal (readline kill-line, not the panel)", () =>
   withApp(async (page) => {
     // Ctrl+K is kill-line for a focused terminal on every platform, so it must

@@ -103,9 +103,13 @@ on the POSTs it already makes.
 1. Make the clips-sidebar highlight a reactive `data-class` expression; drop the
    `selected` arg from `render-clip-row` / `render-clips`.
 2. Add client `setCursor(id)`; route `j`/`k`/click/add/delete through it.
-3. Client picks next clip on close; sets cursor to new clip on add.
+3. Client picks next clip on close. (Add stays server-set: the id is
+   server-minted, and the cursor patch must ride the same `/sse` stream as the
+   new clip's markup so it can't race ahead of the pane existing. Only the
+   per-tab scoping of that cursor patch changes -- deferred to step 5.)
 4. Carry the cursor signal on existing POSTs; server reads it for `clipCursors`
    and `save-focused-sid`. Replay the stack's cursor on stack switch.
-5. Delete `/nav`, the `clip.select` fold + bus publish, `selectedSid` patches,
-   and live `reconcile-selection`.
+5. Delete `/nav` and the `clip.select` fold + bus publish; scope the add-cursor
+   patch to the originating connection (no broadcast); remove live
+   `reconcile-selection`.
 6. Keep `clipCursors` and the stack-default reconcile (the non-cursor parts).
