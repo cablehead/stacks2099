@@ -110,14 +110,14 @@ independently. The UI is three columns: **stacks** | **clips** | **content**
   the selected clip down/up (the first move freezes the current order into
   `manual`).
 - Each stack picks a **layout**: `flow` (a vertical column of panes) or `niri`
-  (a horizontal scrollable strip). The top-bar Layout button or `Alt+L` toggles
-  it.
+  (a horizontal scrollable strip). The top-bar Layout button or `mod+K l`
+  toggles it.
 - **Terminal clips** bind to an embedded-Nushell pty. The binary re-execs itself
   to run the shell, so there is no external `nu` to find, and placement survives
   a restart -- the pty respawns where it was, zellij-style.
 
 The top bar carries the cross-clip handles -- the stack breadcrumb, Sort,
-Layout, Theme, Actions, and New. The **Theme** button swaps the terminal palette
+Layout, Theme, and New. The **Theme** button swaps the terminal palette
 (client-side: Default, Nord, Solarized, Railscasts, and friends).
 
 <img alt="Theme picker open beside a focused, themed terminal" width="640" src="docs/assets/theme.png">
@@ -206,20 +206,20 @@ leaves. `mod` is Cmd on macOS, Ctrl elsewhere.
 
 **Navigate** (read-only browsing):
 
-| Key               | Action                            |
-| ----------------- | --------------------------------- |
-| `j` / `k`         | Next / previous clip              |
-| `Enter`           | Focus the selected clip           |
-| `Alt+[` / `Alt+]` | Previous / next stack             |
-| `Alt+\`           | Switch stack (open the switcher)  |
-| `Alt+S`           | Toggle stack sort (auto / manual) |
-| `Alt+L`           | Toggle stack layout (flow / niri) |
-| `Alt+T`           | New clip (note / terminal picker) |
+| Key                   | Action                  |
+| --------------------- | ----------------------- |
+| `j` / `k`             | Next / previous clip    |
+| `Shift+J` / `Shift+K` | Move clip down / up     |
+| `Enter`               | Focus the selected clip |
+| `Alt+[` / `Alt+]`     | Previous / next stack   |
+| `Alt+\`               | Open the stack switcher |
 
-**Clip actions -- the `mod+K` leader** (works in any mode, even over a focused
-terminal). `mod+K` then a letter runs a clip command; pausing opens the
-clip-actions panel as a which-key cheatsheet (`mod+K` again, or `Esc`, closes
-it). See [docs/adr/0008-leader-keymap.md](docs/adr/0008-leader-keymap.md).
+**The `mod+K` leader** (works in any mode, even over a focused terminal). `mod+K`
+then a letter runs a command; pausing opens the actions panel as a which-key
+cheatsheet (`mod+K` again, or `Esc`, closes it). See
+[docs/adr/0008-leader-keymap.md](docs/adr/0008-leader-keymap.md).
+
+Clip:
 
 | Chord            | Action                |
 | ---------------- | --------------------- |
@@ -230,6 +230,16 @@ it). See [docs/adr/0008-leader-keymap.md](docs/adr/0008-leader-keymap.md).
 | `mod+K` then `o` | Cycle terminal height |
 | `mod+K` then `J` | Move clip down        |
 | `mod+K` then `K` | Move clip up          |
+
+Stack:
+
+| Chord            | Action                      |
+| ---------------- | --------------------------- |
+| `mod+K` then `n` | New clip (note / terminal)  |
+| `mod+K` then `N` | New stack                   |
+| `mod+K` then `R` | Rename stack                |
+| `mod+K` then `s` | Toggle sort (auto / manual) |
+| `mod+K` then `l` | Toggle layout (flow / niri) |
 
 The top bar carries the cross-clip handles (breadcrumb, Sort, Layout, Theme,
 New) as clickable buttons; the status bar shows the active mode.

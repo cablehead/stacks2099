@@ -11,10 +11,13 @@ leader; the clip-actions panel is its which-key hint).
 paints after a 300ms hint delay but key handling is identical before/after.
 Panel rows carry `data-key` (`j`/`k` navigate, `r`/`d`/`o`/`J`/`K` the actions);
 a key clicks its row and ownership ends, transferring to where the action lands.
-`makePicker`'s separate handler for the actions panel is gone. Still pending:
-pulling content-type toggles (Rendered/Embed) from the cursored pane as extra
-rows (the per-clip tier is currently the universal actions only), and the global
-cross-stack tier; plus the 0007 deferred items.
+`makePicker`'s separate handler for the actions panel is gone. The global
+cross-stack tier is in (`n` new clip, `N` new stack, `R` rename stack, `s` sort,
+`l` layout, in a "Stack" group), and the redundant navigate-mode `Alt` chords it
+replaced were removed (bare `j`/`k` navigate, `Shift+J`/`Shift+K` move; stack
+nav keeps `Alt+[`/`Alt+]`/`Alt+\`). Still pending: pulling content-type toggles
+(Rendered/Embed) from the cursored pane as extra rows (the per-clip tier is
+currently the universal actions only); plus the 0007 deferred items.
 
 ## Context
 

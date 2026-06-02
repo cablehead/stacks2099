@@ -734,7 +734,9 @@ test("new-clip picker: Ctrl-n/Ctrl-p and arrows move selection; Enter creates th
       );
 
     // Open from the top bar via Alt+T; selection starts on the first row.
-    await page.keyboard.press("Alt+t");
+    await page.evaluate(() =>
+      document.querySelector("#clips-list .new-btn").click()
+    );
     await page.waitForSelector(".picker-backdrop", {
       state: "visible",
       timeout: 5000,
@@ -794,7 +796,9 @@ test("new-clip picker: Ctrl-n/Ctrl-p and arrows move selection; Enter creates th
     );
 
     // Reopen, select Note (row 1), Enter creates a note pane over SSE.
-    await page.keyboard.press("Alt+t");
+    await page.evaluate(() =>
+      document.querySelector("#clips-list .new-btn").click()
+    );
     await page.waitForSelector(".picker-backdrop", {
       state: "visible",
       timeout: 5000,
@@ -843,7 +847,9 @@ test("new-clip picker: while open, keystrokes don't leak to the terminal", () =>
 
     // Open the picker (navigate mode) and type characters that would reach the
     // pty if they leaked. They must be swallowed by the picker.
-    await page.keyboard.press("Alt+t");
+    await page.evaluate(() =>
+      document.querySelector("#clips-list .new-btn").click()
+    );
     await page.waitForSelector(".picker-backdrop", {
       state: "visible",
       timeout: 5000,
@@ -990,19 +996,13 @@ test("clip-actions: Close removes the selected clip", () =>
       { timeout: 5000 },
     );
 
-    // Open actions; Close is the last row. Ctrl-p from row 0 wraps up to it.
+    // Open actions; bare `d` runs Close (its data-key), regardless of row order.
     await page.keyboard.press("Control+k");
     await page.waitForSelector(".actions-backdrop", {
       state: "visible",
       timeout: 5000,
     });
-    await page.keyboard.press("Control+p");
-    await page.waitForFunction(() => {
-      const rows = [...document.querySelectorAll(".actions-panel .picker-row")];
-      return rows.findIndex((r) => r.classList.contains("sel")) ===
-        rows.length - 1;
-    }, { timeout: 3000 });
-    await page.keyboard.press("Enter");
+    await page.keyboard.press("d");
 
     await page.waitForFunction(
       (cid) => !document.querySelector("#pane-" + CSS.escape(cid)),
@@ -1156,6 +1156,38 @@ test("bare j/k navigate clips in navigate mode", () =>
     assert.notEqual(after, before, "bare j moved the cursor in navigate mode");
   }));
 
+// Shift+J / Shift+K move the selected clip down/up in navigate mode (the first
+// move freezes the stack into manual order). Reorders the #doc panes.
+test("Shift+J moves a clip in navigate mode", () =>
+  withApp(async (page) => {
+    await page.evaluate(async () => {
+      await fetch("/clip/add", {
+        method: "POST",
+        headers: { "content-type": "text/markdown" },
+        body: "two",
+      });
+    });
+    await page.waitForFunction(
+      () => document.querySelectorAll("#clips-list ul.clips li").length >= 2,
+      { timeout: 10000 },
+    );
+    const order0 = await page.evaluate(() =>
+      [...document.querySelectorAll("#clips-list ul.clips li")].map((li) =>
+        li.dataset.clip
+      ).join(",")
+    );
+    await page.keyboard.press("Shift+J");
+    await page.waitForFunction(
+      (o) =>
+        [...document.querySelectorAll("#clips-list ul.clips li")].map((li) =>
+          li.dataset.clip
+        ).join(",") !== o,
+      order0,
+      { timeout: 5000 },
+    );
+    assert.ok(true, "Shift+J reordered the clips in navigate mode");
+  }));
+
 // Plain Enter focuses the selected clip in navigate mode (mod+Enter also works
 // in any mode). Safe: a focused pty / note textarea own Enter in their modes.
 test("plain Enter focuses the selected clip in navigate mode", () =>
@@ -1195,6 +1227,42 @@ test("mod+K again closes the actions panel", () =>
       { timeout: 3000 },
     );
     assert.ok(true, "second mod+K dismissed the panel");
+  }));
+
+// ADR 0008 global tier: mod+K then N creates a new stack (cross-stack action in
+// the leader's Stack group). New stack navigates to its own page (per-stack MPA).
+test("mod+K N creates a new stack", () =>
+  withApp(async (page) => {
+    const url0 = page.url();
+    await page.keyboard.press("Meta+k");
+    await page.keyboard.press("Shift+N");
+    // New stack -> navigate to /stack/<new id> (a different page than before).
+    await page.waitForFunction(
+      (u) => location.href !== u && /\/stack\//.test(location.href),
+      url0,
+      { timeout: 8000 },
+    );
+    assert.notEqual(page.url(), url0, "mod+K N navigated to a new stack page");
+  }));
+
+// mod+K n opens the new-clip picker (global New clip; same as the + button).
+// The actions modal hands ownership to the picker (any action ends ownership).
+test("mod+K n opens the new-clip picker", () =>
+  withApp(async (page) => {
+    await page.keyboard.press("Meta+k");
+    await page.keyboard.press("n");
+    await page.waitForSelector(".picker-backdrop", {
+      state: "visible",
+      timeout: 8000,
+    });
+    assert.equal(
+      await page.evaluate(() =>
+        getComputedStyle(document.querySelector(".actions-backdrop"))
+          .display === "none"
+      ),
+      true,
+      "the actions panel closed when New clip ran",
+    );
   }));
 
 // ADR 0008: the mod+K modal owns the keyboard continuously. Once the panel is
