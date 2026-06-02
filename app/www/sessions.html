@@ -757,56 +757,6 @@
         <button
           class="bar-btn"
           type="button"
-          title="Sort clips (Alt+S)"
-          aria-label="Sort clips"
-          data-on:click="window.app.toggleSort()"
-        >
-          <svg
-            class="icon"
-            xmlns="http://www.w3.org/2000/svg"
-            width="1em"
-            height="1em"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <path d="m3 16 4 4 4-4" />
-            <path d="M7 20V4" />
-            <path d="m21 8-4-4-4 4" />
-            <path d="M17 4v16" />
-          </svg>
-          <kbd>Alt</kbd><kbd>S</kbd>
-        </button>
-        <button
-          class="bar-btn"
-          type="button"
-          title="Layout flow/niri (Alt+L)"
-          aria-label="Layout"
-          data-on:click="window.app.toggleLayout()"
-        >
-          <svg
-            class="icon"
-            xmlns="http://www.w3.org/2000/svg"
-            width="1em"
-            height="1em"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <rect width="18" height="18" x="3" y="3" rx="2" />
-            <path d="M12 3v18" />
-          </svg>
-          <kbd>Alt</kbd><kbd>L</kbd>
-        </button>
-        <button
-          class="bar-btn"
-          type="button"
           title="Theme"
           aria-label="Theme"
           data-on:click="$themePicking = true"
@@ -831,29 +781,6 @@
               d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.563-2.512 5.563-5.563C22 6.012 17.51 2 12 2z"
             />
           </svg>
-        </button>
-        <button
-          class="bar-btn bar-btn-primary"
-          type="button"
-          title="New clip (Alt+T)"
-          data-on:click="$picking = true"
-        >
-          <svg
-            class="icon"
-            xmlns="http://www.w3.org/2000/svg"
-            width="1em"
-            height="1em"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <path d="M5 12h14" />
-            <path d="M12 5v14" />
-          </svg>
-          New <kbd>Alt</kbd><kbd>T</kbd>
         </button>
       </div>
       <!-- Continuous document of session panes. The server fills #doc on init

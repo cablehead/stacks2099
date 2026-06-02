@@ -116,9 +116,9 @@ independently. The UI is three columns: **stacks** | **clips** | **content**
   to run the shell, so there is no external `nu` to find, and placement survives
   a restart -- the pty respawns where it was, zellij-style.
 
-The top bar carries the cross-clip handles -- the stack breadcrumb, Sort,
-Layout, Theme, and New. The **Theme** button swaps the terminal palette
-(client-side: Default, Nord, Solarized, Railscasts, and friends).
+The top bar carries the stack breadcrumb (the switcher handle) and the **Theme**
+button, which swaps the terminal palette (client-side: Default, Nord, Solarized,
+Railscasts, and friends). Sort, Layout, and New live under the `mod+K` leader.
 
 <img alt="Theme picker open beside a focused, themed terminal" width="640" src="docs/assets/theme.png">
 
@@ -241,8 +241,8 @@ Stack:
 | `mod+K` then `s` | Toggle sort (auto / manual) |
 | `mod+K` then `l` | Toggle layout (flow / niri) |
 
-The top bar carries the cross-clip handles (breadcrumb, Sort, Layout, Theme,
-New) as clickable buttons; the status bar shows the active mode.
+The top bar carries the stack breadcrumb and the Theme button; the status bar
+shows the active mode.
 
 ## Built on
 
