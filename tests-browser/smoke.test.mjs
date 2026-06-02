@@ -957,7 +957,7 @@ test("clip-actions: mod-K opens in navigate; Ctrl-n/Ctrl-p move; Enter opens ren
     );
   }));
 
-test("clip-actions: Close removes the selected clip", () =>
+test("clip-actions: Delete removes the selected clip", () =>
   withApp(async (page) => {
     // Add a note so there are two clips, then select the note and close it.
     await page.evaluate(async () => {

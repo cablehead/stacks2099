@@ -226,7 +226,7 @@ Clip:
 | `mod+K` then `j` | Next clip             |
 | `mod+K` then `k` | Previous clip         |
 | `mod+K` then `r` | Rename clip           |
-| `mod+K` then `d` | Close clip            |
+| `mod+K` then `d` | Delete clip           |
 | `mod+K` then `o` | Cycle terminal height |
 | `mod+K` then `J` | Move clip down        |
 | `mod+K` then `K` | Move clip up          |
