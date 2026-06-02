@@ -90,17 +90,11 @@ def default-stack-id []: nothing -> string {
   }
 }
 
-# Add a clip of the given kind to a stack. A content clip's initial body
-# (piped in) is CAS-stored on the frame. Returns the new clip id.
+# Add a clip of the given kind to a stack. The body (piped in) is CAS-stored on
+# the frame -- streamed: .append is first in the pipe so it consumes the input
+# implicitly (an empty body just appends no CAS hash). Returns the new clip id.
 def add-clip [stack_id: string, kind: string, mime: string]: any -> string {
-  let body = $in
-  let meta = {stack_id: $stack_id, kind: $kind, mime_type: $mime}
-  let f = if ($body | is-empty) {
-    null | .append "clip.add" --meta $meta --ttl forever
-  } else {
-    $body | .append "clip.add" --meta $meta --ttl forever
-  }
-  $f.id
+  .append "clip.add" --meta {stack_id: $stack_id, kind: $kind, mime_type: $mime} --ttl forever | get id
 }
 
 def delete-clip [cid: string]: nothing -> nothing {
@@ -110,7 +104,7 @@ def delete-clip [cid: string]: nothing -> nothing {
 # Replace a clip's body (clip.update -> CAS). Body piped in as any bytes -- a
 # note's text on blur, or an asset re-posted from the CLI. Mime is unchanged.
 def set-clip-body [cid: string]: any -> nothing {
-  $in | .append "clip.update" --meta {id: $cid} --ttl forever | ignore
+  .append "clip.update" --meta {id: $cid} --ttl forever | ignore
 }
 
 # Reassign spaced positions to a stack's clips in the given order. Used to
