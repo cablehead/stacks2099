@@ -23,7 +23,6 @@
 #     stacks: [{id, name, sort, layout, lastTouched, clips: [{id, kind, hash, mime_type, position, lastTouched, versions}]}]
 #     selectedStackId: string|null
 #     selectedClipId:  string|null
-#     clipCursors:     {stack_id: clip_id, ...}  # last selected clip per stack
 #     frameId:         string|null   # id of the last frame that produced this state
 #   }
 #
@@ -36,7 +35,7 @@
 # the same `sorted-clips` order; layout is presentation only.
 
 export def empty []: nothing -> record {
-  {stacks: [] selectedStackId: null selectedClipId: null clipCursors: {} selectionExplicit: false frameId: null deleted: []}
+  {stacks: [] selectedStackId: null selectedClipId: null selectionExplicit: false frameId: null deleted: []}
 }
 
 # Pick the id that occupies the same slot after `removed` is dropped from
@@ -81,15 +80,6 @@ export def position-between [lo: any, hi: any]: nothing -> any {
   }
 }
 
-# Stash the current (stack, clip) selection in clipCursors so a later
-# stack switch can restore the per-stack cursor. Idempotent and safe to
-# call after every state transition.
-def remember-cursor [state: record]: nothing -> record {
-  if $state.selectedStackId != null and $state.selectedClipId != null {
-    $state | update clipCursors ($state.clipCursors | upsert $state.selectedStackId $state.selectedClipId)
-  } else { $state }
-}
-
 export def apply-frame [state: record frame: record]: nothing -> record {
   let s = match $frame.topic {
     "stack.add" => (stack-add $state $frame)
@@ -105,7 +95,7 @@ export def apply-frame [state: record frame: record]: nothing -> record {
     "stack.restore" => (stack-restore $state $frame)
     _ => $state
   }
-  remember-cursor $s | update frameId ($frame.id? | default $s.frameId)
+  $s | update frameId ($frame.id? | default $s.frameId)
 }
 
 # Apply default selection (first stack, first clip) when nothing is selected
@@ -130,11 +120,8 @@ export def reconcile-selection []: record -> record {
   let stack = $state.stacks | where id == $sel_stack | first
   let clips = sorted-clips $stack
   let clip_ids = $clips | get id
-  let memorized = $state.clipCursors | get -i $sel_stack
   let sel_clip = if ($state.selectedClipId in $clip_ids) {
     $state.selectedClipId
-  } else if $memorized != null and ($memorized in $clip_ids) {
-    $memorized
   } else {
     $clip_ids | get -i 0
   }
@@ -179,16 +166,8 @@ def stack-delete [state: record frame: record] {
   } else {
     let stack = $stacks | where id == $new_selected | get -i 0
     let clip_ids = if $stack == null { [] } else { sorted-clips $stack | get id }
-    let memorized = $state.clipCursors | get -i $new_selected
-    if $memorized != null and ($memorized in $clip_ids) {
-      $memorized
-    } else {
-      $clip_ids | get -i 0
-    }
+    $clip_ids | get -i 0
   }
-  let cursors = if ($id in ($state.clipCursors | columns)) {
-    $state.clipCursors | reject $id
-  } else { $state.clipCursors }
   let deleted = if $victim == null { $state.deleted } else {
     [{frame_id: $frame.id kind: "stack" snapshot: {stack: $victim} deleted_at: $frame.id}] | append $state.deleted
   }
@@ -196,7 +175,6 @@ def stack-delete [state: record frame: record] {
   | update stacks $stacks
   | update selectedStackId $new_selected
   | update selectedClipId $new_clip
-  | update clipCursors $cursors
   | update deleted $deleted
 }
 
@@ -377,15 +355,9 @@ def stack-select [state: record frame: record] {
   }
   let stack = $state.stacks | where id == $new_id | get -i 0
   let clip_ids = if $stack == null { [] } else { sorted-clips $stack | get id }
-  let memorized = $state.clipCursors | get -i $new_id
-  let target_clip = if $memorized != null and ($memorized in $clip_ids) {
-    $memorized
-  } else {
-    $clip_ids | get -i 0
-  }
   $state
   | update selectedStackId $new_id
-  | update selectedClipId $target_clip
+  | update selectedClipId ($clip_ids | get -i 0)
   | update selectionExplicit true
 }
 
