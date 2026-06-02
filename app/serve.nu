@@ -106,6 +106,49 @@ def delete-clip [cid: string]: nothing -> nothing {
   null | .append "clip.delete" --meta {id: $cid} --ttl forever | ignore
 }
 
+# --- live repo-diff service (kind: diff) -----------------------------------
+# A cross.stream service watches the repo and emits the whole-tree patch as
+# `git.diff` frames (one CAS blob per change, latest-wins). The service runs in
+# the store's nu engine; `.append` is not available there, so it yields whole
+# patch strings and `return_options { target: "cas" }` stores them. Requires the
+# server to run with --services. The diff clip's lifecycle owns it: created with
+# the first diff clip, terminated when the last one is closed.
+
+# The repo this server watches: its working directory ("." = the current repo).
+def diff-repo []: nothing -> string { $env.PWD }
+
+# Service config as Nushell source (placeholder-substituted, no fragile escaping).
+def diff-service-config [repo: string]: nothing -> string {
+  let tmpl = r#'{
+  run: {||
+    watch "__REPO__" --glob "**/*" --debounce 300ms
+    | where { ($in.path | path relative-to "__REPO__" | str starts-with ".git") == false }
+    | each {|e| ^git -C "__REPO__" diff HEAD | into string }
+  }
+  return_options: { suffix: ".diff", target: "cas", ttl: "last:1" }
+}'#
+  $tmpl | str replace --all "__REPO__" $repo
+}
+
+# Register (idempotent; re-create hot-replaces) and seed the current diff so a
+# fresh clip paints immediately.
+def ensure-diff-service []: nothing -> nothing {
+  let repo = (diff-repo)
+  diff-service-config $repo | .append "xs.service.git.create" --ttl forever | ignore
+  (^git -C $repo diff HEAD | into string) | .append "git.diff" --ttl last:1 | ignore
+}
+
+# Stop the service (the create frame stays terminated until a new create).
+def stop-diff-service []: nothing -> nothing {
+  null | .append "xs.service.git.term" | ignore
+}
+
+# Count diff clips across all stacks (drives the create/term lifecycle).
+def count-diff-clips []: nothing -> int {
+  .cat | projection project | get stacks | each {|s| $s.clips } | flatten
+  | where kind == "diff" | length
+}
+
 # Replace a clip's body (clip.update -> CAS). Body piped in as any bytes -- a
 # note's text on blur, or an asset re-posted from the CLI. Mime is unchanged.
 def set-clip-body [cid: string]: any -> nothing {
@@ -337,8 +380,8 @@ def render-pane [c: record]: nothing -> string {
     # rendered diffs alone; the bumped `rev` triggers the in-place re-render.
     # The initial paint reads the latest frame directly.
     let f = (.last "git.diff")
-    let patch = if ($f | is-empty) { "" } else { (.cas $f.hash) }
-    let rev = if ($f | is-empty) { "" } else { ($f.hash | default "") }
+    let rev = if ($f | is-empty) { "" } else { ($f.hash? | default "") }
+    let patch = if ($rev == "") { "" } else { (.cas $rev) }
     $"<div id='screen-($cid)' class='pane-screen'>(diff-clip-el $cid $patch $rev)</div>"
   } else {
     (render-content $c)
@@ -674,8 +717,11 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
         $c
       } else if $type == "diff" {
         # A live repo-diff mount point. No CAS body; its content is the
-        # `git.diff` store frame, fed over /sse.
-        add-clip $stack "diff" "application/x-git-diff"
+        # `git.diff` store frame, produced by the watcher service we register
+        # here (idempotent) and fed over /sse.
+        let c = (add-clip $stack "diff" "application/x-git-diff")
+        ensure-diff-service
+        $c
       } else {
         "" | add-clip $stack "content" "text/markdown"
       }
@@ -874,6 +920,8 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
         let sid = (sid-for-clip $cid)
         if $sid != "" { pty close $sid }
         delete-clip $cid
+        # Stop the repo-diff watcher when the last diff clip is closed.
+        if (count-diff-clips) == 0 { stop-diff-service }
       }
       null | metadata set { merge {'http.response': {status: 204}} }
     }
