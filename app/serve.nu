@@ -538,7 +538,8 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
                 (render-pane $c | to datastar-patch-elements --selector "#doc" --mode "append")
               })
               let rm_patches = ($to_remove | each {|id|
-                ("<span></span>" | to datastar-patch-elements --selector $"#pane-($id)" --mode "remove")
+                # remove is selector-only per the datastar SSE spec (no elements).
+                ("" | to datastar-patch-elements --selector $"#pane-($id)" --mode "remove")
               })
               let rendered2 = (($st.rendered | where {|id| $id in $all_ids }) | append $to_add | uniq)
 
