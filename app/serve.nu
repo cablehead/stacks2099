@@ -308,7 +308,7 @@ def render-pane [c: record]: nothing -> string {
   # The pane-head has its own id so a label-only clip.patch on a terminal
   # can update just this header rather than re-morph the whole <section>
   # (which would wipe the live `<div id='grid-{cid}'>` underneath).
-  let head = $"<header class='pane-head' id='pane-head-($cid)'>($label)<small>($cid | str substring 0..8)</small></header>"
+  let head = $"<header class='bar pane-head' id='pane-head-($cid)'>($label)<small>($cid | str substring 0..8)</small></header>"
   let onsel = $"$cursor = '($cid)'; @post\('/nav'\); window.__focusClip && window.__focusClip\('($cid)'\)"
   let rtype = (clip-render-type $c)
   let body = if $c.kind == "terminal" {
@@ -582,7 +582,7 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
                   if $is_terminal {
                     if $label_touched {
                       let lbl = (html-escape (clip-display-label $rc))
-                      ($"<header class='pane-head' id='pane-head-($rid)'>($lbl)<small>($rid | str substring 0..8)</small></header>" | to datastar-patch-elements --selector $"#pane-head-($rid)")
+                      ($"<header class='bar pane-head' id='pane-head-($rid)'>($lbl)<small>($rid | str substring 0..8)</small></header>" | to datastar-patch-elements --selector $"#pane-head-($rid)")
                     } else { null }
                   } else {
                     (render-pane $rc | to datastar-patch-elements --selector $"#pane-($rid)")
