@@ -2,13 +2,13 @@ name: Cross-platform CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 env:
   CARGO_TERM_COLOR: always
-  CARGO_NET_RETRY: "10"        # retry crate downloads instead of failing the build
+  CARGO_NET_RETRY: "10" # retry crate downloads instead of failing the build
 
 jobs:
   test:
@@ -20,89 +20,89 @@ jobs:
         os: [windows-latest, macos-latest, ubuntu-latest]
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    # The setup actions occasionally fail to download (GitHub infra). Retry
-    # once each: first attempt tolerates failure, second runs only if it failed.
-    - name: Install Deno
-      id: deno
-      continue-on-error: true
-      uses: denoland/setup-deno@v2
-      with:
-        deno-version: v2.x
-    - name: Install Deno (retry)
-      if: steps.deno.outcome == 'failure'
-      uses: denoland/setup-deno@v2
-      with:
-        deno-version: v2.x
+      # The setup actions occasionally fail to download (GitHub infra). Retry
+      # once each: first attempt tolerates failure, second runs only if it failed.
+      - name: Install Deno
+        id: deno
+        continue-on-error: true
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Install Deno (retry)
+        if: steps.deno.outcome == 'failure'
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
 
-    - name: Install Nushell
-      id: nu
-      continue-on-error: true
-      uses: hustcer/setup-nu@v3
-      with:
-        version: "0.112.1"
-    - name: Install Nushell (retry)
-      if: steps.nu.outcome == 'failure'
-      uses: hustcer/setup-nu@v3
-      with:
-        version: "0.112.1"
+      - name: Install Nushell
+        id: nu
+        continue-on-error: true
+        uses: hustcer/setup-nu@v3
+        with:
+          version: "0.112.1"
+      - name: Install Nushell (retry)
+        if: steps.nu.outcome == 'failure'
+        uses: hustcer/setup-nu@v3
+        with:
+          version: "0.112.1"
 
-    - name: Install Rust
-      shell: bash
-      run: |
-        for i in 1 2 3; do
-          rustup update stable && rustup default stable && exit 0
-          echo "rustup attempt $i failed; retrying in 5s" && sleep 5
-        done
-        exit 1
+      - name: Install Rust
+        shell: bash
+        run: |
+          for i in 1 2 3; do
+            rustup update stable && rustup default stable && exit 0
+            echo "rustup attempt $i failed; retrying in 5s" && sleep 5
+          done
+          exit 1
 
-    - name: Run checks
-      run: ./scripts/check.sh
+      - name: Run checks
+        run: ./scripts/check.sh
 
   e2e:
     name: Browser e2e
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Install Chrome
-      id: chrome
-      uses: browser-actions/setup-chrome@v1
-      with:
-        chrome-version: stable
+      - name: Install Chrome
+        id: chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
 
-    - name: Install Rust
-      shell: bash
-      run: |
-        for i in 1 2 3; do
-          rustup update stable && rustup default stable && exit 0
-          echo "rustup attempt $i failed; retrying in 5s" && sleep 5
-        done
-        exit 1
+      - name: Install Rust
+        shell: bash
+        run: |
+          for i in 1 2 3; do
+            rustup update stable && rustup default stable && exit 0
+            echo "rustup attempt $i failed; retrying in 5s" && sleep 5
+          done
+          exit 1
 
-    - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@v2
 
-    - name: Build
-      run: cargo build
+      - name: Build
+        run: cargo build
 
-    - uses: actions/setup-node@v4
-      with:
-        node-version: 20
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
 
-    - name: Install e2e deps
-      shell: bash
-      run: |
-        for i in 1 2 3; do
-          npm ci && exit 0
-          echo "npm ci attempt $i failed; retrying in 5s" && sleep 5
-        done
-        exit 1
-      working-directory: tests-browser
+      - name: Install e2e deps
+        shell: bash
+        run: |
+          for i in 1 2 3; do
+            npm ci && exit 0
+            echo "npm ci attempt $i failed; retrying in 5s" && sleep 5
+          done
+          exit 1
+        working-directory: tests-browser
 
-    - name: Run browser e2e
-      run: npm test
-      working-directory: tests-browser
-      env:
-        CHROMIUM_PATH: ${{ steps.chrome.outputs.chrome-path }}
-        STACKS2099_BIN: ${{ github.workspace }}/target/debug/stacks2099
+      - name: Run browser e2e
+        run: npm test
+        working-directory: tests-browser
+        env:
+          CHROMIUM_PATH: ${{ steps.chrome.outputs.chrome-path }}
+          STACKS2099_BIN: ${{ github.workspace }}/target/debug/stacks2099

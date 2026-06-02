@@ -29,18 +29,18 @@
  * nushell `ls` table (whose borders are ambiguous-width box chars) stays
  * aligned without the browser substituting a non-monospace fallback. */
 @font-face {
-  font-family: 'JetBrainsMonoNerd';
+  font-family: "JetBrainsMonoNerd";
   font-weight: normal;
   font-style: normal;
   font-display: swap;
-  src: url('/fonts/JetBrainsMonoNLNerdFontMono-Regular.woff2') format('woff2');
+  src: url("/fonts/JetBrainsMonoNLNerdFontMono-Regular.woff2") format("woff2");
 }
 @font-face {
-  font-family: 'JetBrainsMonoNerd';
+  font-family: "JetBrainsMonoNerd";
   font-weight: bold;
   font-style: normal;
   font-display: swap;
-  src: url('/fonts/JetBrainsMonoNLNerdFontMono-Bold.woff2') format('woff2');
+  src: url("/fonts/JetBrainsMonoNLNerdFontMono-Bold.woff2") format("woff2");
 }
 
 :root {
@@ -77,14 +77,18 @@
      here on purpose: a fallback font would advance box-drawing glyphs at a
      different width and break column alignment. The generic monospace is
      only a last resort if the woff2 fails to load. */
-  --term-font: 'JetBrainsMonoNerd', monospace;
+  --term-font: "JetBrainsMonoNerd", monospace;
 }
 
 /* Scrollbars are hidden (see below); content scrolls via wheel/keyboard.
    That removes the need to reserve a gutter and the "scrollbar eats a
    column" width math -- the full width is always usable. */
-*::-webkit-scrollbar { display: none; }
-* { scrollbar-width: none; }
+*::-webkit-scrollbar {
+  display: none;
+}
+* {
+  scrollbar-width: none;
+}
 
 #screen {
   position: absolute;
@@ -131,12 +135,24 @@
 /* Attribute classes. Reverse video is handled in Rust by swapping the
  * foreground and background colors in the emitted inline style, so there
  * is no `.sr` rule -- the swap happens at render time. */
-.sb { font-weight: bold; }
-.sd { opacity: 0.6; }
-.si { font-style: italic; }
-.su { text-decoration: underline; }
-.sx { visibility: hidden; }
-.ss { text-decoration: line-through; }
+.sb {
+  font-weight: bold;
+}
+.sd {
+  opacity: 0.6;
+}
+.si {
+  font-style: italic;
+}
+.su {
+  text-decoration: underline;
+}
+.sx {
+  visibility: hidden;
+}
+.ss {
+  text-decoration: line-through;
+}
 
 /* Wide / multi-scalar cells (CJK, emoji, ZWJ sequences, combining marks) get
  * pinned in a fixed box `--w` columns wide. The browser font's advance for
@@ -169,39 +185,103 @@
 /* ANSI 16 palette. The colors live in --c0..--c15 (set per theme above /
    below); these rules just bind class -> var so a theme swap recolors every
    cell without touching the classes pty.rs emits. */
-.f0  { color: var(--c0); }
-.f1  { color: var(--c1); }
-.f2  { color: var(--c2); }
-.f3  { color: var(--c3); }
-.f4  { color: var(--c4); }
-.f5  { color: var(--c5); }
-.f6  { color: var(--c6); }
-.f7  { color: var(--c7); }
-.f8  { color: var(--c8); }
-.f9  { color: var(--c9); }
-.f10 { color: var(--c10); }
-.f11 { color: var(--c11); }
-.f12 { color: var(--c12); }
-.f13 { color: var(--c13); }
-.f14 { color: var(--c14); }
-.f15 { color: var(--c15); }
+.f0 {
+  color: var(--c0);
+}
+.f1 {
+  color: var(--c1);
+}
+.f2 {
+  color: var(--c2);
+}
+.f3 {
+  color: var(--c3);
+}
+.f4 {
+  color: var(--c4);
+}
+.f5 {
+  color: var(--c5);
+}
+.f6 {
+  color: var(--c6);
+}
+.f7 {
+  color: var(--c7);
+}
+.f8 {
+  color: var(--c8);
+}
+.f9 {
+  color: var(--c9);
+}
+.f10 {
+  color: var(--c10);
+}
+.f11 {
+  color: var(--c11);
+}
+.f12 {
+  color: var(--c12);
+}
+.f13 {
+  color: var(--c13);
+}
+.f14 {
+  color: var(--c14);
+}
+.f15 {
+  color: var(--c15);
+}
 
-.b0  { background: var(--c0); }
-.b1  { background: var(--c1); }
-.b2  { background: var(--c2); }
-.b3  { background: var(--c3); }
-.b4  { background: var(--c4); }
-.b5  { background: var(--c5); }
-.b6  { background: var(--c6); }
-.b7  { background: var(--c7); }
-.b8  { background: var(--c8); }
-.b9  { background: var(--c9); }
-.b10 { background: var(--c10); }
-.b11 { background: var(--c11); }
-.b12 { background: var(--c12); }
-.b13 { background: var(--c13); }
-.b14 { background: var(--c14); }
-.b15 { background: var(--c15); }
+.b0 {
+  background: var(--c0);
+}
+.b1 {
+  background: var(--c1);
+}
+.b2 {
+  background: var(--c2);
+}
+.b3 {
+  background: var(--c3);
+}
+.b4 {
+  background: var(--c4);
+}
+.b5 {
+  background: var(--c5);
+}
+.b6 {
+  background: var(--c6);
+}
+.b7 {
+  background: var(--c7);
+}
+.b8 {
+  background: var(--c8);
+}
+.b9 {
+  background: var(--c9);
+}
+.b10 {
+  background: var(--c10);
+}
+.b11 {
+  background: var(--c11);
+}
+.b12 {
+  background: var(--c12);
+}
+.b13 {
+  background: var(--c13);
+}
+.b14 {
+  background: var(--c14);
+}
+.b15 {
+  background: var(--c15);
+}
 
 /* Themes. Selected by data-theme on <body>; the vars cascade to every cell
    (and to body's own background/foreground via term.css). Override just the
@@ -298,7 +378,9 @@
   animation: cursor-blink 1s steps(2) infinite;
 }
 @keyframes cursor-blink {
-  50% { opacity: 0.4; }
+  50% {
+    opacity: 0.4;
+  }
 }
 
 /* Key buffer overlay: floating ghost characters showing in-flight keys. */

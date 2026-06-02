@@ -1,275 +1,691 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en" class="dark">
-<head>
-  <meta charset="utf-8">
-  <title>{{ title or "ghostty-web-nu sessions" }}</title>
-  <script type="module" src="{{ datastar_js_path }}"></script>
-  <script type="module" src="/key-buffer.js"></script>
-  <link rel="stylesheet" href="/stellar.css">
-  <link rel="stylesheet" href="/md.css">
-  <link rel="stylesheet" href="/grid.css">
-  <style>
-    :root {
-      --bg: #1d0e2e; --fg: #d4d4d4;
-      --pane: #161616; --pane-border: #2a2a2a;
-      --sel: #2a9d4a; --sel-blur: #2d4f7c; --sel-fg: #ffffff; --dim: #888;
-      --chrome: #252525;
-    }
-    html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--fg); font: 14px var(--term-font); }
-    /* Top row holds stacks | clips | main; the bottom row is the status bar
-       spanning all three columns (full window width). */
-    body { display: grid; grid-template-columns: 14rem 16rem 1fr; grid-template-rows: 1fr auto; height: 100dvh; }
-    /* niri reclaims the screen: collapse the stacks + clips rails so the strip
-       gets the full width. Navigation is Alt+J/K + the panning strip; Alt+L
-       restores flow (and the rails). */
-    body.nav-collapsed { grid-template-columns: 0 0 1fr; }
-    body.nav-collapsed > #stacks-list, body.nav-collapsed > #clips-list { overflow: hidden; }
-    aside { background: var(--pane); border-right: 1px solid var(--pane-border); overflow-y: auto; min-height: 0; }
-    aside header { padding: .4rem .5rem .4rem .75rem; border-bottom: 1px solid var(--pane-border); font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: var(--dim); display: flex; align-items: center; justify-content: space-between; }
-    aside header .new-btn { background: transparent; color: inherit; border: 1px solid var(--pane-border); border-radius: 3px; padding: 0 .5rem; font: inherit; cursor: pointer; line-height: 1.4; }
-    aside header .sort-btn { margin-left: auto; margin-right: .4rem; background: transparent; color: var(--dim); border: 1px solid var(--pane-border); border-radius: 3px; padding: 0 .4rem; font: inherit; font-size: 11px; line-height: 1.4; text-transform: none; cursor: pointer; }
-    aside header .sort-btn:hover { background: #222; color: var(--fg); }
-    aside header .new-btn:hover { background: #222; color: var(--fg); }
-    aside ul { list-style: none; margin: 0; padding: 0; }
-    aside li { display: flex; align-items: stretch; border-bottom: 1px solid var(--pane-border); }
-    aside li .row { flex: 1; min-width: 0; text-align: left; background: transparent; color: inherit; border: 0; padding: .4rem .75rem; font: inherit; cursor: pointer; overflow: hidden; }
-    aside li .row:hover { background: #222; }
-    /* Selected tab is blue while merely selected (navigate mode) and green
-       once a terminal is focused -- mirrors the focused/blurred distinction. */
-    aside li.selected .row { background: var(--sel-blur); color: var(--sel-fg); }
-    body.mode-focus aside li.selected .row { background: var(--sel); }
-    aside li .close { flex: 0 0 auto; width: 1.75rem; background: transparent; color: inherit; border: 0; padding: 0; font: inherit; cursor: pointer; opacity: 0; transition: opacity .1s; }
-    aside li:hover .close, aside li.selected .close { opacity: .6; }
-    aside li .close:hover { opacity: 1; color: #ff7676; background: #222; }
-    aside li .copy { flex: 0 0 auto; width: 1.75rem; display: flex; align-items: center; justify-content: center; background: transparent; color: inherit; border: 0; padding: 0; font: inherit; cursor: pointer; opacity: 0; transition: opacity .1s; }
-    aside li:hover .copy, aside li.selected .copy { opacity: .6; }
-    aside li .copy:hover { opacity: 1; background: #222; }
-    aside li .copy.copied { opacity: 1; color: var(--sel); }
-    aside li small { display: block; font-size: 11px; opacity: .6; }
-    /* Inline SVG icons (vendored lucide). Size to the text, nudge to the
-       baseline, and leave a little space before the label. */
-    .row-icon, .picker-row .icon { width: 1em; height: 1em; vertical-align: -0.15em; margin-right: .5ch; flex: 0 0 auto; }
-    /* main is a grid: topbar | doc. The status bar lives at body level now. */
-    main { display: grid; grid-template-rows: auto 1fr; min-height: 0; overflow: hidden; }
-    .topbar {
-      background: var(--chrome); padding: .15rem .5rem;
-      display: flex; align-items: center; gap: .4rem;
-      font-size: 11px; color: var(--dim);
-    }
-    .title-display {
-      background: transparent; border: 0; color: inherit; font: inherit;
-      cursor: pointer; padding: .1rem .4rem; border-radius: 3px;
-      max-width: 44ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    }
-    .title-display:hover { background: #2f2f2f; color: var(--fg); }
-    .topbar-spacer { flex: 1; }
-    /* Shared affordance chip for the top + status bars: advertises a key and,
-       on click, runs the same action the key would. Replaces the old flat
-       wall of binding chips -- actions now live on the top bar (New / Sort /
-       Layout) and in the clip-actions panel. */
-    .bar-btn {
-      display: inline-flex; align-items: center; gap: .4ch;
-      background: transparent; color: var(--dim);
-      border: 1px solid transparent; border-radius: 3px;
-      padding: .1rem .45rem; font: inherit; font-size: 11px; line-height: 1.5;
-      cursor: pointer;
-    }
-    .bar-btn:hover { background: #222; color: var(--fg); }
-    .bar-btn .icon { width: 1em; height: 1em; vertical-align: -0.15em; }
-    /* The primary affordance (New): outlined so it reads as the main entry. */
-    .bar-btn-primary { color: var(--fg); border-color: var(--pane-border); }
-    .bar-btn-primary:hover { background: var(--sel-blur); border-color: var(--sel-blur); color: var(--sel-fg); }
-    .bar-btn kbd, .mode-hint kbd, .row-keys kbd {
-      font-family: var(--term-font); font-size: 10px;
-      background: #1c1c1c; border: 1px solid var(--pane-border);
-      border-radius: 3px; padding: 0 .35ch; line-height: 1.4; color: var(--dim);
-    }
-    .middle { display: grid; grid-template-columns: 1fr 1ch; min-height: 0; }
-    /* Continuous document: every session's terminal stacked vertically, the
-       whole column scrolls. Each .pane is a fixed-height live terminal whose
-       grid.css #screen-<sid> fills the .pane-screen below its header. */
-    #doc { min-height: 0; overflow-y: auto; overflow-x: hidden; padding: .5rem; display: flex; flex-direction: column; gap: .5rem; }
-    /* niri layout: the document becomes a horizontal scrollable strip -- each
-       pane a fixed-width (100ch) full-height column you pan across, rather than a
-       stacked row. Same panes (live grids intact), only the container axis flips. */
-    #doc.layout-niri { flex-direction: row; overflow-x: auto; overflow-y: hidden; align-items: stretch; }
-    #doc.layout-niri .pane { flex: 0 0 100ch; width: 100ch; overflow-y: auto; }
-    .pane { flex: 0 0 auto; display: flex; flex-direction: column; border: 1px solid var(--pane-border); border-radius: 4px; overflow: hidden; background: var(--term-bg); transition: opacity .12s, border-color .12s; scroll-margin: .5rem; }
-    .pane-head { flex: 0 0 auto; padding: .15rem .6rem; font-size: 11px; color: var(--dim); background: var(--chrome); cursor: pointer; display: flex; gap: .5ch; align-items: baseline; }
-    .pane-head small { opacity: .5; }
-    /* Morph HUD: rows touched by the last /pty/view patch. Pushed to the right
-       end of the head so it doesn't crowd the label; tabular-nums keeps it
-       from jittering as the digit count changes. */
-    .pane-head .grid-hud { margin-left: auto; opacity: .55; font-variant-numeric: tabular-nums; }
-    /* The terminal viewport. terminal.js sets its height to the row count it
-       wants (fixedRows * cell height), so the pane sizes itself -- no calc,
-       no absolute positioning. Scrollback scrolls within this box. */
-    .pane-screen { flex: 0 0 auto; overflow-y: auto; overflow-x: hidden; background: var(--term-bg); }
-    /* Note panes: a <pre> for display, swapped for a <textarea> while editing.
-       Both share the terminal font and the pane background (no white box, no
-       border) so editing blends into the surface. The editor fills the pane
-       width and grows with its content (JS sets height from scrollHeight),
-       with a few-row floor so a new note has room. */
-    .note-body { background: var(--term-bg); }
-    .note-pre, .note-edit {
-      display: block; width: 100%; box-sizing: border-box; margin: 0;
-      padding: .25rem .6rem;
-      background: var(--term-bg); color: var(--term-fg);
-      font-family: var(--term-font); font-size: 14px; line-height: var(--cell-h);
-      white-space: pre-wrap; word-break: break-word;
-      min-height: calc(var(--cell-h) * 3);
-    }
-    .note-edit { border: 0; outline: none; resize: none; overflow: hidden; }
-    /* Content previews: images, read-only text, file links. */
-    .clip-media { padding: .4rem .6rem; background: var(--term-bg); }
-    .clip-img { display: block; max-width: 100%; height: auto; border-radius: 3px; }
-    .clip-file { color: var(--sel-fg); }
-    .clip-pre {
-      margin: 0; padding: .25rem .6rem; background: var(--term-bg); color: var(--term-fg);
-      font-family: var(--term-font); font-size: 14px; line-height: var(--cell-h);
-      white-space: pre-wrap; word-break: break-word; max-height: 30rem; overflow: auto;
-    }
-    /* Embed (live iframe) clips. */
-    .clip-embed-wrap { display: flex; flex-direction: column; background: var(--term-bg); }
-    .embed-bar { display: flex; gap: .5ch; align-items: center; padding: .2rem .5rem; font-size: 11px; color: var(--dim); border-bottom: 1px solid var(--pane-border); }
-    .embed-url { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dim); text-decoration: none; }
-    .embed-url:hover { color: var(--fg); }
-    .clip-embed { width: 100%; height: 40rem; border: 0; background: #fff; }
-    .mini-btn { background: transparent; color: var(--dim); border: 1px solid var(--pane-border); border-radius: 3px; padding: 0 .5ch; font: inherit; font-size: 11px; cursor: pointer; }
-    .mini-btn:hover { background: #222; color: var(--fg); }
-    .note-actions { padding: .25rem .6rem; }
-    /* The active (selected) pane is highlighted. In navigate mode every pane
-       is dimmed (read-only); focus mode lights the active one fully. */
-    .pane.active { border-color: var(--sel-blur); }
-    body.mode-focus .pane.active { border-color: var(--sel); }
-    body.mode-navigate .pane { opacity: .3; }
-    body.mode-navigate .pane.active { opacity: .55; }
-    body.mode-focus .pane { opacity: .4; }
-    body.mode-focus .pane.active { opacity: 1; }
-    .mode-badge { margin-left: auto; font-size: 11px; color: var(--dim); letter-spacing: .04em; text-transform: uppercase; }
-    body.mode-focus .mode-badge { color: var(--sel); }
-    .rightbar { background: var(--chrome); }
-    .statusbar {
-      grid-column: 1 / -1; /* span stacks + clips + main */
-      display: flex; justify-content: space-between; align-items: center;
-      padding: .4rem 1rem;
-      background: var(--chrome); color: var(--fg);
-      border-top: 1px solid var(--pane-border);
-      font-size: 11px; line-height: 1;
-      font-family: var(--term-font);
-    }
-    .status-keys { display: flex; gap: .4rem; align-items: center; }
-    .status-mode {
-      background: transparent; border: 0; font: inherit; cursor: pointer;
-      text-transform: uppercase; letter-spacing: .05em; color: var(--dim);
-      padding: .1rem .4rem; border-radius: 3px;
-    }
-    .status-mode:hover { background: #222; color: var(--fg); }
-    body.mode-focus .status-mode { color: var(--sel); }
-    .mode-hint { display: inline-flex; gap: .2ch; opacity: .55; }
-    .status-meta { display: flex; gap: .75rem; align-items: center; }
-    /* Trailing key-hint cluster pushed to the right of a clip-actions row. */
-    .row-keys { margin-left: auto; display: inline-flex; gap: .2ch; opacity: .8; }
+  <head>
+    <meta charset="utf-8">
+    <title>{{ title or "ghostty-web-nu sessions" }}</title>
+    <script type="module" src="{{ datastar_js_path }}"></script>
+    <script type="module" src="/key-buffer.js"></script>
+    <link rel="stylesheet" href="/stellar.css">
+    <link rel="stylesheet" href="/md.css">
+    <link rel="stylesheet" href="/grid.css">
+    <style>
+      :root {
+        --bg: #1d0e2e;
+        --fg: #d4d4d4;
+        --pane: #161616;
+        --pane-border: #2a2a2a;
+        --sel: #2a9d4a;
+        --sel-blur: #2d4f7c;
+        --sel-fg: #ffffff;
+        --dim: #888;
+        --chrome: #252525;
+      }
+      html, body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        background: var(--bg);
+        color: var(--fg);
+        font: 14px var(--term-font);
+      }
+      /* Top row holds stacks | clips | main; the bottom row is the status bar
+         spanning all three columns (full window width). */
+      body {
+        display: grid;
+        grid-template-columns: 14rem 16rem 1fr;
+        grid-template-rows: 1fr auto;
+        height: 100dvh;
+      }
+      /* niri reclaims the screen: collapse the stacks + clips rails so the strip
+         gets the full width. Navigation is Alt+J/K + the panning strip; Alt+L
+         restores flow (and the rails). */
+      body.nav-collapsed {
+        grid-template-columns: 0 0 1fr;
+      }
+      body.nav-collapsed > #stacks-list, body.nav-collapsed > #clips-list {
+        overflow: hidden;
+      }
+      aside {
+        background: var(--pane);
+        border-right: 1px solid var(--pane-border);
+        overflow-y: auto;
+        min-height: 0;
+      }
+      aside header {
+        padding: 0.4rem 0.5rem 0.4rem 0.75rem;
+        border-bottom: 1px solid var(--pane-border);
+        font-size: 12px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--dim);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      aside header .new-btn {
+        background: transparent;
+        color: inherit;
+        border: 1px solid var(--pane-border);
+        border-radius: 3px;
+        padding: 0 0.5rem;
+        font: inherit;
+        cursor: pointer;
+        line-height: 1.4;
+      }
+      aside header .sort-btn {
+        margin-left: auto;
+        margin-right: 0.4rem;
+        background: transparent;
+        color: var(--dim);
+        border: 1px solid var(--pane-border);
+        border-radius: 3px;
+        padding: 0 0.4rem;
+        font: inherit;
+        font-size: 11px;
+        line-height: 1.4;
+        text-transform: none;
+        cursor: pointer;
+      }
+      aside header .sort-btn:hover {
+        background: #222;
+        color: var(--fg);
+      }
+      aside header .new-btn:hover {
+        background: #222;
+        color: var(--fg);
+      }
+      aside ul {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+      aside li {
+        display: flex;
+        align-items: stretch;
+        border-bottom: 1px solid var(--pane-border);
+      }
+      aside li .row {
+        flex: 1;
+        min-width: 0;
+        text-align: left;
+        background: transparent;
+        color: inherit;
+        border: 0;
+        padding: 0.4rem 0.75rem;
+        font: inherit;
+        cursor: pointer;
+        overflow: hidden;
+      }
+      aside li .row:hover {
+        background: #222;
+      }
+      /* Selected tab is blue while merely selected (navigate mode) and green
+         once a terminal is focused -- mirrors the focused/blurred distinction. */
+      aside li.selected .row {
+        background: var(--sel-blur);
+        color: var(--sel-fg);
+      }
+      body.mode-focus aside li.selected .row {
+        background: var(--sel);
+      }
+      aside li .close {
+        flex: 0 0 auto;
+        width: 1.75rem;
+        background: transparent;
+        color: inherit;
+        border: 0;
+        padding: 0;
+        font: inherit;
+        cursor: pointer;
+        opacity: 0;
+        transition: opacity 0.1s;
+      }
+      aside li:hover .close, aside li.selected .close {
+        opacity: 0.6;
+      }
+      aside li .close:hover {
+        opacity: 1;
+        color: #ff7676;
+        background: #222;
+      }
+      aside li .copy {
+        flex: 0 0 auto;
+        width: 1.75rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: transparent;
+        color: inherit;
+        border: 0;
+        padding: 0;
+        font: inherit;
+        cursor: pointer;
+        opacity: 0;
+        transition: opacity 0.1s;
+      }
+      aside li:hover .copy, aside li.selected .copy {
+        opacity: 0.6;
+      }
+      aside li .copy:hover {
+        opacity: 1;
+        background: #222;
+      }
+      aside li .copy.copied {
+        opacity: 1;
+        color: var(--sel);
+      }
+      aside li small {
+        display: block;
+        font-size: 11px;
+        opacity: 0.6;
+      }
+      /* Inline SVG icons (vendored lucide). Size to the text, nudge to the
+         baseline, and leave a little space before the label. */
+      .row-icon, .picker-row .icon {
+        width: 1em;
+        height: 1em;
+        vertical-align: -0.15em;
+        margin-right: 0.5ch;
+        flex: 0 0 auto;
+      }
+      /* main is a grid: topbar | doc. The status bar lives at body level now. */
+      main {
+        display: grid;
+        grid-template-rows: auto 1fr;
+        min-height: 0;
+        overflow: hidden;
+      }
+      .topbar {
+        background: var(--chrome);
+        padding: 0.15rem 0.5rem;
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        font-size: 11px;
+        color: var(--dim);
+      }
+      .title-display {
+        background: transparent;
+        border: 0;
+        color: inherit;
+        font: inherit;
+        cursor: pointer;
+        padding: 0.1rem 0.4rem;
+        border-radius: 3px;
+        max-width: 44ch;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .title-display:hover {
+        background: #2f2f2f;
+        color: var(--fg);
+      }
+      .topbar-spacer {
+        flex: 1;
+      }
+      /* Shared affordance chip for the top + status bars: advertises a key and,
+         on click, runs the same action the key would. Replaces the old flat
+         wall of binding chips -- actions now live on the top bar (New / Sort /
+         Layout) and in the clip-actions panel. */
+      .bar-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4ch;
+        background: transparent;
+        color: var(--dim);
+        border: 1px solid transparent;
+        border-radius: 3px;
+        padding: 0.1rem 0.45rem;
+        font: inherit;
+        font-size: 11px;
+        line-height: 1.5;
+        cursor: pointer;
+      }
+      .bar-btn:hover {
+        background: #222;
+        color: var(--fg);
+      }
+      .bar-btn .icon {
+        width: 1em;
+        height: 1em;
+        vertical-align: -0.15em;
+      }
+      /* The primary affordance (New): outlined so it reads as the main entry. */
+      .bar-btn-primary {
+        color: var(--fg);
+        border-color: var(--pane-border);
+      }
+      .bar-btn-primary:hover {
+        background: var(--sel-blur);
+        border-color: var(--sel-blur);
+        color: var(--sel-fg);
+      }
+      .bar-btn kbd, .mode-hint kbd, .row-keys kbd {
+        font-family: var(--term-font);
+        font-size: 10px;
+        background: #1c1c1c;
+        border: 1px solid var(--pane-border);
+        border-radius: 3px;
+        padding: 0 0.35ch;
+        line-height: 1.4;
+        color: var(--dim);
+      }
+      .middle {
+        display: grid;
+        grid-template-columns: 1fr 1ch;
+        min-height: 0;
+      }
+      /* Continuous document: every session's terminal stacked vertically, the
+         whole column scrolls. Each .pane is a fixed-height live terminal whose
+         grid.css #screen-<sid> fills the .pane-screen below its header. */
+      #doc {
+        min-height: 0;
+        overflow-y: auto;
+        overflow-x: hidden;
+        padding: 0.5rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+      }
+      /* niri layout: the document becomes a horizontal scrollable strip -- each
+         pane a fixed-width (100ch) full-height column you pan across, rather than a
+         stacked row. Same panes (live grids intact), only the container axis flips. */
+      #doc.layout-niri {
+        flex-direction: row;
+        overflow-x: auto;
+        overflow-y: hidden;
+        align-items: stretch;
+      }
+      #doc.layout-niri .pane {
+        flex: 0 0 100ch;
+        width: 100ch;
+        overflow-y: auto;
+      }
+      .pane {
+        flex: 0 0 auto;
+        display: flex;
+        flex-direction: column;
+        border: 1px solid var(--pane-border);
+        border-radius: 4px;
+        overflow: hidden;
+        background: var(--term-bg);
+        transition: opacity 0.12s, border-color 0.12s;
+        scroll-margin: 0.5rem;
+      }
+      .pane-head {
+        flex: 0 0 auto;
+        padding: 0.15rem 0.6rem;
+        font-size: 11px;
+        color: var(--dim);
+        background: var(--chrome);
+        cursor: pointer;
+        display: flex;
+        gap: 0.5ch;
+        align-items: baseline;
+      }
+      .pane-head small {
+        opacity: 0.5;
+      }
+      /* Morph HUD: rows touched by the last /pty/view patch. Pushed to the right
+         end of the head so it doesn't crowd the label; tabular-nums keeps it
+         from jittering as the digit count changes. */
+      .pane-head .grid-hud {
+        margin-left: auto;
+        opacity: 0.55;
+        font-variant-numeric: tabular-nums;
+      }
+      /* The terminal viewport. terminal.js sets its height to the row count it
+         wants (fixedRows * cell height), so the pane sizes itself -- no calc,
+         no absolute positioning. Scrollback scrolls within this box. */
+      .pane-screen {
+        flex: 0 0 auto;
+        overflow-y: auto;
+        overflow-x: hidden;
+        background: var(--term-bg);
+      }
+      /* Note panes: a <pre> for display, swapped for a <textarea> while editing.
+         Both share the terminal font and the pane background (no white box, no
+         border) so editing blends into the surface. The editor fills the pane
+         width and grows with its content (JS sets height from scrollHeight),
+         with a few-row floor so a new note has room. */
+      .note-body {
+        background: var(--term-bg);
+      }
+      .note-pre, .note-edit {
+        display: block;
+        width: 100%;
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0.25rem 0.6rem;
+        background: var(--term-bg);
+        color: var(--term-fg);
+        font-family: var(--term-font);
+        font-size: 14px;
+        line-height: var(--cell-h);
+        white-space: pre-wrap;
+        word-break: break-word;
+        min-height: calc(var(--cell-h) * 3);
+      }
+      .note-edit {
+        border: 0;
+        outline: none;
+        resize: none;
+        overflow: hidden;
+      }
+      /* Content previews: images, read-only text, file links. */
+      .clip-media {
+        padding: 0.4rem 0.6rem;
+        background: var(--term-bg);
+      }
+      .clip-img {
+        display: block;
+        max-width: 100%;
+        height: auto;
+        border-radius: 3px;
+      }
+      .clip-file {
+        color: var(--sel-fg);
+      }
+      .clip-pre {
+        margin: 0;
+        padding: 0.25rem 0.6rem;
+        background: var(--term-bg);
+        color: var(--term-fg);
+        font-family: var(--term-font);
+        font-size: 14px;
+        line-height: var(--cell-h);
+        white-space: pre-wrap;
+        word-break: break-word;
+        max-height: 30rem;
+        overflow: auto;
+      }
+      /* Embed (live iframe) clips. */
+      .clip-embed-wrap {
+        display: flex;
+        flex-direction: column;
+        background: var(--term-bg);
+      }
+      .embed-bar {
+        display: flex;
+        gap: 0.5ch;
+        align-items: center;
+        padding: 0.2rem 0.5rem;
+        font-size: 11px;
+        color: var(--dim);
+        border-bottom: 1px solid var(--pane-border);
+      }
+      .embed-url {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--dim);
+        text-decoration: none;
+      }
+      .embed-url:hover {
+        color: var(--fg);
+      }
+      .clip-embed {
+        width: 100%;
+        height: 40rem;
+        border: 0;
+        background: #fff;
+      }
+      .mini-btn {
+        background: transparent;
+        color: var(--dim);
+        border: 1px solid var(--pane-border);
+        border-radius: 3px;
+        padding: 0 0.5ch;
+        font: inherit;
+        font-size: 11px;
+        cursor: pointer;
+      }
+      .mini-btn:hover {
+        background: #222;
+        color: var(--fg);
+      }
+      .note-actions {
+        padding: 0.25rem 0.6rem;
+      }
+      /* The active (selected) pane is highlighted. In navigate mode every pane
+         is dimmed (read-only); focus mode lights the active one fully. */
+      .pane.active {
+        border-color: var(--sel-blur);
+      }
+      body.mode-focus .pane.active {
+        border-color: var(--sel);
+      }
+      body.mode-navigate .pane {
+        opacity: 0.3;
+      }
+      body.mode-navigate .pane.active {
+        opacity: 0.55;
+      }
+      body.mode-focus .pane {
+        opacity: 0.4;
+      }
+      body.mode-focus .pane.active {
+        opacity: 1;
+      }
+      .mode-badge {
+        margin-left: auto;
+        font-size: 11px;
+        color: var(--dim);
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+      body.mode-focus .mode-badge {
+        color: var(--sel);
+      }
+      .rightbar {
+        background: var(--chrome);
+      }
+      .statusbar {
+        grid-column: 1 / -1; /* span stacks + clips + main */
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.4rem 1rem;
+        background: var(--chrome);
+        color: var(--fg);
+        border-top: 1px solid var(--pane-border);
+        font-size: 11px;
+        line-height: 1;
+        font-family: var(--term-font);
+      }
+      .status-keys {
+        display: flex;
+        gap: 0.4rem;
+        align-items: center;
+      }
+      .status-mode {
+        background: transparent;
+        border: 0;
+        font: inherit;
+        cursor: pointer;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--dim);
+        padding: 0.1rem 0.4rem;
+        border-radius: 3px;
+      }
+      .status-mode:hover {
+        background: #222;
+        color: var(--fg);
+      }
+      body.mode-focus .status-mode {
+        color: var(--sel);
+      }
+      .mode-hint {
+        display: inline-flex;
+        gap: 0.2ch;
+        opacity: 0.55;
+      }
+      .status-meta {
+        display: flex;
+        gap: 0.75rem;
+        align-items: center;
+      }
+      /* Trailing key-hint cluster pushed to the right of a clip-actions row. */
+      .row-keys {
+        margin-left: auto;
+        display: inline-flex;
+        gap: 0.2ch;
+        opacity: 0.8;
+      }
 
-    /* Rename modal. */
-    .modal-backdrop {
-      position: fixed; inset: 0; z-index: 1000;
-      background: rgba(0, 0, 0, 0.45);
-      display: flex; align-items: flex-start; justify-content: center;
-      padding-top: 6rem;
-    }
-    .modal-box {
-      width: min(28rem, 90%);
-      background: var(--pane);
-      border: 1px solid var(--pane-border);
-      border-radius: 4px;
-      padding: .75rem 1rem;
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
-    }
-    .modal-heading {
-      font-size: 11px; letter-spacing: .04em; text-transform: uppercase;
-      color: var(--dim); margin-bottom: .35rem;
-    }
-    .modal-input {
-      width: 100%; background: transparent; border: 0; outline: none;
-      color: var(--fg); font: inherit; font-size: 14px;
-      padding: .25rem 0;
-    }
+      /* Rename modal. */
+      .modal-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+        background: rgba(0, 0, 0, 0.45);
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        padding-top: 6rem;
+      }
+      .modal-box {
+        width: min(28rem, 90%);
+        background: var(--pane);
+        border: 1px solid var(--pane-border);
+        border-radius: 4px;
+        padding: 0.75rem 1rem;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+      }
+      .modal-heading {
+        font-size: 11px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--dim);
+        margin-bottom: 0.35rem;
+      }
+      .modal-input {
+        width: 100%;
+        background: transparent;
+        border: 0;
+        outline: none;
+        color: var(--fg);
+        font: inherit;
+        font-size: 14px;
+        padding: 0.25rem 0;
+      }
 
-    /* New-clip picker. A cross-clip concept, so it descends from the top bar
-       (top-right), not the bottom status bar. The panel shares the bar's
-       --chrome colour and rounds only its bottom corners, so it reads as
-       extending out of the bar. We will grow this bar toward ~/stacks. */
-    /* New picker and Theme picker both drop from the top bar (top-right). */
-    .picker-backdrop, .theme-backdrop {
-      position: fixed; inset: 0; z-index: 1000;
-      display: flex; align-items: flex-start; justify-content: flex-end;
-      padding: 1.5rem .75rem 0 0;
-      background: transparent;
-    }
-    /* Stacks switcher drops from the top-left breadcrumb instead. */
-    .stack-backdrop {
-      position: fixed; inset: 0; z-index: 1000;
-      display: flex; align-items: flex-start; justify-content: flex-start;
-      padding: 1.5rem 0 0 .5rem;
-      background: transparent;
-    }
-    .picker-panel, .theme-panel, .stack-panel {
-      min-width: 13rem;
-      background: var(--chrome);
-      border: 1px solid var(--pane-border);
-      border-top: 0;
-      border-radius: 0 0 5px 5px;
-      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55);
-      overflow: hidden;
-    }
-    /* Breadcrumb sits a touch brighter than the other bar chips -- it's context,
-       not an action; ellipsize a long stack name. */
-    .stack-crumb { color: var(--fg); max-width: 22ch; overflow: hidden; }
-    .stack-crumb span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .picker-heading {
-      padding: .3rem .75rem;
-      font-size: 11px; letter-spacing: .04em; text-transform: uppercase;
-      color: var(--dim); border-bottom: 1px solid var(--pane-border);
-    }
-    .picker-row {
-      display: flex; align-items: center; width: 100%;
-      text-align: left; background: transparent; color: var(--fg);
-      border: 0; padding: .4rem .75rem; font: inherit; cursor: pointer;
-    }
-    /* Keyboard (.sel) and mouse (:hover) share one highlight. */
-    .picker-row:hover, .picker-row.sel { background: var(--sel-blur); color: var(--sel-fg); }
-    /* The currently-applied theme: a trailing check. */
-    .picker-row.active { color: var(--sel); }
-    .picker-row.active::after { content: "\2713"; margin-left: auto; }
+      /* New-clip picker. A cross-clip concept, so it descends from the top bar
+         (top-right), not the bottom status bar. The panel shares the bar's
+         --chrome colour and rounds only its bottom corners, so it reads as
+         extending out of the bar. We will grow this bar toward ~/stacks. */
+      /* New picker and Theme picker both drop from the top bar (top-right). */
+      .picker-backdrop, .theme-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+        display: flex;
+        align-items: flex-start;
+        justify-content: flex-end;
+        padding: 1.5rem 0.75rem 0 0;
+        background: transparent;
+      }
+      /* Stacks switcher drops from the top-left breadcrumb instead. */
+      .stack-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+        display: flex;
+        align-items: flex-start;
+        justify-content: flex-start;
+        padding: 1.5rem 0 0 0.5rem;
+        background: transparent;
+      }
+      .picker-panel, .theme-panel, .stack-panel {
+        min-width: 13rem;
+        background: var(--chrome);
+        border: 1px solid var(--pane-border);
+        border-top: 0;
+        border-radius: 0 0 5px 5px;
+        box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55);
+        overflow: hidden;
+      }
+      /* Breadcrumb sits a touch brighter than the other bar chips -- it's context,
+         not an action; ellipsize a long stack name. */
+      .stack-crumb {
+        color: var(--fg);
+        max-width: 22ch;
+        overflow: hidden;
+      }
+      .stack-crumb span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .picker-heading {
+        padding: 0.3rem 0.75rem;
+        font-size: 11px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--dim);
+        border-bottom: 1px solid var(--pane-border);
+      }
+      .picker-row {
+        display: flex;
+        align-items: center;
+        width: 100%;
+        text-align: left;
+        background: transparent;
+        color: var(--fg);
+        border: 0;
+        padding: 0.4rem 0.75rem;
+        font: inherit;
+        cursor: pointer;
+      }
+      /* Keyboard (.sel) and mouse (:hover) share one highlight. */
+      .picker-row:hover, .picker-row.sel {
+        background: var(--sel-blur);
+        color: var(--sel-fg);
+      }
+      /* The currently-applied theme: a trailing check. */
+      .picker-row.active {
+        color: var(--sel);
+      }
+      .picker-row.active::after {
+        content: "\2713";
+        margin-left: auto;
+      }
 
-    /* Clip-actions panel. Acts on the current clip, so it rises out of the
-       bottom-right status bar (rounded top corners, shadow upward) -- the
-       mirror of the top New picker. Reuses .picker-row / .picker-heading. */
-    .actions-backdrop {
-      position: fixed; inset: 0; z-index: 1000;
-      display: flex; align-items: flex-end; justify-content: flex-end;
-      padding: 0 .75rem 2.2rem 0;
-      background: transparent;
-    }
-    .actions-panel {
-      min-width: 13rem;
-      background: var(--chrome);
-      border: 1px solid var(--pane-border);
-      border-bottom: 0;
-      border-radius: 5px 5px 0 0;
-      box-shadow: 0 -10px 28px rgba(0, 0, 0, 0.55);
-      overflow: hidden;
-    }
-  </style>
-</head>
-<body
-  data-signals='{"selectedSid":"","selectedStack":"","connId":"","sid":"","sel":"","termCols":0,"termRows":0,"termTitle":"","focusedDims":"","title":{{ title | default("") | tojson | e }},"docReady":false,"picking":false,"acting":false,"themePicking":false,"theme":"default","stackPicking":false,"stackName":"","renaming":false,"renameMode":"title","renameStackId":"","draft":"","label":"","noteEditing":"","docOrder":"[]","docLayout":"flow"}'
-  data-attr:data-theme="$theme"
-  data-init="@get('/sse')"
-  data-effect="document.title = $title || 'ghostty-web-nu sessions'"
-  data-class:nav-collapsed="$docLayout === 'niri'"
-  data-actions='{
+      /* Clip-actions panel. Acts on the current clip, so it rises out of the
+         bottom-right status bar (rounded top corners, shadow upward) -- the
+         mirror of the top New picker. Reuses .picker-row / .picker-heading. */
+      .actions-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+        display: flex;
+        align-items: flex-end;
+        justify-content: flex-end;
+        padding: 0 0.75rem 2.2rem 0;
+        background: transparent;
+      }
+      .actions-panel {
+        min-width: 13rem;
+        background: var(--chrome);
+        border: 1px solid var(--pane-border);
+        border-bottom: 0;
+        border-radius: 5px 5px 0 0;
+        box-shadow: 0 -10px 28px rgba(0, 0, 0, 0.55);
+        overflow: hidden;
+      }
+    </style>
+  </head>
+  <body
+    data-signals='{"selectedSid":"","selectedStack":"","connId":"","sid":"","sel":"","termCols":0,"termRows":0,"termTitle":"","focusedDims":"","title":{{ title | default("") | tojson | e }},"docReady":false,"picking":false,"acting":false,"themePicking":false,"theme":"default","stackPicking":false,"stackName":"","renaming":false,"renameMode":"title","renameStackId":"","draft":"","label":"","noteEditing":"","docOrder":"[]","docLayout":"flow"}'
+    data-attr:data-theme="$theme"
+    data-init="@get('/sse')"
+    data-effect="document.title = $title || 'ghostty-web-nu sessions'"
+    data-class:nav-collapsed="$docLayout === 'niri'"
+    data-actions='{
     "new":       "window.app.newSession()",
     "close":     "window.app.closeSelected()",
     "next":      "window.app.cycle(1)",
@@ -285,7 +701,7 @@
     "nextStack": "window.app.cycleStack(1)",
     "openStacks": "window.app.openStacks()"
   }'
-  data-keymap='{
+    data-keymap='{
     "alt+t": "new",
     "alt+d": "close",
     "alt+j": "next",
@@ -301,746 +717,1221 @@
     "alt+]": "nextStack",
     "alt+\\": "openStacks"
   }'
->
-  <!-- Three-pane: stacks | clips | content (#doc). Server overwrites the two
+  >
+    <!-- Three-pane: stacks | clips | content (#doc). Server overwrites the two
        asides on every event. -->
-  <aside id="stacks-list"><header>Stacks</header></aside>
-  <aside id="clips-list"><header>Clips</header></aside>
+    <aside id="stacks-list"><header>Stacks</header></aside>
+    <aside id="clips-list"><header>Clips</header></aside>
 
-  <main>
-    <!-- Top bar: cross-clip + context. Stack breadcrumb + window title on the
+    <main>
+      <!-- Top bar: cross-clip + context. Stack breadcrumb + window title on the
          left; stack-level toggles and the New-clip entry on the right. The
          breadcrumb shows the current stack (gone from the rail in niri) and is
          the visible handle for the top-left Stacks switcher. New is the handle
          for the top-right picker. -->
-    <div class="topbar">
-      <button class="bar-btn stack-crumb" type="button" title="Switch stack (Alt+\ ; cycle Alt+[ / Alt+])" data-on:click="$stackPicking = true">
-        <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m6.08 9.5-3.49 1.59a1 1 0 0 0 0 1.81l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9a1 1 0 0 0 0-1.83l-3.49-1.59"/></svg>
-        <span data-text="$stackName || 'stack'"></span>
-      </button>
-      <button
-        class="title-display"
-        type="button"
-        title="Rename window (Alt+Shift+R)"
-        data-text="$title || 'untitled'"
-        data-on:click="$draft = $title; $renameMode = 'title'; $renaming = true"></button>
-      <span class="topbar-spacer"></span>
-      <button class="bar-btn" type="button" title="Sort clips (Alt+S)" aria-label="Sort clips" data-on:click="window.app.toggleSort()">
-        <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 16 4 4 4-4"/><path d="M7 20V4"/><path d="m21 8-4-4-4 4"/><path d="M17 4v16"/></svg>
-        <kbd>Alt</kbd><kbd>S</kbd>
-      </button>
-      <button class="bar-btn" type="button" title="Layout flow/niri (Alt+L)" aria-label="Layout" data-on:click="window.app.toggleLayout()">
-        <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M12 3v18"/></svg>
-        <kbd>Alt</kbd><kbd>L</kbd>
-      </button>
-      <button class="bar-btn" type="button" title="Theme" aria-label="Theme" data-on:click="$themePicking = true">
-        <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.563-2.512 5.563-5.563C22 6.012 17.51 2 12 2z"/></svg>
-      </button>
-      <button class="bar-btn bar-btn-primary" type="button" title="New clip (Alt+T)" data-on:click="$picking = true">
-        <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
-        New <kbd>Alt</kbd><kbd>T</kbd>
-      </button>
-    </div>
-    <!-- Continuous document of session panes. The server fills #doc on init
+      <div class="topbar">
+        <button
+          class="bar-btn stack-crumb"
+          type="button"
+          title="Switch stack (Alt+\ ; cycle Alt+[ / Alt+])"
+          data-on:click="$stackPicking = true"
+        >
+          <svg
+            class="icon"
+            xmlns="http://www.w3.org/2000/svg"
+            width="1em"
+            height="1em"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path
+              d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"
+            />
+            <path
+              d="m6.08 9.5-3.49 1.59a1 1 0 0 0 0 1.81l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9a1 1 0 0 0 0-1.83l-3.49-1.59"
+            />
+          </svg>
+          <span data-text="$stackName || 'stack'"></span>
+        </button>
+        <button
+          class="title-display"
+          type="button"
+          title="Rename window (Alt+Shift+R)"
+          data-text="$title || 'untitled'"
+          data-on:click="$draft = $title; $renameMode = 'title'; $renaming = true"
+        >
+        </button>
+        <span class="topbar-spacer"></span>
+        <button
+          class="bar-btn"
+          type="button"
+          title="Sort clips (Alt+S)"
+          aria-label="Sort clips"
+          data-on:click="window.app.toggleSort()"
+        >
+          <svg
+            class="icon"
+            xmlns="http://www.w3.org/2000/svg"
+            width="1em"
+            height="1em"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="m3 16 4 4 4-4" />
+            <path d="M7 20V4" />
+            <path d="m21 8-4-4-4 4" />
+            <path d="M17 4v16" />
+          </svg>
+          <kbd>Alt</kbd><kbd>S</kbd>
+        </button>
+        <button
+          class="bar-btn"
+          type="button"
+          title="Layout flow/niri (Alt+L)"
+          aria-label="Layout"
+          data-on:click="window.app.toggleLayout()"
+        >
+          <svg
+            class="icon"
+            xmlns="http://www.w3.org/2000/svg"
+            width="1em"
+            height="1em"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <rect width="18" height="18" x="3" y="3" rx="2" />
+            <path d="M12 3v18" />
+          </svg>
+          <kbd>Alt</kbd><kbd>L</kbd>
+        </button>
+        <button
+          class="bar-btn"
+          type="button"
+          title="Theme"
+          aria-label="Theme"
+          data-on:click="$themePicking = true"
+        >
+          <svg
+            class="icon"
+            xmlns="http://www.w3.org/2000/svg"
+            width="1em"
+            height="1em"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <circle cx="13.5" cy="6.5" r=".5" fill="currentColor" />
+            <circle cx="17.5" cy="10.5" r=".5" fill="currentColor" />
+            <circle cx="8.5" cy="7.5" r=".5" fill="currentColor" />
+            <circle cx="6.5" cy="12.5" r=".5" fill="currentColor" />
+            <path
+              d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.563-2.512 5.563-5.563C22 6.012 17.51 2 12 2z"
+            />
+          </svg>
+        </button>
+        <button
+          class="bar-btn bar-btn-primary"
+          type="button"
+          title="New clip (Alt+T)"
+          data-on:click="$picking = true"
+        >
+          <svg
+            class="icon"
+            xmlns="http://www.w3.org/2000/svg"
+            width="1em"
+            height="1em"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M5 12h14" />
+            <path d="M12 5v14" />
+          </svg>
+          New <kbd>Alt</kbd><kbd>T</kbd>
+        </button>
+      </div>
+      <!-- Continuous document of session panes. The server fills #doc on init
          and appends/removes panes as sessions come and go; each pane opens
          its own view stream and mounts terminal.js. Selection highlight is
          reactive via data-class on $selectedSid. -->
-    <div id="doc" class="doc"></div>
-  </main>
+      <div id="doc" class="doc"></div>
+    </main>
 
-  <!-- Scroll the active pane into view (stacks-style offset) whenever the
+    <!-- Scroll the active pane into view (stacks-style offset) whenever the
        selection changes. Lives in the static shell so the server never
        morphs it away; data-effect fires on $selectedSid change. -->
-  <!-- Lead with a bare $selectedSid read so Datastar registers it as a
+    <!-- Lead with a bare $selectedSid read so Datastar registers it as a
        dependency even on the first eval, when the deferred module hasn't
        defined window.__onSelect yet (a `&&` guard would short-circuit
        before $selectedSid is read, and the effect would never re-run). -->
-  <div data-effect="$selectedSid; window.__onSelect && window.__onSelect($selectedSid)" style="display:none"></div>
-  <!-- Mirror the selected stack id to JS so the (non-datastar) paste handler
+    <div
+      data-effect="$selectedSid; window.__onSelect && window.__onSelect($selectedSid)"
+      style="display: none"
+    >
+    </div>
+    <!-- Mirror the selected stack id to JS so the (non-datastar) paste handler
        can target the current stack when adding an image clip. -->
-  <div data-effect="window.__selectedStack = $selectedStack" style="display:none"></div>
-  <!-- Apply the server's docOrder by relocating existing #doc panes (moving a
+    <div
+      data-effect="window.__selectedStack = $selectedStack"
+      style="display: none"
+    >
+    </div>
+    <!-- Apply the server's docOrder by relocating existing #doc panes (moving a
        DOM node preserves its live terminal grid + stream). -->
-  <div data-effect="$docOrder; window.__applyDocOrder && window.__applyDocOrder($docOrder)" style="display:none"></div>
-  <!-- Layout flip: resize terminals to fill (niri) or constant rows (flow).
+    <div
+      data-effect="$docOrder; window.__applyDocOrder && window.__applyDocOrder($docOrder)"
+      style="display: none"
+    >
+    </div>
+    <!-- Layout flip: resize terminals to fill (niri) or constant rows (flow).
        Lead with a bare $docLayout read so datastar registers it as a dependency
        on first eval (the `&&` would short-circuit before re-reading it). -->
-  <div data-effect="$docLayout; window.__applyLayout && window.__applyLayout($docLayout)" style="display:none"></div>
-  <!-- Patch the picker's key handler in and out on the $picking edge. The
+    <div
+      data-effect="$docLayout; window.__applyLayout && window.__applyLayout($docLayout)"
+      style="display: none"
+    >
+    </div>
+    <!-- Patch the picker's key handler in and out on the $picking edge. The
        picker node is static (toggled by data-show), so this stands in for the
        morph-driven mount/self-clean that an action panel gets for free. Lead
        with a bare $picking read so datastar registers the dependency even
        before the deferred module defines __syncPicker. -->
-  <div data-effect="$picking; window.__syncPicker && window.__syncPicker($picking)" style="display:none"></div>
-  <!-- Same edge-patch for the clip-actions panel ($acting). -->
-  <div data-effect="$acting; window.__syncActions && window.__syncActions($acting)" style="display:none"></div>
-  <!-- Same edge-patch for the theme picker ($themePicking). -->
-  <div data-effect="$themePicking; window.__syncTheme && window.__syncTheme($themePicking)" style="display:none"></div>
-  <!-- Same edge-patch for the stacks switcher ($stackPicking). -->
-  <div data-effect="$stackPicking; window.__syncStacks && window.__syncStacks($stackPicking)" style="display:none"></div>
+    <div
+      data-effect="$picking; window.__syncPicker && window.__syncPicker($picking)"
+      style="display: none"
+    >
+    </div>
+    <!-- Same edge-patch for the clip-actions panel ($acting). -->
+    <div
+      data-effect="$acting; window.__syncActions && window.__syncActions($acting)"
+      style="display: none"
+    >
+    </div>
+    <!-- Same edge-patch for the theme picker ($themePicking). -->
+    <div
+      data-effect="$themePicking; window.__syncTheme && window.__syncTheme($themePicking)"
+      style="display: none"
+    >
+    </div>
+    <!-- Same edge-patch for the stacks switcher ($stackPicking). -->
+    <div
+      data-effect="$stackPicking; window.__syncStacks && window.__syncStacks($stackPicking)"
+      style="display: none"
+    >
+    </div>
 
-  <!-- Status bar spans the full window width (under the rails too), so it is a
+    <!-- Status bar spans the full window width (under the rails too), so it is a
        body-level row. Mode + current-clip surface: the MODE
        label on the left toggles focus; dims and the Actions handle (the
        bottom-right clip-actions panel) on the right. -->
-  <footer class="statusbar" aria-label="Status">
-    <span class="status-keys">
-      <button class="status-mode" id="status-mode" type="button" title="Toggle focus (mod+Enter)" data-on:click="window.app.toggleFocus()">navigate</button>
-      <span class="mode-hint"><kbd class="kbd-mod">Ctrl</kbd><kbd>Enter</kbd></span>
-    </span>
-    <span class="status-meta">
-      <span data-text="$focusedDims"></span>
-      <span data-text="$selectedSid ? ('sid ' + $selectedSid.slice(0,8)) : ''" style="opacity:.5;"></span>
-      <button class="bar-btn" type="button" title="Clip actions (mod+K)" data-on:click="window.app.openActions()">
-        Actions <kbd class="kbd-mod">Ctrl</kbd><kbd>K</kbd>
-      </button>
-    </span>
-  </footer>
+    <footer class="statusbar" aria-label="Status">
+      <span class="status-keys">
+        <button
+          class="status-mode"
+          id="status-mode"
+          type="button"
+          title="Toggle focus (mod+Enter)"
+          data-on:click="window.app.toggleFocus()"
+        >
+          navigate
+        </button>
+        <span class="mode-hint"><kbd class="kbd-mod">Ctrl</kbd><kbd
+          >Enter</kbd></span>
+      </span>
+      <span class="status-meta">
+        <span data-text="$focusedDims"></span>
+        <span
+          data-text="$selectedSid ? ('sid ' + $selectedSid.slice(0,8)) : ''"
+          style="opacity: 0.5"
+        ></span>
+        <button
+          class="bar-btn"
+          type="button"
+          title="Clip actions (mod+K)"
+          data-on:click="window.app.openActions()"
+        >
+          Actions <kbd class="kbd-mod">Ctrl</kbd><kbd>K</kbd>
+        </button>
+      </span>
+    </footer>
 
-  <!-- Hidden trigger so the JS-only Alt+R action can seed signals through
+    <!-- Hidden trigger so the JS-only Alt+R action can seed signals through
        datastar's expression evaluator. `$label` is kept in sync server-side
        with the selected clip's display label (label-of in serve.nu); the
        click just copies that into the rename modal's draft input. -->
-  <button
-    id="rename-tab-trigger"
-    type="button"
-    hidden
-    data-on:click="$draft = $label; $renameMode = 'tab'; $renaming = true"></button>
+    <button
+      id="rename-tab-trigger"
+      type="button"
+      hidden
+      data-on:click="$draft = $label; $renameMode = 'tab'; $renaming = true"
+    >
+    </button>
 
-  <!-- Rename modal. -->
-  <div class="modal-backdrop" data-show="$renaming" data-on:click="$renaming = false">
-    <div class="modal-box" data-on:click="evt.stopPropagation()">
-      <div class="modal-heading" data-text="$renameMode === 'tab' ? 'Rename clip' : ($renameMode === 'stack' ? 'Rename stack' : 'Rename window')"></div>
-      <input
-        type="text"
-        class="modal-input"
-        spellcheck="false"
-        aria-label="rename"
-        data-bind="draft"
-        data-effect="$renaming && requestAnimationFrame(() => { el.focus(); el.setSelectionRange(0, el.value.length); })"
-        data-on:keydown="if (evt.key === 'Enter') { if ($renameMode === 'tab') { $label = $draft; $renaming = false; @post('/pty/label') } else if ($renameMode === 'stack') { $renaming = false; @post('/stack/rename') } else { $title = $draft; $renaming = false; @post('/title') } } else if (evt.key === 'Escape') { $renaming = false }">
+    <!-- Rename modal. -->
+    <div
+      class="modal-backdrop"
+      data-show="$renaming"
+      data-on:click="$renaming = false"
+    >
+      <div class="modal-box" data-on:click="evt.stopPropagation()">
+        <div
+          class="modal-heading"
+          data-text="$renameMode === 'tab' ? 'Rename clip' : ($renameMode === 'stack' ? 'Rename stack' : 'Rename window')"
+        >
+        </div>
+        <input
+          type="text"
+          class="modal-input"
+          spellcheck="false"
+          aria-label="rename"
+          data-bind="draft"
+          data-effect="$renaming && requestAnimationFrame(() => { el.focus(); el.setSelectionRange(0, el.value.length); })"
+          data-on:keydown="if (evt.key === 'Enter') { if ($renameMode === 'tab') { $label = $draft; $renaming = false; @post('/pty/label') } else if ($renameMode === 'stack') { $renaming = false; @post('/stack/rename') } else { $title = $draft; $renaming = false; @post('/title') } } else if (evt.key === 'Escape') { $renaming = false }"
+        >
+      </div>
     </div>
-  </div>
 
-  <!-- New-clip type picker (Alt+T / the + button). A cross-clip concept, so it
+    <!-- New-clip type picker (Alt+T / the + button). A cross-clip concept, so it
        drops from the top bar (top-right), not the bottom status bar. Terminal
        spawns a pty clip; Note creates a CAS text clip you land in to edit.
        Keyboard quick-select is wired by __syncPicker on the $picking edge:
        Ctrl-n/Ctrl-p or Down/Up move, Enter chooses, Esc closes. -->
-  <div class="picker-backdrop" data-show="$picking" data-on:click="$picking = false">
-    <div class="picker-panel" data-on:click="evt.stopPropagation()">
-      <div class="picker-heading">New clip</div>
-      <button type="button" class="picker-row" data-on:click="$picking = false; @post('/clip/new?type=terminal')">
-        <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 11 2-2-2-2"/><path d="M11 13h4"/><rect width="18" height="18" x="3" y="3" rx="2"/></svg> Terminal
-      </button>
-      <button type="button" class="picker-row" data-on:click="$picking = false; @post('/clip/new?type=note')">
-        <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg> Note
-      </button>
+    <div
+      class="picker-backdrop"
+      data-show="$picking"
+      data-on:click="$picking = false"
+    >
+      <div class="picker-panel" data-on:click="evt.stopPropagation()">
+        <div class="picker-heading">New clip</div>
+        <button
+          type="button"
+          class="picker-row"
+          data-on:click="$picking = false; @post('/clip/new?type=terminal')"
+        >
+          <svg
+            class="icon"
+            xmlns="http://www.w3.org/2000/svg"
+            width="1em"
+            height="1em"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="m7 11 2-2-2-2" />
+            <path d="M11 13h4" />
+            <rect width="18" height="18" x="3" y="3" rx="2" />
+          </svg> Terminal
+        </button>
+        <button
+          type="button"
+          class="picker-row"
+          data-on:click="$picking = false; @post('/clip/new?type=note')"
+        >
+          <svg
+            class="icon"
+            xmlns="http://www.w3.org/2000/svg"
+            width="1em"
+            height="1em"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path
+              d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"
+            />
+            <path d="M14 2v4a2 2 0 0 0 2 2h4" />
+            <path d="M10 9H8" />
+            <path d="M16 13H8" />
+            <path d="M16 17H8" />
+          </svg> Note
+        </button>
+      </div>
     </div>
-  </div>
 
-  <!-- Theme picker (the Theme button in the top bar). A workspace-appearance
+    <!-- Theme picker (the Theme button in the top bar). A workspace-appearance
        concept, so it drops from the top-right like New. Each row sets $theme;
        data-attr:data-theme on <body> recolors the terminal live via the CSS
        vars (grid.css). In-memory: resets to default on refresh. Keyboard
        quick-select via __syncTheme on the $themePicking edge. -->
-  <div class="theme-backdrop" data-show="$themePicking" data-on:click="$themePicking = false">
-    <div class="theme-panel" data-on:click="evt.stopPropagation()">
-      <div class="picker-heading">Theme</div>
-      <button type="button" class="picker-row" data-class:active="$theme === 'default'" data-on:click="$theme = 'default'; $themePicking = false">Default</button>
-      <button type="button" class="picker-row" data-class:active="$theme === 'nord'" data-on:click="$theme = 'nord'; $themePicking = false">Nord</button>
-      <button type="button" class="picker-row" data-class:active="$theme === 'solarized-dark'" data-on:click="$theme = 'solarized-dark'; $themePicking = false">Solarized Dark</button>
-      <button type="button" class="picker-row" data-class:active="$theme === 'solarized-light'" data-on:click="$theme = 'solarized-light'; $themePicking = false">Solarized Light</button>
-      <button type="button" class="picker-row" data-class:active="$theme === 'railscasts'" data-on:click="$theme = 'railscasts'; $themePicking = false">Railscasts</button>
+    <div
+      class="theme-backdrop"
+      data-show="$themePicking"
+      data-on:click="$themePicking = false"
+    >
+      <div class="theme-panel" data-on:click="evt.stopPropagation()">
+        <div class="picker-heading">Theme</div>
+        <button
+          type="button"
+          class="picker-row"
+          data-class:active="$theme === 'default'"
+          data-on:click="$theme = 'default'; $themePicking = false"
+        >
+          Default
+        </button>
+        <button
+          type="button"
+          class="picker-row"
+          data-class:active="$theme === 'nord'"
+          data-on:click="$theme = 'nord'; $themePicking = false"
+        >
+          Nord
+        </button>
+        <button
+          type="button"
+          class="picker-row"
+          data-class:active="$theme === 'solarized-dark'"
+          data-on:click="$theme = 'solarized-dark'; $themePicking = false"
+        >
+          Solarized Dark
+        </button>
+        <button
+          type="button"
+          class="picker-row"
+          data-class:active="$theme === 'solarized-light'"
+          data-on:click="$theme = 'solarized-light'; $themePicking = false"
+        >
+          Solarized Light
+        </button>
+        <button
+          type="button"
+          class="picker-row"
+          data-class:active="$theme === 'railscasts'"
+          data-on:click="$theme = 'railscasts'; $themePicking = false"
+        >
+          Railscasts
+        </button>
+      </div>
     </div>
-  </div>
 
-  <!-- Stacks switcher (top-left breadcrumb / Alt+[ ]). Switch or create stacks;
+    <!-- Stacks switcher (top-left breadcrumb / Alt+[ ]). Switch or create stacks;
        the rail is hidden in niri, so this is how you navigate stacks there. The
        server fills #stack-switcher with the live stack rows (current one marked
        active) + a New stack row. Keyboard quick-select via __syncStacks. -->
-  <div class="stack-backdrop" data-show="$stackPicking" data-on:click="$stackPicking = false">
-    <div class="stack-panel" data-on:click="evt.stopPropagation()">
-      <div class="picker-heading">Stacks</div>
-      <div id="stack-switcher"></div>
+    <div
+      class="stack-backdrop"
+      data-show="$stackPicking"
+      data-on:click="$stackPicking = false"
+    >
+      <div class="stack-panel" data-on:click="evt.stopPropagation()">
+        <div class="picker-heading">Stacks</div>
+        <div id="stack-switcher"></div>
+      </div>
     </div>
-  </div>
 
-  <!-- Clip-actions panel (mod+K / the Actions status handle). Acts on the
+    <!-- Clip-actions panel (mod+K / the Actions status handle). Acts on the
        current clip, so it rises from the bottom-right status bar and holds all
        the per-clip chords -- Rename, Move, Height, Close -- which used to
        clutter the status bar. Each keeps its Alt-chord for speed; the panel
        just makes them discoverable. Keyboard quick-select via __syncActions on
        the $acting edge. -->
-  <div class="actions-backdrop" data-show="$acting" data-on:click="$acting = false">
-    <div class="actions-panel" data-on:click="evt.stopPropagation()">
-      <div class="picker-heading">Clip</div>
-      <button type="button" class="picker-row" data-on:click="$acting = false; window.app.openRenameTab()">
-        <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg> <span>Rename</span><span class="row-keys"><kbd>Alt</kbd><kbd>R</kbd></span>
-      </button>
-      <button type="button" class="picker-row" data-on:click="$acting = false; window.app.move('up')">
-        <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg> <span>Move up</span><span class="row-keys"><kbd>Alt</kbd><kbd>Shift</kbd><kbd>K</kbd></span>
-      </button>
-      <button type="button" class="picker-row" data-on:click="$acting = false; window.app.move('down')">
-        <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg> <span>Move down</span><span class="row-keys"><kbd>Alt</kbd><kbd>Shift</kbd><kbd>J</kbd></span>
-      </button>
-      <button type="button" class="picker-row" data-on:click="$acting = false; window.app.cycleHeight()">
-        <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21 16-4 4-4-4"/><path d="M17 20V4"/><path d="m3 8 4-4 4 4"/><path d="M7 4v16"/></svg> <span>Height</span><span class="row-keys"><kbd>Alt</kbd><kbd>O</kbd></span>
-      </button>
-      <button type="button" class="picker-row" data-on:click="$acting = false; window.app.closeSelected()">
-        <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg> <span>Close</span><span class="row-keys"><kbd>Alt</kbd><kbd>D</kbd></span>
-      </button>
+    <div
+      class="actions-backdrop"
+      data-show="$acting"
+      data-on:click="$acting = false"
+    >
+      <div class="actions-panel" data-on:click="evt.stopPropagation()">
+        <div class="picker-heading">Clip</div>
+        <button
+          type="button"
+          class="picker-row"
+          data-on:click="$acting = false; window.app.openRenameTab()"
+        >
+          <svg
+            class="icon"
+            xmlns="http://www.w3.org/2000/svg"
+            width="1em"
+            height="1em"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M12 20h9" />
+            <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
+          </svg> <span>Rename</span><span class="row-keys"><kbd>Alt</kbd><kbd
+            >R</kbd></span>
+        </button>
+        <button
+          type="button"
+          class="picker-row"
+          data-on:click="$acting = false; window.app.move('up')"
+        >
+          <svg
+            class="icon"
+            xmlns="http://www.w3.org/2000/svg"
+            width="1em"
+            height="1em"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="m5 12 7-7 7 7" />
+            <path d="M12 19V5" />
+          </svg> <span>Move up</span><span class="row-keys"><kbd>Alt</kbd><kbd
+            >Shift</kbd><kbd>K</kbd></span>
+        </button>
+        <button
+          type="button"
+          class="picker-row"
+          data-on:click="$acting = false; window.app.move('down')"
+        >
+          <svg
+            class="icon"
+            xmlns="http://www.w3.org/2000/svg"
+            width="1em"
+            height="1em"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M12 5v14" />
+            <path d="m19 12-7 7-7-7" />
+          </svg> <span>Move down</span><span class="row-keys"><kbd>Alt</kbd><kbd
+            >Shift</kbd><kbd>J</kbd></span>
+        </button>
+        <button
+          type="button"
+          class="picker-row"
+          data-on:click="$acting = false; window.app.cycleHeight()"
+        >
+          <svg
+            class="icon"
+            xmlns="http://www.w3.org/2000/svg"
+            width="1em"
+            height="1em"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="m21 16-4 4-4-4" />
+            <path d="M17 20V4" />
+            <path d="m3 8 4-4 4 4" />
+            <path d="M7 4v16" />
+          </svg> <span>Height</span><span class="row-keys"><kbd>Alt</kbd><kbd
+            >O</kbd></span>
+        </button>
+        <button
+          type="button"
+          class="picker-row"
+          data-on:click="$acting = false; window.app.closeSelected()"
+        >
+          <svg
+            class="icon"
+            xmlns="http://www.w3.org/2000/svg"
+            width="1em"
+            height="1em"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M18 6 6 18" />
+            <path d="m6 6 12 12" />
+          </svg> <span>Close</span><span class="row-keys"><kbd>Alt</kbd><kbd
+            >D</kbd></span>
+        </button>
+      </div>
     </div>
-  </div>
 
-  <!-- key-buffer's sid is set imperatively by __focusClip to the focused
+    <!-- key-buffer's sid is set imperatively by __focusClip to the focused
        terminal's pty sid (not the clip id), so no data-attr binding here. -->
-  <key-buffer></key-buffer>
+    <key-buffer></key-buffer>
 
-  <script type="module">
-    import { ensureTermFont, mountTerminal } from './terminal.js';
-    // mergePatch lets imperative code (focus/blur of the note editor) drive the
-    // same signal store the data-* attributes read. Re-importing the bundle is
-    // free -- ES modules are singletons, so this is the live store.
-    import { mergePatch } from '{{ datastar_js_path | safe }}';
-    await ensureTermFont();
+    <script type="module">
+      import { ensureTermFont, mountTerminal } from "./terminal.js";
+      // mergePatch lets imperative code (focus/blur of the note editor) drive the
+      // same signal store the data-* attributes read. Re-importing the bundle is
+      // free -- ES modules are singletons, so this is the live store.
+      import { mergePatch } from "{{ datastar_js_path | safe }}";
+      await ensureTermFont();
 
-    const doc = document.getElementById('doc');
-    const PANE_ROWS = 24;
-    // Current stack layout (mirrors the $docLayout signal). In flow each
-    // terminal is a constant PANE_ROWS tall; in niri its column is full-height,
-    // so terminals fill it (fixedRows = null -> rows from available height).
-    let currentLayout = 'flow';
-    const layoutRows = () => (currentLayout === 'niri' ? null : PANE_ROWS);
+      const doc = document.getElementById("doc");
+      const PANE_ROWS = 24;
+      // Current stack layout (mirrors the $docLayout signal). In flow each
+      // terminal is a constant PANE_ROWS tall; in niri its column is full-height,
+      // so terminals fill it (fixedRows = null -> rows from available height).
+      let currentLayout = "flow";
+      const layoutRows =
+        () => (currentLayout === "niri" ? null : PANE_ROWS);
 
-    // Panes are keyed by clip id. Terminal panes mount terminal.js on their
-    // live grid; note panes wire textarea<->pre editing. Both happen as the
-    // server appends panes; terminal handles are torn down on removal.
-    const mounted = new Map(); // clip id -> terminal handle
-    function mountTerminalPane(pane) {
-      const cid = pane.dataset.clip;
-      if (!cid || mounted.has(cid)) return;
-      const screen = pane.querySelector('.pane-screen');
-      const grid = pane.querySelector('[id^="grid-"]');
-      if (!screen || !grid) return; // [exited] placeholder has no grid
-      const sid = screen.dataset.sid;
-      const term = mountTerminal({
-        screen,
-        grid,
-        fixedRows: layoutRows(),
-        onResize: (cols, rows) => {
-          if (!sid) return;
-          fetch('/pty/resize?sid=' + encodeURIComponent(sid), {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ cols, rows }),
+      // Panes are keyed by clip id. Terminal panes mount terminal.js on their
+      // live grid; note panes wire textarea<->pre editing. Both happen as the
+      // server appends panes; terminal handles are torn down on removal.
+      const mounted = new Map(); // clip id -> terminal handle
+      function mountTerminalPane(pane) {
+        const cid = pane.dataset.clip;
+        if (!cid || mounted.has(cid)) return;
+        const screen = pane.querySelector(".pane-screen");
+        const grid = pane.querySelector('[id^="grid-"]');
+        if (!screen || !grid) return; // [exited] placeholder has no grid
+        const sid = screen.dataset.sid;
+        const term = mountTerminal({
+          screen,
+          grid,
+          fixedRows: layoutRows(),
+          onResize: (cols, rows) => {
+            if (!sid) return;
+            fetch("/pty/resize?sid=" + encodeURIComponent(sid), {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ cols, rows }),
+            }).catch(() => {});
+          },
+        });
+        mounted.set(cid, term);
+        term.syncNow();
+      }
+      // Size a note editor to its content height (CSS min-height is the floor).
+      function growNote(ta) {
+        ta.style.height = "auto";
+        ta.style.height = ta.scrollHeight + "px";
+      }
+      function wireNotePane(pane) {
+        // Mark via a JS property, not a data-* attribute: note panes re-render
+        // live now, and a morph would strip a marker attribute (the server
+        // doesn't emit it), re-wiring duplicate listeners on the next scan. A
+        // property rides along with the preserved node and the morph leaves it.
+        if (pane.__noteWired) return;
+        pane.__noteWired = true;
+        const cid = pane.dataset.clip;
+        const pre = pane.querySelector(".note-pre");
+        const ta = pane.querySelector(".note-edit");
+        if (!ta) return;
+        // Blur ends editing: clear $noteEditing (data-show reveals the <pre>),
+        // hide the editor, and persist (clip.update -> CAS). The <pre> text is
+        // mirrored optimistically so it doesn't flash the old body before the
+        // clip.update echo morphs it. The <pre>'s visibility is reactive, so we
+        // never touch its display here.
+        ta.addEventListener("blur", () => {
+          mergePatch({ noteEditing: "" });
+          ta.style.display = "none";
+          pre.textContent = ta.value;
+          fetch("/clip/update?clip=" + encodeURIComponent(cid), {
+            method: "POST",
+            headers: { "content-type": "text/plain" },
+            body: ta.value,
           }).catch(() => {});
-        },
-      });
-      mounted.set(cid, term);
-      term.syncNow();
-    }
-    // Size a note editor to its content height (CSS min-height is the floor).
-    function growNote(ta) {
-      ta.style.height = 'auto';
-      ta.style.height = ta.scrollHeight + 'px';
-    }
-    function wireNotePane(pane) {
-      // Mark via a JS property, not a data-* attribute: note panes re-render
-      // live now, and a morph would strip a marker attribute (the server
-      // doesn't emit it), re-wiring duplicate listeners on the next scan. A
-      // property rides along with the preserved node and the morph leaves it.
-      if (pane.__noteWired) return;
-      pane.__noteWired = true;
-      const cid = pane.dataset.clip;
-      const pre = pane.querySelector('.note-pre');
-      const ta = pane.querySelector('.note-edit');
-      if (!ta) return;
-      // Blur ends editing: clear $noteEditing (data-show reveals the <pre>),
-      // hide the editor, and persist (clip.update -> CAS). The <pre> text is
-      // mirrored optimistically so it doesn't flash the old body before the
-      // clip.update echo morphs it. The <pre>'s visibility is reactive, so we
-      // never touch its display here.
-      ta.addEventListener('blur', () => {
-        mergePatch({ noteEditing: '' });
-        ta.style.display = 'none';
-        pre.textContent = ta.value;
-        fetch('/clip/update?clip=' + encodeURIComponent(cid), {
-          method: 'POST', headers: { 'content-type': 'text/plain' }, body: ta.value,
+        });
+        // Grow the editor to fit its content so there is no inner scrollbar --
+        // the note flows with the document. __focusClip sizes it on show too.
+        ta.addEventListener("input", () => growNote(ta));
+        // Focus == editing this note: flag it so the <pre> hides reactively and
+        // a live morph leaves this clip's draft alone. Focus fires after the
+        // previous element's blur, so switching between notes resolves to the
+        // clip being entered, not the one being left.
+        ta.addEventListener("focus", () => {
+          mergePatch({ noteEditing: cid });
+        });
+        // A freshly created note arrives empty -- focus it (== edit it) straight
+        // away. __onSelect would do this too, but only in focus mode and only
+        // once $selectedSid arrives, which can race the pane's DOM append; the
+        // empty-body case is handled here deterministically on first wire. A
+        // reloaded note has a body, so it stays in display mode until selected.
+        if (ta.value === "") window.__focusClip(cid);
+      }
+      function scanPanes() {
+        doc.querySelectorAll(".pane").forEach((pane) => {
+          // data-render: 'terminal' mounts the grid, 'note' wires the editor,
+          // 'static' (image/file/html previews) needs no client mounting.
+          if (pane.dataset.render === "terminal") {
+            mountTerminalPane(pane);
+          } else if (pane.dataset.render === "note") wireNotePane(pane);
+        });
+        for (const cid of [...mounted.keys()]) {
+          if (!doc.querySelector("#pane-" + CSS.escape(cid))) {
+            mounted.delete(cid);
+          }
+        }
+      }
+      new MutationObserver(scanPanes).observe(doc, { childList: true });
+      scanPanes();
+
+      // Sidebar copy-sid button (delegated; rows are re-rendered by datastar).
+      document.addEventListener("click", (e) => {
+        const btn = e.target instanceof HTMLElement
+          ? e.target.closest(".copy")
+          : null;
+        if (!btn) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const sid = btn.dataset.sid || "";
+        if (!sid) return;
+        navigator.clipboard?.writeText(sid).then(() => {
+          btn.classList.add("copied");
+          setTimeout(() => btn.classList.remove("copied"), 600);
         }).catch(() => {});
       });
-      // Grow the editor to fit its content so there is no inner scrollbar --
-      // the note flows with the document. __focusClip sizes it on show too.
-      ta.addEventListener('input', () => growNote(ta));
-      // Focus == editing this note: flag it so the <pre> hides reactively and
-      // a live morph leaves this clip's draft alone. Focus fires after the
-      // previous element's blur, so switching between notes resolves to the
-      // clip being entered, not the one being left.
-      ta.addEventListener('focus', () => { mergePatch({ noteEditing: cid }); });
-      // A freshly created note arrives empty -- focus it (== edit it) straight
-      // away. __onSelect would do this too, but only in focus mode and only
-      // once $selectedSid arrives, which can race the pane's DOM append; the
-      // empty-body case is handled here deterministically on first wire. A
-      // reloaded note has a body, so it stays in display mode until selected.
-      if (ta.value === '') window.__focusClip(cid);
-    }
-    function scanPanes() {
-      doc.querySelectorAll('.pane').forEach((pane) => {
-        // data-render: 'terminal' mounts the grid, 'note' wires the editor,
-        // 'static' (image/file/html previews) needs no client mounting.
-        if (pane.dataset.render === 'terminal') mountTerminalPane(pane);
-        else if (pane.dataset.render === 'note') wireNotePane(pane);
+
+      // Paste an image anywhere -> add it as an image clip in the current stack.
+      // Only images are intercepted; text paste falls through to the terminal /
+      // note editor as usual.
+      window.addEventListener("paste", async (e) => {
+        const item = [...(e.clipboardData?.items || [])].find((it) =>
+          it.type.startsWith("image/")
+        );
+        if (!item) return;
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (!file) return;
+        const buf = await file.arrayBuffer();
+        const stack = window.__selectedStack || "";
+        await fetch(
+          "/clip/add?mime_type=" + encodeURIComponent(file.type) +
+            "&stack=" + encodeURIComponent(stack),
+          {
+            method: "POST",
+            headers: { "content-type": file.type },
+            body: buf,
+          },
+        ).catch(() => {});
       });
-      for (const cid of [...mounted.keys()]) {
-        if (!doc.querySelector('#pane-' + CSS.escape(cid))) mounted.delete(cid);
-      }
-    }
-    new MutationObserver(scanPanes).observe(doc, { childList: true });
-    scanPanes();
 
-    // Sidebar copy-sid button (delegated; rows are re-rendered by datastar).
-    document.addEventListener('click', (e) => {
-      const btn = e.target instanceof HTMLElement ? e.target.closest('.copy') : null;
-      if (!btn) return;
-      e.preventDefault();
-      e.stopPropagation();
-      const sid = btn.dataset.sid || '';
-      if (!sid) return;
-      navigator.clipboard?.writeText(sid).then(() => {
-        btn.classList.add('copied');
-        setTimeout(() => btn.classList.remove('copied'), 600);
-      }).catch(() => {});
-    });
-
-
-    // Paste an image anywhere -> add it as an image clip in the current stack.
-    // Only images are intercepted; text paste falls through to the terminal /
-    // note editor as usual.
-    window.addEventListener('paste', async (e) => {
-      const item = [...(e.clipboardData?.items || [])].find((it) => it.type.startsWith('image/'));
-      if (!item) return;
-      e.preventDefault();
-      const file = item.getAsFile();
-      if (!file) return;
-      const buf = await file.arrayBuffer();
-      const stack = window.__selectedStack || '';
-      await fetch('/clip/add?mime_type=' + encodeURIComponent(file.type) + '&stack=' + encodeURIComponent(stack), {
-        method: 'POST', headers: { 'content-type': file.type }, body: buf,
-      }).catch(() => {});
-    });
-
-    // Action registry. data-actions maps id -> JS, data-keymap maps combo ->
-    // id. The capture-phase handler below evaluates the matched action's JS.
-    window.app = {
-      newSession() {
-        // The + button sets $picking; opens the note/terminal type picker.
-        document.querySelector('#clips-list .new-btn')?.click();
-      },
-      closeSelected() {
-        const cid = currentClip();
-        if (!cid) return;
-        fetch('/clip/close?clip=' + encodeURIComponent(cid), { method: 'POST' }).catch(() => {});
-      },
-      openActions() {
-        // Bottom-right clip-actions panel (Rename / Close). mergePatch drives
-        // the $acting signal the same way the rename trigger drives $renaming.
-        mergePatch({ acting: true });
-      },
-      openStacks() {
-        // Top-left stacks switcher (Alt+\\ or the breadcrumb). Same edge-driven
-        // panel as the others; Alt+[ / Alt+] cycle without opening it.
-        mergePatch({ stackPicking: true });
-      },
-      move(dir) {
-        // Reorder the selected clip up/down within its stack (Alt+Shift+J/K).
-        const cid = currentClip();
-        if (!cid) return;
-        const stack = window.__selectedStack || '';
-        fetch('/clip/move?dir=' + dir + '&clip=' + encodeURIComponent(cid) + '&stack=' + encodeURIComponent(stack), { method: 'POST' }).catch(() => {});
-      },
-      toggleSort() {
-        // Toggle the selected stack between auto (activity) and manual order.
-        const stack = window.__selectedStack || '';
-        if (!stack) return;
-        fetch('/stack/sort?stack=' + encodeURIComponent(stack), { method: 'POST' }).catch(() => {});
-      },
-      toggleLayout() {
-        // Toggle the selected stack between flow (column) and niri (strip).
-        const stack = window.__selectedStack || '';
-        if (!stack) return;
-        fetch('/stack/layout?stack=' + encodeURIComponent(stack), { method: 'POST' }).catch(() => {});
-      },
-      cycle(dir) {
-        const items = [...document.querySelectorAll('#clips-list li')];
-        if (!items.length) return;
-        const idx = items.findIndex((li) => li.classList.contains('selected'));
-        const next = items[((idx < 0 ? 0 : idx) + dir + items.length) % items.length];
-        next.querySelector('.row')?.click();
-      },
-      cycleStack(dir) {
-        // Prev/next stack (Alt+[ / Alt+]). Drives the same #stacks-list rows the
-        // switcher and rail use; the rows live in the DOM even when the rail is
-        // collapsed in niri, so this works in every layout.
-        const items = [...document.querySelectorAll('#stacks-list ul.stacks li')];
-        if (!items.length) return;
-        const idx = items.findIndex((li) => li.classList.contains('selected'));
-        const next = items[((idx < 0 ? 0 : idx) + dir + items.length) % items.length];
-        next.querySelector('.row')?.click();
-      },
-      openRename() {
-        document.querySelector('.title-display')?.click();
-      },
-      openRenameTab() {
-        // The trigger button's `data-on:click` reads `$label` directly; we
-        // just need to fire the synthetic click so datastar evaluates the
-        // expression (it can only mutate signals from a real DOM event, not
-        // from arbitrary JS like this).
-        document.getElementById('rename-tab-trigger')?.click();
-      },
-      toggleFocus() {
-        // mod+Enter symmetric toggle (the only focus entry/exit): leave focus
-        // if focused (a note blurs and saves on the way out), otherwise focus
-        // the selected clip.
-        if (mode === 'focus') { setMode('navigate'); return; }
-        const cid = currentClip();
-        if (cid) window.__focusClip(cid);
-      },
-      cycleHeight() {
-        // Cycle the active terminal pane's height (rows): default -> compact
-        // -> 2/3 of the document -> full document -> default. terminal.js
-        // resizes the pty to match. Width stays pane-driven; notes auto-grow,
-        // so this is a terminal-only chord.
-        const cid = currentClip();
-        if (!cid) return;
-        const term = mounted.get(cid);
-        if (!term || !term.setFixedRows) return;
-        const cellH = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--cell-h'), 10) || 17;
-        const fullRows = Math.max(6, Math.floor(doc.clientHeight / cellH));
-        const sizes = [PANE_ROWS, 8, Math.max(6, Math.floor(fullRows * 2 / 3)), fullRows];
-        const next = ((heightIdx.get(cid) ?? 0) + 1) % sizes.length;
-        heightIdx.set(cid, next);
-        term.setFixedRows(sizes[next]);
-      },
-    };
-    // Per-clip height-cycle index for cycleHeight().
-    const heightIdx = new Map();
-
-    // The selected clip id, read from the active pane (datastar sets .active
-    // reactively from $selectedSid, which now holds the selected clip id).
-    const currentClip = () => doc.querySelector('.pane.active')?.dataset.clip || '';
-
-    // Reorder #doc panes to match the server's docOrder. appendChild moves an
-    // existing node (keeping its live terminal grid + stream attached), so
-    // reordering is non-destructive.
-    window.__applyDocOrder = (json) => {
-      let order;
-      try { order = JSON.parse(json || '[]'); } catch { return; }
-      // Only relocate panes that are actually out of position. Re-appending a
-      // pane that is already in the right slot still detaches and reinserts it,
-      // which resets its .pane-screen scroll container to the top. A new
-      // terminal shifts the whole order, so the old unconditional re-append
-      // sent every other pane's scrollback back to row 0.
-      let prev = null;
-      for (const id of order) {
-        const pane = doc.querySelector('#pane-' + CSS.escape(id));
-        if (!pane) continue;
-        const want = prev ? prev.nextElementSibling : doc.firstElementChild;
-        if (want !== pane) doc.insertBefore(pane, want);
-        prev = pane;
-      }
-    };
-    // Layout flip: in niri terminals fill their full-height column; in flow
-    // they return to the constant PANE_ROWS document height. Re-apply to every
-    // mounted terminal (newly-mounted ones pick it up via layoutRows()).
-    //
-    // Measure on the next frame, not now: the layout-niri class is a sibling
-    // data-class reaction to the same $docLayout change, and its order versus
-    // this data-effect isn't guaranteed. Measuring before it reflows the panes
-    // to 100ch reads the old (flow) geometry, so the pty keeps the wider width
-    // until a later ResizeObserver fires -- and a program like bat, reading the
-    // winsize once at startup, draws to the stale too-wide size and overflows
-    // the narrower niri column. rAF runs after the class is applied.
-    window.__applyLayout = (layout) => {
-      currentLayout = (layout === 'niri') ? 'niri' : 'flow';
-      requestAnimationFrame(() => {
-        for (const term of mounted.values()) term.setFixedRows?.(layoutRows());
-      });
-    };
-    window.__onSelect = (cid) => {
-      if (cid) {
-        // Reveal the selected pane's bottom (a terminal's prompt sits there).
-        const pane = doc.querySelector('#pane-' + CSS.escape(cid));
-        if (pane) {
-          // flow: reveal the pane's bottom (a terminal's prompt sits there).
-          // niri: pan the strip so the focused column is centered.
-          if (doc.classList.contains('layout-niri')) {
-            pane.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
-          } else {
-            pane.scrollIntoView({ block: 'end', behavior: 'smooth' });
+      // Action registry. data-actions maps id -> JS, data-keymap maps combo ->
+      // id. The capture-phase handler below evaluates the matched action's JS.
+      window.app = {
+        newSession() {
+          // The + button sets $picking; opens the note/terminal type picker.
+          document.querySelector("#clips-list .new-btn")?.click();
+        },
+        closeSelected() {
+          const cid = currentClip();
+          if (!cid) return;
+          fetch("/clip/close?clip=" + encodeURIComponent(cid), {
+            method: "POST",
+          }).catch(() => {});
+        },
+        openActions() {
+          // Bottom-right clip-actions panel (Rename / Close). mergePatch drives
+          // the $acting signal the same way the rename trigger drives $renaming.
+          mergePatch({ acting: true });
+        },
+        openStacks() {
+          // Top-left stacks switcher (Alt+\\ or the breadcrumb). Same edge-driven
+          // panel as the others; Alt+[ / Alt+] cycle without opening it.
+          mergePatch({ stackPicking: true });
+        },
+        move(dir) {
+          // Reorder the selected clip up/down within its stack (Alt+Shift+J/K).
+          const cid = currentClip();
+          if (!cid) return;
+          const stack = window.__selectedStack || "";
+          fetch(
+            "/clip/move?dir=" + dir + "&clip=" +
+              encodeURIComponent(cid) + "&stack=" +
+              encodeURIComponent(stack),
+            { method: "POST" },
+          ).catch(() => {});
+        },
+        toggleSort() {
+          // Toggle the selected stack between auto (activity) and manual order.
+          const stack = window.__selectedStack || "";
+          if (!stack) return;
+          fetch("/stack/sort?stack=" + encodeURIComponent(stack), {
+            method: "POST",
+          }).catch(() => {});
+        },
+        toggleLayout() {
+          // Toggle the selected stack between flow (column) and niri (strip).
+          const stack = window.__selectedStack || "";
+          if (!stack) return;
+          fetch("/stack/layout?stack=" + encodeURIComponent(stack), {
+            method: "POST",
+          }).catch(() => {});
+        },
+        cycle(dir) {
+          const items = [
+            ...document.querySelectorAll("#clips-list li"),
+          ];
+          if (!items.length) return;
+          const idx = items.findIndex((li) =>
+            li.classList.contains("selected")
+          );
+          const next = items[
+            ((idx < 0 ? 0 : idx) + dir + items.length) % items.length
+          ];
+          next.querySelector(".row")?.click();
+        },
+        cycleStack(dir) {
+          // Prev/next stack (Alt+[ / Alt+]). Drives the same #stacks-list rows the
+          // switcher and rail use; the rows live in the DOM even when the rail is
+          // collapsed in niri, so this works in every layout.
+          const items = [
+            ...document.querySelectorAll("#stacks-list ul.stacks li"),
+          ];
+          if (!items.length) return;
+          const idx = items.findIndex((li) =>
+            li.classList.contains("selected")
+          );
+          const next = items[
+            ((idx < 0 ? 0 : idx) + dir + items.length) % items.length
+          ];
+          next.querySelector(".row")?.click();
+        },
+        openRename() {
+          document.querySelector(".title-display")?.click();
+        },
+        openRenameTab() {
+          // The trigger button's `data-on:click` reads `$label` directly; we
+          // just need to fire the synthetic click so datastar evaluates the
+          // expression (it can only mutate signals from a real DOM event, not
+          // from arbitrary JS like this).
+          document.getElementById("rename-tab-trigger")?.click();
+        },
+        toggleFocus() {
+          // mod+Enter symmetric toggle (the only focus entry/exit): leave focus
+          // if focused (a note blurs and saves on the way out), otherwise focus
+          // the selected clip.
+          if (mode === "focus") {
+            setMode("navigate");
+            return;
           }
-          // Focus carries with the selection while in focus mode (so Alt+J/K
-          // moves you from one focused pane straight into the next: a terminal
-          // gets key-buffer/pty, a note opens its editor). Navigate mode is
-          // read-only browsing, so it never auto-focuses.
-          if (mode === 'focus') window.__focusClip(cid);
+          const cid = currentClip();
+          if (cid) window.__focusClip(cid);
+        },
+        cycleHeight() {
+          // Cycle the active terminal pane's height (rows): default -> compact
+          // -> 2/3 of the document -> full document -> default. terminal.js
+          // resizes the pty to match. Width stays pane-driven; notes auto-grow,
+          // so this is a terminal-only chord.
+          const cid = currentClip();
+          if (!cid) return;
+          const term = mounted.get(cid);
+          if (!term || !term.setFixedRows) return;
+          const cellH = parseInt(
+            getComputedStyle(document.documentElement)
+              .getPropertyValue("--cell-h"),
+            10,
+          ) || 17;
+          const fullRows = Math.max(
+            6,
+            Math.floor(doc.clientHeight / cellH),
+          );
+          const sizes = [
+            PANE_ROWS,
+            8,
+            Math.max(6, Math.floor(fullRows * 2 / 3)),
+            fullRows,
+          ];
+          const next = ((heightIdx.get(cid) ?? 0) + 1) % sizes.length;
+          heightIdx.set(cid, next);
+          term.setFixedRows(sizes[next]);
+        },
+      };
+      // Per-clip height-cycle index for cycleHeight().
+      const heightIdx = new Map();
+
+      // The selected clip id, read from the active pane (datastar sets .active
+      // reactively from $selectedSid, which now holds the selected clip id).
+      const currentClip = () =>
+        doc.querySelector(".pane.active")?.dataset.clip || "";
+
+      // Reorder #doc panes to match the server's docOrder. appendChild moves an
+      // existing node (keeping its live terminal grid + stream attached), so
+      // reordering is non-destructive.
+      window.__applyDocOrder = (json) => {
+        let order;
+        try {
+          order = JSON.parse(json || "[]");
+        } catch {
+          return;
         }
-      }
-      if (mode === 'focus' && !cid) setMode('navigate');
-    };
-
-    // Modal interaction: navigate vs focus. In navigate mode the terminal is
-    // greyed and key-buffer is off, so the app keymap (Alt+T/D/J/K/R/O) is live
-    // and nothing leaks to the pty. mod+Enter focuses the selected terminal ->
-    // key-buffer on, keys route to the pty (plain Esc and Enter included), and
-    // mod+Enter returns to navigate.
-    const keybuf = document.querySelector('key-buffer');
-
-    // Status bar shows the current mode; clicking it toggles focus. The action
-    // affordances live on the top bar (New / Sort / Layout) and in the
-    // clip-actions panel now, so there's no per-chord chip list to render. The
-    // mod key is Cmd on macOS, Ctrl elsewhere; stamp it into the visible key
-    // hints (.kbd-mod on the mode toggle and the Actions handle).
-    const statusMode = document.getElementById('status-mode');
-    const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '');
-    const modLabel = isMac ? 'Cmd' : 'Ctrl';
-    for (const el of document.querySelectorAll('.kbd-mod')) el.textContent = modLabel;
-
-    let mode = 'navigate';
-    function setMode(m) {
-      mode = m;
-      document.body.classList.toggle('mode-focus', m === 'focus');
-      document.body.classList.toggle('mode-navigate', m === 'navigate');
-      // Leaving focus always silences key-buffer and ends any note edit (its
-      // blur handler renders the <pre> and persists). Entering focus does NOT
-      // force key-buffer on here -- __focusClip enables it only for a terminal
-      // pane, since a focused note routes keys to its textarea instead.
-      if (m === 'navigate') {
-        keybuf.setAttribute('enabled', 'false');
-        if (document.activeElement?.classList.contains('note-edit')) document.activeElement.blur();
-      }
-      if (statusMode) statusMode.textContent = m;
-    }
-    setMode('navigate');
-
-    // Keyboard-driven picker panels (the top New-clip picker and the bottom
-    // clip-actions panel). Each panel node is static (toggled by a data-show
-    // signal), so we patch the capture-phase key handler in and out on that
-    // signal's edge (__sync*, called from a data-effect). While open it owns
-    // every key -- Ctrl-n/Ctrl-p or Down/Up move, Enter chooses, Esc closes --
-    // and swallows the rest so nothing leaks to a focused terminal's
-    // key-buffer. Selection is a .sel class on the rows (no signal), the way
-    // the stacks.nu action panel does it. Row queries are scoped to panelSel
-    // so the panels' rows never cross-match. Returns a sync(on) callback.
-    function makePicker(panelSel, signal) {
-      let keyHandler = null;
-      const rows = () => Array.from((document.querySelector(panelSel) || document).querySelectorAll('.picker-row'));
-      const selIdx = () => rows().findIndex((r) => r.classList.contains('sel'));
-      function setSel(i) {
-        const rs = rows();
-        if (!rs.length) return;
-        const w = ((i % rs.length) + rs.length) % rs.length;
-        rs.forEach((r) => r.classList.remove('sel'));
-        rs[w].classList.add('sel');
-      }
-      // Mouse and keyboard share one .sel highlight. Delegate hover on the panel
-      // (which is static) rather than per-row, so it also covers server-morphed
-      // rows like the stacks switcher's.
-      const panelEl = document.querySelector(panelSel);
-      if (panelEl) {
-        panelEl.addEventListener('mouseover', (e) => {
-          const row = e.target.closest('.picker-row');
-          if (!row || !panelEl.contains(row)) return;
-          const i = rows().indexOf(row);
-          if (i >= 0) setSel(i);
+        // Only relocate panes that are actually out of position. Re-appending a
+        // pane that is already in the right slot still detaches and reinserts it,
+        // which resets its .pane-screen scroll container to the top. A new
+        // terminal shifts the whole order, so the old unconditional re-append
+        // sent every other pane's scrollback back to row 0.
+        let prev = null;
+        for (const id of order) {
+          const pane = doc.querySelector("#pane-" + CSS.escape(id));
+          if (!pane) continue;
+          const want = prev
+            ? prev.nextElementSibling
+            : doc.firstElementChild;
+          if (want !== pane) doc.insertBefore(pane, want);
+          prev = pane;
+        }
+      };
+      // Layout flip: in niri terminals fill their full-height column; in flow
+      // they return to the constant PANE_ROWS document height. Re-apply to every
+      // mounted terminal (newly-mounted ones pick it up via layoutRows()).
+      //
+      // Measure on the next frame, not now: the layout-niri class is a sibling
+      // data-class reaction to the same $docLayout change, and its order versus
+      // this data-effect isn't guaranteed. Measuring before it reflows the panes
+      // to 100ch reads the old (flow) geometry, so the pty keeps the wider width
+      // until a later ResizeObserver fires -- and a program like bat, reading the
+      // winsize once at startup, draws to the stale too-wide size and overflows
+      // the narrower niri column. rAF runs after the class is applied.
+      window.__applyLayout = (layout) => {
+        currentLayout = (layout === "niri") ? "niri" : "flow";
+        requestAnimationFrame(() => {
+          for (const term of mounted.values()) {
+            term.setFixedRows?.(layoutRows());
+          }
         });
-      }
-      function open() {
-        if (keyHandler) return;
-        setSel(0);
-        keyHandler = (e) => {
-          const k = e.key;
-          if (k === 'Shift' || k === 'Control' || k === 'Alt' || k === 'Meta') return;
-          if (k === 'Escape') mergePatch({ [signal]: false });
-          else if (k === 'Enter') (rows()[selIdx()] || rows()[0])?.click();
-          else if (k === 'ArrowDown' || (e.ctrlKey && k === 'n')) setSel(selIdx() + 1);
-          else if (k === 'ArrowUp' || (e.ctrlKey && k === 'p')) setSel(selIdx() - 1);
-          // Modal owns every key while open: stop here so nothing reaches the
-          // global keymap or the focused terminal's key-buffer.
-          e.preventDefault();
-          e.stopImmediatePropagation();
-        };
-        document.addEventListener('keydown', keyHandler, { capture: true });
-      }
-      function close() {
-        if (!keyHandler) return;
-        document.removeEventListener('keydown', keyHandler, { capture: true });
-        keyHandler = null;
-      }
-      return (on) => (on ? open() : close());
-    }
-    window.__syncPicker = makePicker('.picker-panel', 'picking');
-    window.__syncActions = makePicker('.actions-panel', 'acting');
-    window.__syncTheme = makePicker('.theme-panel', 'themePicking');
-    window.__syncStacks = makePicker('.stack-panel', 'stackPicking');
-
-    // Focus a clip by id -- the one entry point for "go into this pane".
-    // Terminal: point key-buffer at the pane's pty (its .pane-screen carries
-    // data-sid), enable it, and enter focus mode so typing lands immediately.
-    // Note: focusing a note IS editing it -- show the textarea, silence
-    // key-buffer (the textarea owns keys), focus it, and still enter focus
-    // mode so Alt+J/K carries on to the next pane and mod+Enter leaves.
-    window.__focusClip = (cid) => {
-      if (!cid) return;
-      const pane = doc.querySelector('#pane-' + CSS.escape(cid));
-      if (!pane) return;
-      // Notes branch by data-render, not data-kind: a note clip's kind is
-      // 'content' (only 'content' and 'terminal' exist), and data-render
-      // is what scanPanes uses for wiring too (the 'note' value means
-      // "editable textarea"). Mismatching this against 'kind' meant clicks
-      // on notes never opened the editor and typing did nothing.
-      if (pane.dataset.render === 'note') {
-        keybuf.setAttribute('enabled', 'false');
-        const ta = pane.querySelector('.note-edit'), pre = pane.querySelector('.note-pre');
-        // Only seed + focus on fresh entry. The selection signal re-fires
-        // __focusClip on every live clip.update; reseeding the textarea then
-        // would drop an in-flight draft and jump the caret. The editor is
-        // data-ignore-morph, so its own content lags the backend -- reseed it
-        // from the live <pre> when first opening it. $noteEditing is set by the
-        // textarea's focus handler (it fires after any prior editor's blur, so
-        // it resolves to the clip being entered, and hides this <pre> reactively
-        // via data-show). The textarea is morph-immune, so a plain inline
-        // display toggle here is safe.
-        if (ta && document.activeElement !== ta) {
-          if (pre) ta.value = pre.textContent;
-          ta.style.display = '';
-          ta.focus();
-          // Land the caret at the end so you continue the note where it left
-          // off rather than at the top.
-          ta.setSelectionRange(ta.value.length, ta.value.length);
-          growNote(ta);
+      };
+      window.__onSelect = (cid) => {
+        if (cid) {
+          // Reveal the selected pane's bottom (a terminal's prompt sits there).
+          const pane = doc.querySelector("#pane-" + CSS.escape(cid));
+          if (pane) {
+            // flow: reveal the pane's bottom (a terminal's prompt sits there).
+            // niri: pan the strip so the focused column is centered.
+            if (doc.classList.contains("layout-niri")) {
+              pane.scrollIntoView({
+                block: "nearest",
+                inline: "center",
+                behavior: "smooth",
+              });
+            } else {
+              pane.scrollIntoView({ block: "end", behavior: "smooth" });
+            }
+            // Focus carries with the selection while in focus mode (so Alt+J/K
+            // moves you from one focused pane straight into the next: a terminal
+            // gets key-buffer/pty, a note opens its editor). Navigate mode is
+            // read-only browsing, so it never auto-focuses.
+            if (mode === "focus") window.__focusClip(cid);
+          }
         }
-        setMode('focus');
-        return;
+        if (mode === "focus" && !cid) setMode("navigate");
+      };
+
+      // Modal interaction: navigate vs focus. In navigate mode the terminal is
+      // greyed and key-buffer is off, so the app keymap (Alt+T/D/J/K/R/O) is live
+      // and nothing leaks to the pty. mod+Enter focuses the selected terminal ->
+      // key-buffer on, keys route to the pty (plain Esc and Enter included), and
+      // mod+Enter returns to navigate.
+      const keybuf = document.querySelector("key-buffer");
+
+      // Status bar shows the current mode; clicking it toggles focus. The action
+      // affordances live on the top bar (New / Sort / Layout) and in the
+      // clip-actions panel now, so there's no per-chord chip list to render. The
+      // mod key is Cmd on macOS, Ctrl elsewhere; stamp it into the visible key
+      // hints (.kbd-mod on the mode toggle and the Actions handle).
+      const statusMode = document.getElementById("status-mode");
+      const isMac = /Mac|iPhone|iPad/.test(
+        navigator.platform || navigator.userAgent || "",
+      );
+      const modLabel = isMac ? "Cmd" : "Ctrl";
+      for (const el of document.querySelectorAll(".kbd-mod")) {
+        el.textContent = modLabel;
       }
-      const sid = pane.querySelector('.pane-screen')?.dataset.sid;
-      if (!sid) return;
-      keybuf.setAttribute('sid', sid);
-      keybuf.setAttribute('enabled', 'true');
-      // Park focus on key-buffer's hidden input so the OS composes dead keys /
-      // IME (Option+e e -> accented char) into a real input element before the
-      // finished character is forwarded to the pty.
-      keybuf.focusInput?.();
-      setMode('focus');
-    };
 
-    // Clicking truly outside a pane (topbar, empty doc area) drops
-    // back to navigate mode. Exempt surfaces: a pane (its own handler focuses
-    // it), the sidebar (selecting a clip carries focus, like Alt+J/K -- and
-    // cycle() drives selection via a synthetic sidebar click), the rename
-    // modal/picker (keeps their inputs working), and the status bar.
-    document.addEventListener('click', (e) => {
-      if (e.target.closest('.pane') || e.target.closest('#clips-list') || e.target.closest('#stacks-list') ||
-          e.target.closest('.modal-backdrop') || e.target.closest('.statusbar')) return;
-      if (mode === 'focus') setMode('navigate');
-    });
-
-    // Combo normalization. macOS substitutes a glyph for e.key when Alt is
-    // held (option+d -> the partial-derivative sign); fall back to e.code
-    // (KeyD -> "d") so alt+letter combos still match.
-    function comboKey(e) {
-      const parts = [];
-      if (e.metaKey) parts.push('cmd');
-      if (e.ctrlKey) parts.push('ctrl');
-      if (e.altKey) parts.push('alt');
-      if (e.shiftKey) parts.push('shift');
-      let k = e.key;
-      if (e.altKey && e.code && e.code.startsWith('Key')) {
-        k = e.code.slice(3).toLowerCase();
-      } else if (e.altKey && e.code === 'BracketLeft') {
-        // macOS Option remaps the printed char (Alt+[ -> a special glyph), so
-        // resolve bracket chords by physical code instead of e.key.
-        k = '[';
-      } else if (e.altKey && e.code === 'BracketRight') {
-        k = ']';
-      } else if (e.altKey && e.code === 'Backslash') {
-        k = '\\';
-      } else if (k.length === 1 && /[a-zA-Z]/.test(k)) {
-        k = k.toLowerCase();
-      } else if (k === ' ') {
-        k = 'space';
+      let mode = "navigate";
+      function setMode(m) {
+        mode = m;
+        document.body.classList.toggle("mode-focus", m === "focus");
+        document.body.classList.toggle(
+          "mode-navigate",
+          m === "navigate",
+        );
+        // Leaving focus always silences key-buffer and ends any note edit (its
+        // blur handler renders the <pre> and persists). Entering focus does NOT
+        // force key-buffer on here -- __focusClip enables it only for a terminal
+        // pane, since a focused note routes keys to its textarea instead.
+        if (m === "navigate") {
+          keybuf.setAttribute("enabled", "false");
+          if (document.activeElement?.classList.contains("note-edit")) {
+            document.activeElement.blur();
+          }
+        }
+        if (statusMode) statusMode.textContent = m;
       }
-      parts.push(k.toLowerCase());
-      return parts.join('+');
-    }
-    function readJson(name) {
-      const raw = document.body.dataset[name];
-      if (!raw) return {};
-      try { return JSON.parse(raw); } catch { return {}; }
-    }
-    // Capture-phase keymap. A matched combo calls stopPropagation so it never
-    // reaches key-buffer's window (bubble-phase) listener. App chords are
-    // Alt-prefixed (ADR 0004) and fire in EVERY mode -- navigate, a focused
-    // terminal, or while editing a note -- so clip management (Alt+T/D/J/K/R/O)
-    // never requires leaving what you're in. Non-Alt keys are context-scoped:
-    //   editing a note -- the textarea owns them (Enter = newline, Escape ends
-    //                      the edit by blurring; the blur handler renders the
-    //                      <pre> and persists).
-    //   focused terminal -- everything (plain Esc and Enter included) goes to
-    //                        the pty; mod+Enter is the only exit.
-    //   navigate         -- no non-Alt bindings today (mod+Enter focuses).
-    // The modal-input guard keeps the rename field's own Enter/Esc/typing.
-    function runAction(id) {
-      const js = readJson('actions')[id];
-      if (!js) return;
-      try { new Function(js)(); } catch (err) { console.error('action', id, err); }
-    }
-    document.addEventListener('keydown', (e) => {
-      if (document.activeElement?.classList.contains('modal-input')) return;
-      const combo = comboKey(e);
-      const editingNote = document.activeElement?.classList.contains('note-edit');
+      setMode("navigate");
 
-      // mod+Enter: the only focus toggle, in any mode (Cmd on macOS, Ctrl else
-      // -- both mapped). key-buffer drops Meta combos and a plain terminal
-      // can't tell Ctrl+Enter from Enter, so intercepting it costs the pty
-      // nothing. While editing a note this commits and leaves (setMode blurs
-      // -> saves). Plain Esc and Enter are left entirely to the focused pty.
-      if (combo === 'cmd+enter' || combo === 'ctrl+enter') {
+      // Keyboard-driven picker panels (the top New-clip picker and the bottom
+      // clip-actions panel). Each panel node is static (toggled by a data-show
+      // signal), so we patch the capture-phase key handler in and out on that
+      // signal's edge (__sync*, called from a data-effect). While open it owns
+      // every key -- Ctrl-n/Ctrl-p or Down/Up move, Enter chooses, Esc closes --
+      // and swallows the rest so nothing leaks to a focused terminal's
+      // key-buffer. Selection is a .sel class on the rows (no signal), the way
+      // the stacks.nu action panel does it. Row queries are scoped to panelSel
+      // so the panels' rows never cross-match. Returns a sync(on) callback.
+      function makePicker(panelSel, signal) {
+        let keyHandler = null;
+        const rows = () =>
+          Array.from(
+            (document.querySelector(panelSel) || document)
+              .querySelectorAll(".picker-row"),
+          );
+        const selIdx = () =>
+          rows().findIndex((r) => r.classList.contains("sel"));
+        function setSel(i) {
+          const rs = rows();
+          if (!rs.length) return;
+          const w = ((i % rs.length) + rs.length) % rs.length;
+          rs.forEach((r) => r.classList.remove("sel"));
+          rs[w].classList.add("sel");
+        }
+        // Mouse and keyboard share one .sel highlight. Delegate hover on the panel
+        // (which is static) rather than per-row, so it also covers server-morphed
+        // rows like the stacks switcher's.
+        const panelEl = document.querySelector(panelSel);
+        if (panelEl) {
+          panelEl.addEventListener("mouseover", (e) => {
+            const row = e.target.closest(".picker-row");
+            if (!row || !panelEl.contains(row)) return;
+            const i = rows().indexOf(row);
+            if (i >= 0) setSel(i);
+          });
+        }
+        function open() {
+          if (keyHandler) return;
+          setSel(0);
+          keyHandler = (e) => {
+            const k = e.key;
+            if (
+              k === "Shift" || k === "Control" || k === "Alt" ||
+              k === "Meta"
+            ) return;
+            if (k === "Escape") mergePatch({ [signal]: false });
+            else if (k === "Enter") {
+              (rows()[selIdx()] || rows()[0])?.click();
+            } else if (k === "ArrowDown" || (e.ctrlKey && k === "n")) {
+              setSel(selIdx() + 1);
+            } else if (k === "ArrowUp" || (e.ctrlKey && k === "p")) {
+              setSel(selIdx() - 1);
+            }
+            // Modal owns every key while open: stop here so nothing reaches the
+            // global keymap or the focused terminal's key-buffer.
+            e.preventDefault();
+            e.stopImmediatePropagation();
+          };
+          document.addEventListener("keydown", keyHandler, {
+            capture: true,
+          });
+        }
+        function close() {
+          if (!keyHandler) return;
+          document.removeEventListener("keydown", keyHandler, {
+            capture: true,
+          });
+          keyHandler = null;
+        }
+        return (on) => (on ? open() : close());
+      }
+      window.__syncPicker = makePicker(".picker-panel", "picking");
+      window.__syncActions = makePicker(".actions-panel", "acting");
+      window.__syncTheme = makePicker(".theme-panel", "themePicking");
+      window.__syncStacks = makePicker(".stack-panel", "stackPicking");
+
+      // Focus a clip by id -- the one entry point for "go into this pane".
+      // Terminal: point key-buffer at the pane's pty (its .pane-screen carries
+      // data-sid), enable it, and enter focus mode so typing lands immediately.
+      // Note: focusing a note IS editing it -- show the textarea, silence
+      // key-buffer (the textarea owns keys), focus it, and still enter focus
+      // mode so Alt+J/K carries on to the next pane and mod+Enter leaves.
+      window.__focusClip = (cid) => {
+        if (!cid) return;
+        const pane = doc.querySelector("#pane-" + CSS.escape(cid));
+        if (!pane) return;
+        // Notes branch by data-render, not data-kind: a note clip's kind is
+        // 'content' (only 'content' and 'terminal' exist), and data-render
+        // is what scanPanes uses for wiring too (the 'note' value means
+        // "editable textarea"). Mismatching this against 'kind' meant clicks
+        // on notes never opened the editor and typing did nothing.
+        if (pane.dataset.render === "note") {
+          keybuf.setAttribute("enabled", "false");
+          const ta = pane.querySelector(".note-edit"),
+            pre = pane.querySelector(".note-pre");
+          // Only seed + focus on fresh entry. The selection signal re-fires
+          // __focusClip on every live clip.update; reseeding the textarea then
+          // would drop an in-flight draft and jump the caret. The editor is
+          // data-ignore-morph, so its own content lags the backend -- reseed it
+          // from the live <pre> when first opening it. $noteEditing is set by the
+          // textarea's focus handler (it fires after any prior editor's blur, so
+          // it resolves to the clip being entered, and hides this <pre> reactively
+          // via data-show). The textarea is morph-immune, so a plain inline
+          // display toggle here is safe.
+          if (ta && document.activeElement !== ta) {
+            if (pre) ta.value = pre.textContent;
+            ta.style.display = "";
+            ta.focus();
+            // Land the caret at the end so you continue the note where it left
+            // off rather than at the top.
+            ta.setSelectionRange(ta.value.length, ta.value.length);
+            growNote(ta);
+          }
+          setMode("focus");
+          return;
+        }
+        const sid = pane.querySelector(".pane-screen")?.dataset.sid;
+        if (!sid) return;
+        keybuf.setAttribute("sid", sid);
+        keybuf.setAttribute("enabled", "true");
+        // Park focus on key-buffer's hidden input so the OS composes dead keys /
+        // IME (Option+e e -> accented char) into a real input element before the
+        // finished character is forwarded to the pty.
+        keybuf.focusInput?.();
+        setMode("focus");
+      };
+
+      // Clicking truly outside a pane (topbar, empty doc area) drops
+      // back to navigate mode. Exempt surfaces: a pane (its own handler focuses
+      // it), the sidebar (selecting a clip carries focus, like Alt+J/K -- and
+      // cycle() drives selection via a synthetic sidebar click), the rename
+      // modal/picker (keeps their inputs working), and the status bar.
+      document.addEventListener("click", (e) => {
+        if (
+          e.target.closest(".pane") ||
+          e.target.closest("#clips-list") ||
+          e.target.closest("#stacks-list") ||
+          e.target.closest(".modal-backdrop") ||
+          e.target.closest(".statusbar")
+        ) return;
+        if (mode === "focus") setMode("navigate");
+      });
+
+      // Combo normalization. macOS substitutes a glyph for e.key when Alt is
+      // held (option+d -> the partial-derivative sign); fall back to e.code
+      // (KeyD -> "d") so alt+letter combos still match.
+      function comboKey(e) {
+        const parts = [];
+        if (e.metaKey) parts.push("cmd");
+        if (e.ctrlKey) parts.push("ctrl");
+        if (e.altKey) parts.push("alt");
+        if (e.shiftKey) parts.push("shift");
+        let k = e.key;
+        if (e.altKey && e.code && e.code.startsWith("Key")) {
+          k = e.code.slice(3).toLowerCase();
+        } else if (e.altKey && e.code === "BracketLeft") {
+          // macOS Option remaps the printed char (Alt+[ -> a special glyph), so
+          // resolve bracket chords by physical code instead of e.key.
+          k = "[";
+        } else if (e.altKey && e.code === "BracketRight") {
+          k = "]";
+        } else if (e.altKey && e.code === "Backslash") {
+          k = "\\";
+        } else if (k.length === 1 && /[a-zA-Z]/.test(k)) {
+          k = k.toLowerCase();
+        } else if (k === " ") {
+          k = "space";
+        }
+        parts.push(k.toLowerCase());
+        return parts.join("+");
+      }
+      function readJson(name) {
+        const raw = document.body.dataset[name];
+        if (!raw) return {};
+        try {
+          return JSON.parse(raw);
+        } catch {
+          return {};
+        }
+      }
+      // Capture-phase keymap. A matched combo calls stopPropagation so it never
+      // reaches key-buffer's window (bubble-phase) listener. App chords are
+      // Alt-prefixed (ADR 0004) and fire in EVERY mode -- navigate, a focused
+      // terminal, or while editing a note -- so clip management (Alt+T/D/J/K/R/O)
+      // never requires leaving what you're in. Non-Alt keys are context-scoped:
+      //   editing a note -- the textarea owns them (Enter = newline, Escape ends
+      //                      the edit by blurring; the blur handler renders the
+      //                      <pre> and persists).
+      //   focused terminal -- everything (plain Esc and Enter included) goes to
+      //                        the pty; mod+Enter is the only exit.
+      //   navigate         -- no non-Alt bindings today (mod+Enter focuses).
+      // The modal-input guard keeps the rename field's own Enter/Esc/typing.
+      function runAction(id) {
+        const js = readJson("actions")[id];
+        if (!js) return;
+        try {
+          new Function(js)();
+        } catch (err) {
+          console.error("action", id, err);
+        }
+      }
+      document.addEventListener("keydown", (e) => {
+        if (document.activeElement?.classList.contains("modal-input")) {
+          return;
+        }
+        const combo = comboKey(e);
+        const editingNote = document.activeElement?.classList.contains(
+          "note-edit",
+        );
+
+        // mod+Enter: the only focus toggle, in any mode (Cmd on macOS, Ctrl else
+        // -- both mapped). key-buffer drops Meta combos and a plain terminal
+        // can't tell Ctrl+Enter from Enter, so intercepting it costs the pty
+        // nothing. While editing a note this commits and leaves (setMode blurs
+        // -> saves). Plain Esc and Enter are left entirely to the focused pty.
+        if (combo === "cmd+enter" || combo === "ctrl+enter") {
+          e.preventDefault();
+          e.stopPropagation();
+          window.app.toggleFocus();
+          return;
+        }
+        // mod+K opens the clip-actions panel on the current clip. Cmd+K works in
+        // every mode, including a focused terminal -- key-buffer drops Meta combos,
+        // so the pty never loses anything. Ctrl+K only opens in navigate mode, so
+        // a focused terminal keeps Ctrl+K as readline kill-line on every platform.
+        // preventDefault suppresses the browser's own Cmd/Ctrl+K (omnibox search).
+        if (
+          combo === "cmd+k" ||
+          (combo === "ctrl+k" && mode === "navigate")
+        ) {
+          e.preventDefault();
+          e.stopPropagation();
+          window.app.openActions();
+          return;
+        }
+        // A focused clip owns every other key (ADR 0005). mod+Enter and mod+K
+        // above are the only carve-outs; from here the keystroke reaches the
+        // focused clip untouched -- a note's textarea handles it (Escape ends the
+        // edit), a terminal's pty gets it raw via key-buffer. Intercepting nothing
+        // else is what lets Option/AltGr-composed characters (|, ~, \) through.
+        if (editingNote) {
+          if (e.key === "Escape") {
+            e.preventDefault();
+            document.activeElement.blur();
+          }
+          return; // textarea owns the rest, including Enter for a newline
+        }
+        if (mode === "focus") return; // focused terminal: pty owns everything
+        // Navigate mode: the app keymap owns keys (Alt chords + plain bindings).
+        const id = readJson("keymap")[combo];
+        if (!id) return;
         e.preventDefault();
         e.stopPropagation();
-        window.app.toggleFocus();
-        return;
-      }
-      // mod+K opens the clip-actions panel on the current clip. Cmd+K works in
-      // every mode, including a focused terminal -- key-buffer drops Meta combos,
-      // so the pty never loses anything. Ctrl+K only opens in navigate mode, so
-      // a focused terminal keeps Ctrl+K as readline kill-line on every platform.
-      // preventDefault suppresses the browser's own Cmd/Ctrl+K (omnibox search).
-      if (combo === 'cmd+k' || (combo === 'ctrl+k' && mode === 'navigate')) {
-        e.preventDefault();
-        e.stopPropagation();
-        window.app.openActions();
-        return;
-      }
-      // A focused clip owns every other key (ADR 0005). mod+Enter and mod+K
-      // above are the only carve-outs; from here the keystroke reaches the
-      // focused clip untouched -- a note's textarea handles it (Escape ends the
-      // edit), a terminal's pty gets it raw via key-buffer. Intercepting nothing
-      // else is what lets Option/AltGr-composed characters (|, ~, \) through.
-      if (editingNote) {
-        if (e.key === 'Escape') {
-          e.preventDefault();
-          document.activeElement.blur();
-        }
-        return; // textarea owns the rest, including Enter for a newline
-      }
-      if (mode === 'focus') return; // focused terminal: pty owns everything
-      // Navigate mode: the app keymap owns keys (Alt chords + plain bindings).
-      const id = readJson('keymap')[combo];
-      if (!id) return;
-      e.preventDefault();
-      e.stopPropagation();
-      runAction(id);
-    }, { capture: true });
-  </script>
-</body>
+        runAction(id);
+      }, { capture: true });
+    </script>
+  </body>
 </html>

@@ -25,18 +25,25 @@ import { join } from "node:path";
 const args = process.argv.slice(2);
 const ADD = args.includes("--add");
 const BASE = process.env.BASE || "http://127.0.0.1:5099";
-const OUT = args.find((a) => !a.startsWith("--")) || process.env.PNG || join(tmpdir(), "stacks2099-shot.png");
+const OUT = args.find((a) => !a.startsWith("--")) || process.env.PNG ||
+  join(tmpdir(), "stacks2099-shot.png");
 
 const browser = await launchBrowser();
-const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+const ctx = await browser.newContext({
+  viewport: { width: 1280, height: 800 },
+});
 const page = await ctx.newPage();
 const errors = [];
-page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
+page.on("console", (m) => {
+  if (m.type() === "error") errors.push(m.text());
+});
 
 await page.goto(BASE, { waitUntil: "domcontentloaded" });
 // Wait for the SSE-driven projection to render at least one pane, then give the
 // terminal grid a beat to stream a frame.
-try { await page.waitForSelector(".pane", { timeout: 12000 }); } catch { /* shoot anyway */ }
+try {
+  await page.waitForSelector(".pane", { timeout: 12000 });
+} catch { /* shoot anyway */ }
 await page.waitForTimeout(1500);
 
 const summary = await page.evaluate(() => ({
@@ -46,7 +53,9 @@ const summary = await page.evaluate(() => ({
   hasGrid: !!document.querySelector("[id^='grid-'] *"),
 }));
 console.log("summary " + JSON.stringify(summary));
-if (errors.length) console.log("console_errors " + JSON.stringify(errors.slice(0, 5)));
+if (errors.length) {
+  console.log("console_errors " + JSON.stringify(errors.slice(0, 5)));
+}
 
 await page.screenshot({ path: OUT, fullPage: false });
 await browser.close();

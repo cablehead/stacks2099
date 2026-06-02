@@ -18,7 +18,7 @@ gutter); a canvas with no real DOM, so selection, accessibility, and
 around keeping the xterm-style textarea focused.
 
 The server already holds the canonical screen in wezterm-term. If the
-browser renders *that* instead of re-deriving it, the second emulator
+browser renders _that_ instead of re-deriving it, the second emulator
 disappears.
 
 ## Decision
@@ -49,7 +49,7 @@ with Datastar.
 ### Why 0001 is superseded
 
 The focus-owner model existed because the terminal was a focusable element
-that had to *hold* focus to receive keys. key-buffer listens on `window`,
+that had to _hold_ focus to receive keys. key-buffer listens on `window`,
 so the terminal owns no focus at all -- keystrokes reach the pty regardless
 of `document.activeElement`. The only element that legitimately takes focus
 is the rename-modal input, and the modal's own `data-effect` focuses it.

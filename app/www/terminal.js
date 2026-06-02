@@ -12,8 +12,8 @@
 export async function ensureTermFont() {
   try {
     await Promise.all([
-      document.fonts.load('14px JetBrainsMonoNerd'),
-      document.fonts.load('bold 14px JetBrainsMonoNerd'),
+      document.fonts.load("14px JetBrainsMonoNerd"),
+      document.fonts.load("bold 14px JetBrainsMonoNerd"),
     ]);
   } catch {}
   await document.fonts.ready;
@@ -29,9 +29,9 @@ export async function ensureTermFont() {
  *  pty gets sized to the current pane). */
 export function mountTerminal({ screen, grid, onResize, fixedRows }) {
   function measureCell() {
-    const probe = document.createElement('span');
-    probe.className = 'cell-probe';
-    probe.textContent = 'M'.repeat(80);
+    const probe = document.createElement("span");
+    probe.className = "cell-probe";
+    probe.textContent = "M".repeat(80);
     document.body.appendChild(probe);
     const rect = probe.getBoundingClientRect();
     probe.remove();
@@ -48,11 +48,16 @@ export function mountTerminal({ screen, grid, onResize, fixedRows }) {
     // siblings preceding `screen` to get the space actually available to it.
     // With fixedRows the pane is a constant height (continuous-document
     // panes); otherwise rows fill the available height (niri layout).
-    const availW = screen.clientWidth || screen.parentElement?.clientWidth || window.innerWidth;
+    const availW = screen.clientWidth || screen.parentElement?.clientWidth ||
+      window.innerWidth;
     const parent = screen.parentElement;
     let headOffset = 0;
     if (parent) {
-      for (let s = parent.firstElementChild; s && s !== screen; s = s.nextElementSibling) {
+      for (
+        let s = parent.firstElementChild;
+        s && s !== screen;
+        s = s.nextElementSibling
+      ) {
         headOffset += s.offsetHeight || 0;
       }
     }
@@ -69,7 +74,7 @@ export function mountTerminal({ screen, grid, onResize, fixedRows }) {
   // remainder sits below it (filled by the page background) rather than
   // clipping a half-row at the top when scrolled to the bottom.
   function applyHeight(rows) {
-    screen.style.height = Math.round(rows * cell.h) + 'px';
+    screen.style.height = Math.round(rows * cell.h) + "px";
   }
 
   // Auto-stick-to-bottom. A suppression flag distinguishes our programmatic
@@ -77,7 +82,7 @@ export function mountTerminal({ screen, grid, onResize, fixedRows }) {
   // scroll event) from a real user scroll.
   let stick = true;
   let suppress = false;
-  screen.addEventListener('scroll', () => {
+  screen.addEventListener("scroll", () => {
     if (suppress) {
       suppress = false;
       return;
@@ -98,14 +103,15 @@ export function mountTerminal({ screen, grid, onResize, fixedRows }) {
   // should show a handful (cursor row + prompt repaint); a value near the
   // scrollback cap would mean the diff path regressed and we're shipping
   // the whole grid again.
-  const pane = screen.closest('.pane');
-  const head = pane?.querySelector('.pane-head');
+  const pane = screen.closest(".pane");
+  const head = pane?.querySelector(".pane-head");
   let hud = null;
   if (head) {
-    hud = document.createElement('span');
-    hud.className = 'grid-hud';
-    hud.title = 'rows shipped by the last server patch: +added -removed ~changed (avg total)';
-    hud.textContent = '+0 -0 ~0';
+    hud = document.createElement("span");
+    hud.className = "grid-hud";
+    hud.title =
+      "rows shipped by the last server patch: +added -removed ~changed (avg total)";
+    hud.textContent = "+0 -0 ~0";
     head.appendChild(hud);
   }
   let hudAvg = 0;
@@ -113,11 +119,15 @@ export function mountTerminal({ screen, grid, onResize, fixedRows }) {
     if (!hud) return;
     const total = adds + removes + changes;
     hudAvg = hudAvg * 0.7 + total * 0.3;
-    hud.textContent = `+${adds} -${removes} ~${changes} (avg ${hudAvg.toFixed(0)})`;
+    hud.textContent = `+${adds} -${removes} ~${changes} (avg ${
+      hudAvg.toFixed(0)
+    })`;
   }
 
   new MutationObserver((muts) => {
-    if (stick && screen.scrollTop !== screen.scrollHeight - screen.clientHeight) {
+    if (
+      stick && screen.scrollTop !== screen.scrollHeight - screen.clientHeight
+    ) {
       suppress = true;
       screen.scrollTop = screen.scrollHeight;
     }
@@ -125,26 +135,33 @@ export function mountTerminal({ screen, grid, onResize, fixedRows }) {
     let removes = 0;
     const changedIds = new Set();
     for (const m of muts) {
-      if (m.type === 'childList') {
+      if (m.type === "childList") {
         for (const n of m.addedNodes) {
-          if (n.nodeType === 1 && n.classList?.contains('row')) adds++;
+          if (n.nodeType === 1 && n.classList?.contains("row")) adds++;
         }
         for (const n of m.removedNodes) {
-          if (n.nodeType === 1 && n.classList?.contains('row')) removes++;
+          if (n.nodeType === 1 && n.classList?.contains("row")) removes++;
         }
         // A childList change inside an existing .row means its content was
         // rewritten by an outer-morph patch.
-        const row = m.target.nodeType === 1 ? m.target.closest?.('.row') : null;
+        const row = m.target.nodeType === 1 ? m.target.closest?.(".row") : null;
         if (row && row.isConnected) changedIds.add(row.id);
       } else {
         // characterData / attribute change on a descendant of a .row.
         const el = m.target.nodeType === 1 ? m.target : m.target.parentElement;
-        const row = el?.closest?.('.row');
+        const row = el?.closest?.(".row");
         if (row && row.isConnected) changedIds.add(row.id);
       }
     }
-    if (adds || removes || changedIds.size) bumpHud(adds, removes, changedIds.size);
-  }).observe(grid, { childList: true, subtree: true, characterData: true, attributes: true });
+    if (adds || removes || changedIds.size) {
+      bumpHud(adds, removes, changedIds.size);
+    }
+  }).observe(grid, {
+    childList: true,
+    subtree: true,
+    characterData: true,
+    attributes: true,
+  });
 
   const initialDims = dims();
   applyHeight(initialDims.rows);
@@ -164,10 +181,10 @@ export function mountTerminal({ screen, grid, onResize, fixedRows }) {
     }, 80);
   }
 
-  window.addEventListener('resize', () => reflow(false));
+  window.addEventListener("resize", () => reflow(false));
   // Catch pane-geometry changes that don't fire window resize: the sidebar
   // collapsing in the sessions surface, topbar growth, etc.
-  if (screen.parentElement && typeof ResizeObserver !== 'undefined') {
+  if (screen.parentElement && typeof ResizeObserver !== "undefined") {
     new ResizeObserver(() => reflow(false)).observe(screen.parentElement);
   }
 
