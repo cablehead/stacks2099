@@ -301,6 +301,13 @@ def render-clips [proj: record]: nothing -> string {
   $"<aside id='clips-list'><header>Clips ($sort_btn)<button type='button' class='new-btn' data-on:click=\"$picking = true\" title='New clip'>+</button></header><ul class='clips'>($items)</ul></aside>"
 }
 
+# The <diff-clip> element for a diff clip: light DOM is data only (the unified
+# patch in a <script>, plus `rev` = its content hash). Used for both the initial
+# paint and the live /sse morph, so the markup stays identical.
+def diff-clip-el [cid: string, patch: string, rev: string]: nothing -> string {
+  $"<diff-clip id='diff-($cid)' multi-file rev='($rev)'><script type='text/plain' data-diff='patch'>(html-escape $patch)</script></diff-clip>"
+}
+
 # Render one continuous-document pane for a clip, keyed by clip id. A terminal
 # clip renders a live grid (view stream by its bound sid, into #grid-<clip>); a
 # content clip renders an editable body (textarea on focus, <pre> otherwise --
@@ -322,12 +329,23 @@ def render-pane [c: record]: nothing -> string {
       let view = $"@get\('/pty/view?sid=($sid)&target=grid-($cid)&nosig=1', {openWhenHidden: true}\)"
       $"<div id='screen-($cid)' class='pane-screen' data-pty='($sid)' data-effect=\"($view)\"><div id='grid-($cid)'></div></div>"
     }
+  } else if $c.kind == "diff" {
+    # No per-pane stream: the diff clip is a static mount point. Its live feed
+    # is the `git.diff` store frame; the /sse loop morphs the whole <diff-clip>
+    # element (data only -- a <script data-diff> plus a `rev` content hash). The
+    # component renders into its own shadow root, so idiomorph leaves the
+    # rendered diffs alone; the bumped `rev` triggers the in-place re-render.
+    # The initial paint reads the latest frame directly.
+    let f = (.last "git.diff")
+    let patch = if ($f | is-empty) { "" } else { (.cas $f.hash) }
+    let rev = if ($f | is-empty) { "" } else { ($f.hash | default "") }
+    $"<div id='screen-($cid)' class='pane-screen'>(diff-clip-el $cid $patch $rev)</div>"
   } else {
     (render-content $c)
   }
   # data-render tells the client how to mount: terminal grid, editable note, or
-  # a static preview (image/file/html) it leaves alone.
-  let render_attr = match $rtype { "terminal" => "terminal", "note" => "note", _ => "static" }
+  # a static preview (image/file/html/diff) it leaves alone (diff self-mounts).
+  let render_attr = match $rtype { "terminal" => "terminal", "note" => "note", "diff" => "diff", _ => "static" }
   $"<section class='pane' id='pane-($cid)' data-clip='($cid)' data-kind='($c.kind)' data-render='($render_attr)' data-class:active=\"$cursor == '($cid)'\" data-on:click=\"($onsel)\">($head)($body)</section>"
 }
 
@@ -376,7 +394,7 @@ def label-of [proj: record]: nothing -> string {
 # terminal clips only once their pty is alive (so a just-added terminal whose
 # pty is still spawning waits for the next tick rather than rendering dead).
 def mountable [clips: list]: nothing -> list {
-  $clips | where {|c| $c.kind == "content" or (sid-for-clip $c.id) != "" } | get id
+  $clips | where {|c| $c.kind in ["content" "diff"] or (sid-for-clip $c.id) != "" } | get id
 }
 
 # The stack id owning a clip (or null). Used to resolve "the current stack" for
@@ -566,10 +584,14 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
                 let rid = ($ev.meta?.id? | default "")
                 let rc = ($clips | where id == $rid | get 0?)
                 let position_only = ($topic == "clip.patch") and (($ev.meta? | default {} | columns | where {|k| not ($k in ["id" "position"]) } | is-empty))
-                let is_terminal = ($rc | is-not-empty) and ($rc.kind == "terminal")
+                # Terminals and diffs are "live" panes: their body is a mount
+                # point (a pty grid / a self-rendering <diff-clip>) that
+                # idiomorph would clobber. Never re-morph the whole pane; on a
+                # label change patch just the header.
+                let is_live = ($rc | is-not-empty) and ($rc.kind in ["terminal" "diff"])
                 let label_touched = ($topic == "clip.patch") and (($ev.meta?.label? | default null) != null)
                 if ($rc | is-not-empty) and ($rid in $rendered2) and (not $position_only) {
-                  if $is_terminal {
+                  if $is_live {
                     if $label_touched {
                       let lbl = (html-escape (clip-display-label $rc))
                       ($"<header class='pane-head' id='pane-head-($rid)'>($lbl)<small>($rid | str substring 0..8)</small></header>" | to datastar-patch-elements --selector $"#pane-head-($rid)")
@@ -577,6 +599,20 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
                   } else {
                     (render-pane $rc | to datastar-patch-elements --selector $"#pane-($rid)")
                   }
+                } else { null }
+              } else { null }
+
+              # Live repo diff: a `git.diff` store frame (latest-wins, ttl
+              # last:1) carries the current whole-repo patch in CAS. Push it as
+              # a targeted patch into the diff clip's <script data-diff>; the
+              # <diff-clip> re-renders in place. Not a projection topic, so no
+              # sidebar/doc churn rides along.
+              let diff_patch = if $topic == "git.diff" {
+                let dc = ($clips | where kind == "diff" | get 0?)
+                if ($dc | is-not-empty) and ($dc.id in $rendered2) {
+                  let rev = ($ev.hash? | default "")
+                  let patch = if ($rev == "") { "" } else { (.cas $ev.hash) }
+                  (diff-clip-el $dc.id $patch $rev | to datastar-patch-elements --selector $"#diff-($dc.id)")
                 } else { null }
               } else { null }
 
@@ -596,7 +632,7 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
               let out = ([$stacks_patch $switcher_patch $clips_patch]
                 | append $add_patches
                 | append $rm_patches
-                | append [$repane $docorder_patch $layout_patch $label_patch $sel_patch $selstk_patch $stackname_patch $dims_patch $title_patch]
+                | append [$repane $diff_patch $docorder_patch $layout_patch $label_patch $sel_patch $selstk_patch $stackname_patch $dims_patch $title_patch]
                 | where {|x| $x != null })
               {out: $out, next: {proj: $proj, ready: true, rendered: $rendered2, doc_order: $want, title: $title, sel: $sel, sel_stack: $sel_stack, stack_name: $stack_name, dims: $dims, layout: $layout, label: $label}}
             }
@@ -636,6 +672,10 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
         let c = (add-clip $stack "terminal" "application/x-stacks-terminal")
         spawn-for-clip $c | ignore
         $c
+      } else if $type == "diff" {
+        # A live repo-diff mount point. No CAS body; its content is the
+        # `git.diff` store frame, fed over /sse.
+        add-clip $stack "diff" "application/x-git-diff"
       } else {
         "" | add-clip $stack "content" "text/markdown"
       }

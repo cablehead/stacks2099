@@ -23,6 +23,7 @@ export def is-url [s: string]: nothing -> bool {
 #   file      anything else -> read-only preview / download
 export def clip-render-type [c: record]: nothing -> string {
   if $c.kind == "terminal" { return "terminal" }
+  if $c.kind == "diff" { return "diff" }
   let view = ($c.view? | default "")
   let m = ($c.mime_type? | default "text/plain")
   # Explicit views: embed -> live <iframe>; rendered -> markdown/text -> HTML.
@@ -45,6 +46,7 @@ export def clip-display-label [c: record]: nothing -> string {
   if ($l | is-not-empty) { return $l }
   match (clip-render-type $c) {
     "terminal" => "nu"
+    "diff" => "diff ."
     "image" => "image"
     "embed" => "embed"
     "file" => ($c.mime_type? | default "file")
@@ -57,6 +59,7 @@ export def icon-svg [rtype: string]: nothing -> string {
   let a = "class='row-icon' xmlns='http://www.w3.org/2000/svg' width='1em' height='1em' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'"
   match $rtype {
     "terminal" => $"<svg ($a)><path d='m7 11 2-2-2-2'/><path d='M11 13h4'/><rect width='18' height='18' x='3' y='3' rx='2'/></svg>"
+    "diff" => $"<svg ($a)><path d='M12 3v12'/><path d='m8 11 4 4 4-4'/><path d='M8 5H4'/><path d='M20 5h-4'/><path d='M9 19H4'/><path d='M20 19h-5'/></svg>"
     "image" => $"<svg ($a)><rect width='18' height='18' x='3' y='3' rx='2' ry='2'/><circle cx='9' cy='9' r='2'/><path d='m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21'/></svg>"
     "embed" => $"<svg ($a)><circle cx='12' cy='12' r='10'/><path d='M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20'/><path d='M2 12h20'/></svg>"
     "file" => $"<svg ($a)><path d='M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z'/><path d='M14 2v4a2 2 0 0 0 2 2h4'/></svg>"

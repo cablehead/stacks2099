@@ -5,6 +5,10 @@
     <title>{{ title or "ghostty-web-nu sessions" }}</title>
     <script type="module" src="{{ datastar_js_path }}"></script>
     <script type="module" src="/key-buffer.js"></script>
+    <script type="importmap">
+      { "imports": { "@pierre/diffs": "https://esm.sh/@pierre/diffs@1" } }
+    </script>
+    <script type="module" src="/diff-clip.js"></script>
     <link rel="stylesheet" href="/stellar.css">
     <link rel="stylesheet" href="/md.css">
     <link rel="stylesheet" href="/grid.css">
