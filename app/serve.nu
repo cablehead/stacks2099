@@ -231,7 +231,7 @@ def render-clip-row [c: record]: nothing -> string {
   $"<li data-clip='($c.id)' data-class:selected=\"$cursor == '($c.id)'\"><button type='button' class='row' data-on:click=\"($onclick)\">(icon-svg (clip-render-type $c))($label)<small>($c.id | str substring 0..8)</small></button><button type='button' class='close' data-on:click=\"($onclose)\" title='Close'>×</button></li>"
 }
 
-# A stack row: click switches (stack.select), double-click renames (reuses the
+# A stack row: click navigates to that stack's page, double-click renames (reuses the
 # rename modal in 'stack' mode), × deletes. Name is carried in data-* so the
 # dblclick handler reads it off the element rather than via string interpolation.
 def render-stack-row [s: record, selected: string]: nothing -> string {
@@ -241,7 +241,8 @@ def render-stack-row [s: record, selected: string]: nothing -> string {
   let real = ($s.name? | default "")
   let display = (html-escape (if ($real | is-empty) { $s.id } else { $real }))
   let nm_attr = ((html-escape $real) | str replace -a "'" '&#39;')
-  let onclick = $"@post\('/stack/select?stack=($s.id)'\)"
+  # MPA: switching stacks is navigation -- go to that stack's page.
+  let onclick = $"window.location = '/stack/($s.id)'"
   let ondbl = "$draft = el.dataset.name; $renameStackId = el.dataset.stack; $renameMode = 'stack'; $renaming = true"
   let onclose = $"@post\('/stack/close?stack=($s.id)'\)"
   $"<li class='($cls)'><button type='button' class='row' data-stack='($s.id)' data-name='($nm_attr)' data-on:click=\"($onclick)\" data-on:dblclick=\"($ondbl)\">($display)</button><button type='button' class='close' data-on:click=\"($onclose)\" title='Delete stack'>×</button></li>"
@@ -265,7 +266,7 @@ def render-stack-switcher [proj: record]: nothing -> string {
     let real = ($s.name? | default "")
     let display = (html-escape (if ($real | is-empty) { $s.id } else { $real }))
     let active = if $s.id == $sel { " active" } else { "" }
-    $"<button type='button' class='picker-row($active)' data-on:click=\"$stackPicking = false; @post\('/stack/select?stack=($s.id)'\)\">($display)</button>"
+    $"<button type='button' class='picker-row($active)' data-on:click=\"window.location = '/stack/($s.id)'\">($display)</button>"
   } | str join "")
   let newrow = $"<button type='button' class='picker-row' data-on:click=\"$stackPicking = false; @post\('/stack/new'\)\"><svg class='icon' xmlns='http://www.w3.org/2000/svg' width='1em' height='1em' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M5 12h14'/><path d='M12 5v14'/></svg> New stack</button>"
   $"<div id='stack-switcher'>($rows)($newrow)</div>"
@@ -507,7 +508,9 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
             {next: $st}
 
           } else {
-            let proj_topics = [clip.add clip.update clip.delete clip.patch stack.add stack.update stack.delete clip.select stack.select clip.restore stack.restore]
+            # stack.select is gone (MPA: switching stacks is navigation, a fresh
+            # /sse?stack=<id> connection -- not a folded selection frame).
+            let proj_topics = [clip.add clip.update clip.delete clip.patch stack.add stack.update stack.delete clip.select clip.restore stack.restore]
             let is_proj = ($topic in $proj_topics)
 
             if (not $st.ready) {
@@ -666,18 +669,12 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
     })
 
     (route {method: "POST", path: "/stack/new"} {|req ctx|
-      # Create a new (manual-sort) stack and switch to it. No name -- the UI
-      # shows the stack's scru128 id until it's renamed.
+      # Create a new (manual-sort) stack and navigate to its page. No name --
+      # the UI shows the stack's scru128 id until it's renamed. MPA: the new
+      # stack is its own URL, so redirect the caller there (datastar applies the
+      # redirect to the page that POSTed).
       let f = (null | .append "stack.add" --meta {sort: "manual"} --ttl forever)
-      {id: $f.id} | .bus pub "stack.select"
-      null | metadata set { merge {'http.response': {status: 204}} }
-    })
-
-    (route {method: "POST", path: "/stack/select"} {|req ctx|
-      # Switch the global stack cursor (ephemeral; folded by /sse).
-      let sid = ($req.query.stack? | default "")
-      if $sid != "" { {id: $sid} | .bus pub "stack.select" }
-      null | metadata set { merge {'http.response': {status: 204}} }
+      $"/stack/($f.id)" | to datastar-redirect | to sse | metadata set --content-type "text/event-stream"
     })
 
     (route {method: "POST", path: "/stack/rename"} {|req ctx|

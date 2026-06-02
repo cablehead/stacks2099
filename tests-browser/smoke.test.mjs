@@ -1595,19 +1595,19 @@ test("reverse video renders its color via the themable var (so it follows the th
     );
   }));
 
-test("stacks switcher: top-bar breadcrumb opens it; keyboard-select switches the active stack", () =>
-  withApp(async (page) => {
-    // Second stack so switching is meaningful.
+test("stacks switcher: breadcrumb opens it; selecting a stack navigates to its page", () =>
+  withApp(async (page, app) => {
+    const stackA = new URL(page.url()).pathname.replace("/stack/", "");
+    // Second stack via the API so switching is meaningful (creating via the UI
+    // would itself navigate). Reload so this page's switcher lists both.
     await page.evaluate(async () => {
       await fetch("/stack/new", { method: "POST" });
     });
+    await page.goto(`${app.base}/stack/${stackA}`);
+    await page.waitForSelector("#clips-list li[data-clip]", { timeout: 15000 });
     await page.waitForFunction(
-      () => document.querySelectorAll("#stacks-list ul.stacks li").length >= 2,
+      () => document.querySelectorAll(".stack-panel .picker-row").length >= 2,
       { timeout: 8000 },
-    );
-    const sel0 = await page.evaluate(() =>
-      document.querySelector("#stacks-list ul.stacks li.selected .row")?.dataset
-        .stack
     );
 
     await page.click(".stack-crumb");
@@ -1615,35 +1615,39 @@ test("stacks switcher: top-bar breadcrumb opens it; keyboard-select switches the
       state: "visible",
       timeout: 5000,
     });
-    // Rows are the live stacks + a New stack row; exactly one stack is active.
-    const actives = await page.evaluate(() =>
-      [...document.querySelectorAll(".stack-panel .picker-row")].filter((r) =>
-        r.classList.contains("active")
-      ).length
+    // Exactly one stack row is marked active (the current one).
+    assert.equal(
+      await page.evaluate(() =>
+        [...document.querySelectorAll(".stack-panel .picker-row")].filter((r) =>
+          r.classList.contains("active")
+        ).length
+      ),
+      1,
+      "the current stack is marked active",
     );
-    assert.equal(actives, 1, "the current stack is marked active");
 
-    // Move to a different stack (row 1) and switch via Enter.
-    await page.keyboard.press("ArrowDown");
-    await page.waitForFunction(
-      () =>
-        [...document.querySelectorAll(".stack-panel .picker-row")].findIndex((
-          r,
-        ) => r.classList.contains("sel")) === 1,
-      { timeout: 3000 },
+    // Click the switcher row for a stack other than the current one; it should
+    // navigate to that stack's page. (Rows are most-recently-touched first, so
+    // pick by id rather than position.)
+    const target = await page.evaluate(
+      (a) =>
+        [...document.querySelectorAll(".stack-panel .picker-row")]
+          .map((r) =>
+            (r.getAttribute("data-on:click") || "").match(/\/stack\/([^']+)/)
+              ?.[1]
+          )
+          .find((id) => id && id !== a),
+      stackA,
     );
-    await page.keyboard.press("Enter");
+    assert.ok(target, "a different stack is offered in the switcher");
+    await page.evaluate((id) => {
+      [...document.querySelectorAll(".stack-panel .picker-row")]
+        .find((r) => (r.getAttribute("data-on:click") || "").includes(id))
+        ?.click();
+    }, target);
     await page.waitForFunction(
-      () =>
-        getComputedStyle(document.querySelector(".stack-backdrop")).display ===
-          "none",
-      { timeout: 3000 },
-    );
-    await page.waitForFunction(
-      (s) =>
-        document.querySelector("#stacks-list ul.stacks li.selected .row")
-          ?.dataset.stack !== s,
-      sel0,
+      (t) => location.pathname === `/stack/${t}`,
+      target,
       { timeout: 5000 },
     );
   }));
