@@ -919,9 +919,11 @@
       style="display: none"
     >
     </div>
-    <!-- Same edge-patch for the clip-actions panel ($acting). -->
+    <!-- Clip-actions modal owns the keyboard (ADR 0008). When $acting goes false
+         by any path (backdrop click, a row's own data-on:click, Esc), release
+         ownership so the modal stops capturing keys. -->
     <div
-      data-effect="$acting; window.__syncActions && window.__syncActions($acting)"
+      data-effect="$acting || (window.__onActionsClose && window.__onActionsClose())"
       style="display: none"
     >
     </div>
@@ -1158,6 +1160,53 @@
         <button
           type="button"
           class="picker-row"
+          data-key="j"
+          data-on:click="$acting = false; window.app.cycle(1)"
+        >
+          <svg
+            class="icon"
+            xmlns="http://www.w3.org/2000/svg"
+            width="1em"
+            height="1em"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M12 5v14" />
+            <path d="m19 12-7 7-7-7" />
+          </svg> <span>Next clip</span><span class="row-keys"><kbd
+            >j</kbd></span>
+        </button>
+        <button
+          type="button"
+          class="picker-row"
+          data-key="k"
+          data-on:click="$acting = false; window.app.cycle(-1)"
+        >
+          <svg
+            class="icon"
+            xmlns="http://www.w3.org/2000/svg"
+            width="1em"
+            height="1em"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="m5 12 7-7 7 7" />
+            <path d="M12 19V5" />
+          </svg> <span>Prev clip</span><span class="row-keys"><kbd
+            >k</kbd></span>
+        </button>
+        <button
+          type="button"
+          class="picker-row"
+          data-key="r"
           data-on:click="$acting = false; window.app.openRenameTab()"
         >
           <svg
@@ -1174,12 +1223,12 @@
           >
             <path d="M12 20h9" />
             <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
-          </svg> <span>Rename</span><span class="row-keys"><kbd>Alt</kbd><kbd
-            >R</kbd></span>
+          </svg> <span>Rename</span><span class="row-keys"><kbd>r</kbd></span>
         </button>
         <button
           type="button"
           class="picker-row"
+          data-key="K"
           data-on:click="$acting = false; window.app.move('up')"
         >
           <svg
@@ -1196,12 +1245,13 @@
           >
             <path d="m5 12 7-7 7 7" />
             <path d="M12 19V5" />
-          </svg> <span>Move up</span><span class="row-keys"><kbd>Alt</kbd><kbd
-            >Shift</kbd><kbd>K</kbd></span>
+          </svg> <span>Move up</span><span class="row-keys"><kbd>Shift</kbd><kbd
+            >K</kbd></span>
         </button>
         <button
           type="button"
           class="picker-row"
+          data-key="J"
           data-on:click="$acting = false; window.app.move('down')"
         >
           <svg
@@ -1218,12 +1268,13 @@
           >
             <path d="M12 5v14" />
             <path d="m19 12-7 7-7-7" />
-          </svg> <span>Move down</span><span class="row-keys"><kbd>Alt</kbd><kbd
+          </svg> <span>Move down</span><span class="row-keys"><kbd
             >Shift</kbd><kbd>J</kbd></span>
         </button>
         <button
           type="button"
           class="picker-row"
+          data-key="o"
           data-on:click="$acting = false; window.app.cycleHeight()"
         >
           <svg
@@ -1242,12 +1293,12 @@
             <path d="M17 20V4" />
             <path d="m3 8 4-4 4 4" />
             <path d="M7 4v16" />
-          </svg> <span>Height</span><span class="row-keys"><kbd>Alt</kbd><kbd
-            >O</kbd></span>
+          </svg> <span>Height</span><span class="row-keys"><kbd>o</kbd></span>
         </button>
         <button
           type="button"
           class="picker-row"
+          data-key="d"
           data-on:click="$acting = false; window.app.closeSelected()"
         >
           <svg
@@ -1264,8 +1315,7 @@
           >
             <path d="M18 6 6 18" />
             <path d="m6 6 12 12" />
-          </svg> <span>Close</span><span class="row-keys"><kbd>Alt</kbd><kbd
-            >D</kbd></span>
+          </svg> <span>Close</span><span class="row-keys"><kbd>d</kbd></span>
         </button>
       </div>
     </div>
@@ -1460,9 +1510,15 @@
           }).catch(() => {});
         },
         openActions() {
-          // Bottom-right clip-actions panel (Rename / Close). mergePatch drives
-          // the $acting signal the same way the rename trigger drives $renaming.
+          // Mouse entry (the status-bar Actions handle): take keyboard ownership
+          // and paint at once -- a click is a deliberate open, no hint delay.
+          actionsOwned = true;
+          if (actionsTimer !== null) {
+            clearTimeout(actionsTimer);
+            actionsTimer = null;
+          }
           mergePatch({ acting: true });
+          preselectActionsRow();
         },
         openStacks() {
           // Top-left stacks switcher (Alt+\\ or the breadcrumb). Same edge-driven
@@ -1772,9 +1828,18 @@
         return (on) => (on ? open() : close());
       }
       window.__syncPicker = makePicker(".picker-panel", "picking");
-      window.__syncActions = makePicker(".actions-panel", "acting");
       window.__syncTheme = makePicker(".theme-panel", "themePicking");
       window.__syncStacks = makePicker(".stack-panel", "stackPicking");
+      // The clip-actions modal does NOT use makePicker -- the owned-keyboard
+      // handler (ADR 0008) drives it. Release ownership whenever $acting clears
+      // by any path (backdrop click, a row's data-on:click, Esc).
+      window.__onActionsClose = () => {
+        actionsOwned = false;
+        if (actionsTimer !== null) {
+          clearTimeout(actionsTimer);
+          actionsTimer = null;
+        }
+      };
 
       // Focus a clip by id -- the one entry point for "go into this pane".
       // Terminal: point key-buffer at the pane's pty (its .pane-screen carries
@@ -1902,39 +1967,72 @@
         }
       }
 
-      // mod+K leader (ADR 0007). mod+K is the one key safe to pierce a focused
-      // clip (Meta -- key-buffer drops it before the pty). It starts a transient
-      // "leader pending" state: the next key runs a clip command and the
-      // clip-actions panel never shows; if no key comes within LEADER_HINT_MS the
-      // panel opens and acts as the which-key cheatsheet. So the leader bindings
-      // and the panel rows are one set: j/k navigate (via cycle, which carries
-      // focus), and the panel's own chords.
-      const LEADER_HINT_MS = 300;
-      const LEADER = {
-        "j": () => window.app.cycle(1),
-        "k": () => window.app.cycle(-1),
-        "r": () => window.app.openRenameTab(),
-        "d": () => window.app.closeSelected(),
-        "o": () => window.app.cycleHeight(),
-        "J": () => window.app.move("down"),
-        "K": () => window.app.move("up"),
-      };
-      let leaderTimer = null;
-      function leaderPending() {
-        return leaderTimer !== null;
+      // mod+K clip-actions modal (ADR 0008). mod+K is the one key safe to pierce
+      // a focused clip (Meta -- key-buffer drops it before the pty). It makes the
+      // modal OWN the keyboard immediately and continuously, until an action runs
+      // or it is dismissed. The panel is a delayed *visual* of that ownership: a
+      // show-timer paints it after LEADER_HINT_MS, but key handling is identical
+      // whether or not it has painted (a deliberate mod+K r fires before the
+      // panel ever shows). The keymap is the panel's rows (data-key) plus j/k
+      // navigation -- one set, read live, no second makePicker handler.
+      const ACTIONS_HINT_MS = 300;
+      let actionsOwned = false; // modal owns the keyboard
+      let actionsTimer = null; // panel show-timer
+      function actionsActive() {
+        return actionsOwned;
       }
-      function startLeader() {
-        // Open the panel as the hint only if the user pauses. A deliberate
-        // mod+K j fires before this and clears the timer, so the panel never
-        // flashes.
-        leaderTimer = setTimeout(() => {
-          leaderTimer = null;
-          window.app.openActions();
-        }, LEADER_HINT_MS);
+      function preselectActionsRow() {
+        // Put the .sel cursor on the first row when the panel paints, so Enter
+        // has a target and the cursor is visible. Arrows / ctrl-n-p move it.
+        const rows = [
+          ...document.querySelectorAll(".actions-panel .picker-row"),
+        ];
+        rows.forEach((r, i) => r.classList.toggle("sel", i === 0));
       }
-      function endLeader() {
-        if (leaderTimer !== null) clearTimeout(leaderTimer);
-        leaderTimer = null;
+      function openActionsOwn() {
+        actionsOwned = true;
+        // Paint the panel only if the user pauses; a fast mod+K r never flashes
+        // it. Ownership does not depend on the panel being visible.
+        if (actionsTimer === null) {
+          actionsTimer = setTimeout(() => {
+            actionsTimer = null;
+            if (actionsOwned) {
+              mergePatch({ acting: true });
+              preselectActionsRow();
+            }
+          }, ACTIONS_HINT_MS);
+        }
+      }
+      function endActions() {
+        actionsOwned = false;
+        if (actionsTimer !== null) clearTimeout(actionsTimer);
+        actionsTimer = null;
+        mergePatch({ acting: false });
+      }
+      // Run the panel action bound to `key` (its data-key row). Returns true if a
+      // row matched. Clicking the row runs its data-on:click (which also sets
+      // $acting=false); we still endActions() to release ownership + the timer.
+      function runActionKey(key) {
+        const row = document.querySelector(
+          `.actions-panel [data-key="${key}"]`,
+        );
+        if (!row) return false;
+        endActions();
+        row.click();
+        return true;
+      }
+      // Move the .sel highlight among the panel rows (arrows / ctrl-n/p). Pure
+      // navigation -- invokes nothing, keeps ownership.
+      function moveActionsSel(dir) {
+        const rows = [
+          ...document.querySelectorAll(".actions-panel .picker-row"),
+        ];
+        if (!rows.length) return;
+        const i = rows.findIndex((r) => r.classList.contains("sel"));
+        const n = ((i < 0 ? 0 : i) + dir + rows.length) % rows.length;
+        rows.forEach((r) => r.classList.remove("sel"));
+        rows[n].classList.add("sel");
+        rows[n].scrollIntoView({ block: "nearest" });
       }
       document.addEventListener("keydown", (e) => {
         if (document.activeElement?.classList.contains("modal-input")) {
@@ -1945,21 +2043,34 @@
           "note-edit",
         );
 
-        // Leader pending (ADR 0007): mod+K was just pressed and we're waiting on
-        // the second key. A bare modifier press doesn't count -- keep waiting.
-        // Any real key ends the pending state: if it's a leader command, run it;
-        // otherwise open the panel (forgiving -- a mistyped leader still lands).
-        // Either way the key is consumed, never reaching a focused pty.
-        if (leaderPending()) {
-          if (["Shift", "Control", "Alt", "Meta", "CapsLock"].includes(e.key)) {
+        // The clip-actions modal owns the keyboard (ADR 0008). From the mod+K
+        // press until an action runs or it is dismissed, every key routes here --
+        // the same whether or not the panel has painted yet.
+        if (actionsActive()) {
+          const k = e.key;
+          // A bare modifier press isn't a command; keep ownership, keep waiting.
+          if (["Shift", "Control", "Alt", "Meta", "CapsLock"].includes(k)) {
             return;
           }
           e.preventDefault();
           e.stopPropagation();
-          endLeader();
-          const cmd = LEADER[e.key];
-          if (cmd) cmd();
-          else if (e.key !== "Escape") window.app.openActions();
+          // In-menu navigation invokes nothing, so it keeps ownership.
+          if (k === "ArrowDown" || (e.ctrlKey && k === "n")) {
+            moveActionsSel(1);
+          } else if (k === "ArrowUp" || (e.ctrlKey && k === "p")) {
+            moveActionsSel(-1);
+          } else if (k === "Enter") {
+            const sel = document.querySelector(
+              ".actions-panel .picker-row.sel",
+            );
+            endActions();
+            (sel || document.querySelector(".actions-panel .picker-row"))
+              ?.click();
+          } else if (k === "Escape") {
+            endActions(); // dismiss, no action
+          } else if (!runActionKey(k)) {
+            // Unbound key: swallowed (the modal owns the keyboard).
+          }
           return;
         }
 
@@ -1987,7 +2098,7 @@
         ) {
           e.preventDefault();
           e.stopPropagation();
-          startLeader();
+          openActionsOwn();
           return;
         }
         // A focused clip owns every other key (ADR 0005). mod+Enter and mod+K

@@ -895,13 +895,14 @@ test("clip-actions: mod-K opens in navigate; Ctrl-n/Ctrl-p move; Enter opens ren
           .display === "none"
       );
 
-    // Linux headless: mod = Ctrl. Open from navigate mode; Rename (row 0) selected.
+    // Linux headless: mod = Ctrl. Open from navigate mode; the first row is
+    // preselected (ADR 0008: the panel paints with a .sel cursor for Enter).
     await page.keyboard.press("Control+k");
     await page.waitForSelector(".actions-backdrop", {
       state: "visible",
       timeout: 5000,
     });
-    assert.equal(await selIdx(), 0, "opens with Rename selected");
+    assert.equal(await selIdx(), 0, "opens with the first row selected");
 
     await page.keyboard.press("Control+n");
     await page.waitForFunction(
@@ -912,9 +913,9 @@ test("clip-actions: mod-K opens in navigate; Ctrl-n/Ctrl-p move; Enter opens ren
       { timeout: 3000 },
     );
     await page.keyboard.press("Control+p");
-    assert.equal(await selIdx(), 0, "Ctrl-p returns to Rename");
+    assert.equal(await selIdx(), 0, "Ctrl-p returns to the first row");
 
-    // Esc closes without opening rename.
+    // Esc closes without opening any modal.
     await page.keyboard.press("Escape");
     await page.waitForFunction(
       () =>
@@ -932,20 +933,21 @@ test("clip-actions: mod-K opens in navigate; Ctrl-n/Ctrl-p move; Enter opens ren
       "Esc opens no rename modal",
     );
 
-    // Reopen, Enter on Rename opens the rename modal and closes the panel.
+    // Reopen; bare `r` runs Rename (its data-key), opening the rename modal and
+    // closing the panel (ADR 0008: any action ends ownership).
     await page.keyboard.press("Control+k");
     await page.waitForSelector(".actions-backdrop", {
       state: "visible",
       timeout: 5000,
     });
-    await page.keyboard.press("Enter");
+    await page.keyboard.press("r");
     await page.waitForSelector(".modal-input", {
       state: "visible",
       timeout: 5000,
     });
     assert.ok(
       await hidden(),
-      "the actions panel closed when Rename was chosen",
+      "the actions panel closed when Rename ran",
     );
   }));
 
@@ -1117,7 +1119,37 @@ test("clip-actions: Cmd-K opens the panel even when a terminal is focused", () =
         ) => r.classList.contains("sel"))
       ),
       0,
-      "panel opens with Rename selected, from focus mode",
+      "panel opens with the first row selected, from focus mode",
+    );
+  }));
+
+// ADR 0008: the mod+K modal owns the keyboard continuously. Once the panel is
+// open (pause past the hint delay), the row letters still work -- bare `r`
+// opens rename. The panel is a delayed visual of a modal already in control,
+// not a separate menu with its own bindings.
+test("mod+K panel: bare r opens rename once the panel is shown", () =>
+  withApp(async (page) => {
+    // Open and wait for the panel to actually paint (past the hint delay).
+    await page.keyboard.press("Meta+k");
+    await page.waitForSelector(".actions-backdrop", {
+      state: "visible",
+      timeout: 5000,
+    });
+    // Bare `r` -- no modifier -- must invoke Rename (the r-row's action).
+    await page.keyboard.press("r");
+    await page.waitForSelector(".modal-input", {
+      state: "visible",
+      timeout: 5000,
+    });
+    // The actions panel handed ownership to the rename modal (it closed).
+    assert.equal(
+      await page.evaluate(() =>
+        getComputedStyle(document.querySelector(".actions-backdrop"))
+          .display ===
+          "none"
+      ),
+      true,
+      "the actions panel closed when r ran rename",
     );
   }));
 

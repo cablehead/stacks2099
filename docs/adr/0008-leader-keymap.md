@@ -2,10 +2,19 @@
 
 ## Status
 
-Draft. Builds on [0005](0005-mode-projected-keymap.md) (page is the mode; server
-projects the keymap), [0006](0006-client-owned-cursor.md) (cursor is
+Implemented. Builds on [0005](0005-mode-projected-keymap.md) (page is the mode;
+server projects the keymap), [0006](0006-client-owned-cursor.md) (cursor is
 client-owned and instant), and [0007](0007-mod-k-leader.md) (`mod+K` is the
 leader; the clip-actions panel is its which-key hint).
+
+`mod+K` gives the clip-actions modal continuous keyboard ownership; the panel
+paints after a 300ms hint delay but key handling is identical before/after.
+Panel rows carry `data-key` (`j`/`k` navigate, `r`/`d`/`o`/`J`/`K` the actions);
+a key clicks its row and ownership ends, transferring to where the action lands.
+`makePicker`'s separate handler for the actions panel is gone. Still pending:
+pulling content-type toggles (Rendered/Embed) from the cursored pane as extra
+rows (the per-clip tier is currently the universal actions only), and the global
+cross-stack tier; plus the 0007 deferred items.
 
 ## Context
 
