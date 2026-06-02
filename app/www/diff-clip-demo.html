@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="utf-8">
+    <title>diff-clip prototype</title>
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        margin: 0;
+        padding: 24px;
+        background: #0d1017;
+        color: #c4c9d4;
+        font: 14px/1.5 ui-sans-serif, system-ui, sans-serif;
+      }
+      h1 { font-size: 16px; font-weight: 600; margin: 0 0 4px; }
+      p.sub { margin: 0 0 20px; color: #6b7280; }
+      .controls { margin: 0 0 16px; display: flex; gap: 8px; align-items: center; }
+      button {
+        background: #1b2030; color: #c4c9d4; border: 1px solid #2a3244;
+        border-radius: 6px; padding: 5px 10px; font: inherit; cursor: pointer;
+      }
+      button:hover { background: #232a3d; }
+      #sel { color: #6b7280; font-variant-numeric: tabular-nums; }
+      diff-clip {
+        display: block;
+        border: 1px solid #1f2533;
+        border-radius: 8px;
+        overflow: hidden;
+        margin-bottom: 20px;
+      }
+    </style>
+    <script type="importmap">
+      { "imports": { "@pierre/diffs": "https://esm.sh/@pierre/diffs@1" } }
+    </script>
+    <script type="module" src="/diff-clip.js"></script>
+  </head>
+  <body>
+    <h1>&lt;diff-clip&gt; prototype</h1>
+    <p class="sub">vanilla custom element wrapping @pierre/diffs</p>
+
+    <div class="controls">
+      <button id="toggle">toggle split / unified</button>
+      <span id="sel">no selection</span>
+    </div>
+
+    <!-- declarative form: filename infers language, children carry the text -->
+    <diff-clip id="d1" filename="greet.ts" diff-style="split">
+      <script type="text/plain" data-diff="old">export function greet(name: string) {
+  console.log("Hello " + name);
+  return name.length;
+}
+</script>
+      <script type="text/plain" data-diff="new">export function greet(name: string, loud = false) {
+  const msg = `Hello, ${name}!`;
+  console.log(loud ? msg.toUpperCase() : msg);
+  return msg;
+}
+</script>
+    </diff-clip>
+
+    <!-- property form: content assigned from JS, like the clip renderer would -->
+    <diff-clip id="d2" filename="config.json" diff-style="unified" no-header></diff-clip>
+
+    <script type="module">
+      const d2 = document.getElementById("d2");
+      d2.oldText = '{\n  "port": 5099,\n  "theme": "dark"\n}\n';
+      d2.newText = '{\n  "port": 8080,\n  "theme": "dark",\n  "watch": true\n}\n';
+
+      const d1 = document.getElementById("d1");
+      document.getElementById("toggle").addEventListener("click", () => {
+        const next = d1.getAttribute("diff-style") === "split" ? "unified" : "split";
+        d1.setAttribute("diff-style", next);
+      });
+
+      const sel = document.getElementById("sel");
+      d1.addEventListener("line-select", (e) => {
+        const r = e.detail;
+        sel.textContent = r ? `lines ${r.start}-${r.end} (${r.side})` : "no selection";
+      });
+    </script>
+  </body>
+</html>
