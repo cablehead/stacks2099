@@ -17,13 +17,17 @@ after(async () => {
 // Fresh app + page for one test; cleaned up after.
 const withApp = async (fn) => {
   const app = await spawnApp();
-  const page = await browser.newPage();
+  // Own context per test: isolates the connection pool, storage, and service
+  // workers so a wedged SSE stream can't cascade into later tests. Reuses the
+  // one chromium process (cheap), unlike a browser-per-test.
+  const context = await browser.newContext();
+  const page = await context.newPage();
   try {
     await page.goto(app.base);
     await page.waitForSelector("#clips-list li", { timeout: 15000 });
     await fn(page, app);
   } finally {
-    await page.close();
+    await context.close();
     app.close();
   }
 };
@@ -1024,19 +1028,23 @@ test("closing the focused clip moves the cursor to a surviving neighbour", () =>
       () => document.querySelectorAll("#clips-list li[data-clip]").length >= 3,
       { timeout: 10000 },
     );
-    // Select the first clip row, then close it.
-    const firstCid = await page.evaluate(() => {
-      const li = document.querySelector("#clips-list li[data-clip]");
-      li.querySelector(".row").click();
-      return li.dataset.clip;
-    });
+    // Select the first clip row, then close it. Re-click until the cursor
+    // actually moves (the pane goes active): a one-shot click can land before
+    // Datastar has wired the freshly-morphed row's handler, silently no-op, and
+    // strand the test. The click is idempotent ($cursor = '<cid>'), so polling
+    // it is safe and removes the wiring race.
+    const firstCid = await page.evaluate(() =>
+      document.querySelector("#clips-list li[data-clip]").dataset.clip
+    );
     await page.waitForFunction(
-      (cid) =>
-        document.querySelector("#pane-" + CSS.escape(cid))?.classList.contains(
-          "active",
-        ),
+      (cid) => {
+        document.querySelector(`#clips-list li[data-clip="${cid}"] .row`)
+          ?.click();
+        return document.querySelector("#pane-" + CSS.escape(cid))?.classList
+          .contains("active");
+      },
       firstCid,
-      { timeout: 5000 },
+      { timeout: 5000, polling: 200 },
     );
     await page.evaluate(() => window.app.closeSelected());
 
@@ -1111,6 +1119,82 @@ test("clip-actions: Cmd-K opens the panel even when a terminal is focused", () =
       0,
       "panel opens with Rename selected, from focus mode",
     );
+  }));
+
+// ADR 0007: mod+K is a leader. mod+K then j/k navigates clips (via cycle, which
+// carries focus) WITHOUT the panel flashing -- the second key beats the hint
+// timer. Works while a terminal is focused, since mod+K pierces the pty.
+test("mod+K j navigates clips while focused, without opening the panel", () =>
+  withApp(async (page) => {
+    // Two clips so there's somewhere to navigate to.
+    await page.evaluate(async () => {
+      await fetch("/clip/add", {
+        method: "POST",
+        headers: { "content-type": "text/markdown" },
+        body: "second",
+      });
+    });
+    await page.waitForFunction(
+      () => document.querySelectorAll("#clips-list ul.clips li").length >= 2,
+      { timeout: 10000 },
+    );
+    const before = await page.evaluate(() =>
+      document.querySelector("#clips-list ul.clips li.selected")?.dataset
+        .clip ||
+      null
+    );
+
+    // Leader + j as a fast pair (well under the 300ms hint), mod = Ctrl
+    // headless. Dispatch both synchronously so CI scheduling between two awaited
+    // press() calls can't exceed the hint window.
+    await page.evaluate(() => {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "k",
+          code: "KeyK",
+          ctrlKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "j",
+          code: "KeyJ",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
+    // The cursor moved, and the panel never became visible.
+    await page.waitForFunction(
+      (b) => {
+        const sel = document.querySelector(
+          "#clips-list ul.clips li.selected",
+        )?.dataset.clip;
+        return sel && sel !== b;
+      },
+      before,
+      { timeout: 3000 },
+    );
+    const panelShown = await page.evaluate(() =>
+      getComputedStyle(document.querySelector(".actions-backdrop")).display !==
+        "none"
+    );
+    assert.ok(!panelShown, "the clip-actions panel did not flash on mod+K j");
+  }));
+
+// ADR 0007: mod+K with no follow-up key opens the panel after the hint delay --
+// the panel is the leader's which-key cheatsheet.
+test("mod+K alone opens the clip-actions panel after the hint delay", () =>
+  withApp(async (page) => {
+    await page.keyboard.press("Control+k");
+    await page.waitForSelector(".actions-backdrop", {
+      state: "visible",
+      timeout: 5000,
+    });
+    assert.ok(true, "panel opened on a bare leader press");
   }));
 
 // macOS Option (and AltGr on non-US layouts) is a character-compose modifier:

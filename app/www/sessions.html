@@ -1901,6 +1901,41 @@
           console.error("action", id, err);
         }
       }
+
+      // mod+K leader (ADR 0007). mod+K is the one key safe to pierce a focused
+      // clip (Meta -- key-buffer drops it before the pty). It starts a transient
+      // "leader pending" state: the next key runs a clip command and the
+      // clip-actions panel never shows; if no key comes within LEADER_HINT_MS the
+      // panel opens and acts as the which-key cheatsheet. So the leader bindings
+      // and the panel rows are one set: j/k navigate (via cycle, which carries
+      // focus), and the panel's own chords.
+      const LEADER_HINT_MS = 300;
+      const LEADER = {
+        "j": () => window.app.cycle(1),
+        "k": () => window.app.cycle(-1),
+        "r": () => window.app.openRenameTab(),
+        "d": () => window.app.closeSelected(),
+        "o": () => window.app.cycleHeight(),
+        "J": () => window.app.move("down"),
+        "K": () => window.app.move("up"),
+      };
+      let leaderTimer = null;
+      function leaderPending() {
+        return leaderTimer !== null;
+      }
+      function startLeader() {
+        // Open the panel as the hint only if the user pauses. A deliberate
+        // mod+K j fires before this and clears the timer, so the panel never
+        // flashes.
+        leaderTimer = setTimeout(() => {
+          leaderTimer = null;
+          window.app.openActions();
+        }, LEADER_HINT_MS);
+      }
+      function endLeader() {
+        if (leaderTimer !== null) clearTimeout(leaderTimer);
+        leaderTimer = null;
+      }
       document.addEventListener("keydown", (e) => {
         if (document.activeElement?.classList.contains("modal-input")) {
           return;
@@ -1909,6 +1944,24 @@
         const editingNote = document.activeElement?.classList.contains(
           "note-edit",
         );
+
+        // Leader pending (ADR 0007): mod+K was just pressed and we're waiting on
+        // the second key. A bare modifier press doesn't count -- keep waiting.
+        // Any real key ends the pending state: if it's a leader command, run it;
+        // otherwise open the panel (forgiving -- a mistyped leader still lands).
+        // Either way the key is consumed, never reaching a focused pty.
+        if (leaderPending()) {
+          if (["Shift", "Control", "Alt", "Meta", "CapsLock"].includes(e.key)) {
+            return;
+          }
+          e.preventDefault();
+          e.stopPropagation();
+          endLeader();
+          const cmd = LEADER[e.key];
+          if (cmd) cmd();
+          else if (e.key !== "Escape") window.app.openActions();
+          return;
+        }
 
         // mod+Enter: the only focus toggle, in any mode (Cmd on macOS, Ctrl else
         // -- both mapped). key-buffer drops Meta combos and a plain terminal
@@ -1921,18 +1974,20 @@
           window.app.toggleFocus();
           return;
         }
-        // mod+K opens the clip-actions panel on the current clip. Cmd+K works in
-        // every mode, including a focused terminal -- key-buffer drops Meta combos,
-        // so the pty never loses anything. Ctrl+K only opens in navigate mode, so
-        // a focused terminal keeps Ctrl+K as readline kill-line on every platform.
-        // preventDefault suppresses the browser's own Cmd/Ctrl+K (omnibox search).
+        // mod+K is the leader (ADR 0007): start the pending state and the hint
+        // timer instead of opening the panel immediately. mod+K then j/k/r/d/...
+        // runs a clip command; pausing opens the panel as the cheatsheet. Cmd+K
+        // works in every mode, including a focused terminal -- key-buffer drops
+        // Meta combos, so the pty never loses anything. Ctrl+K only leads in
+        // navigate mode, so a focused terminal keeps Ctrl+K as readline
+        // kill-line. preventDefault suppresses the browser's own Cmd/Ctrl+K.
         if (
           combo === "cmd+k" ||
           (combo === "ctrl+k" && mode === "navigate")
         ) {
           e.preventDefault();
           e.stopPropagation();
-          window.app.openActions();
+          startLeader();
           return;
         }
         // A focused clip owns every other key (ADR 0005). mod+Enter and mod+K

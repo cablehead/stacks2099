@@ -2,9 +2,15 @@
 
 ## Status
 
-Draft. Builds on [0005](0005-mode-projected-keymap.md) (a focused clip owns
-every key but a tiny carve-out) and [0006](0006-client-owned-cursor.md) (the
-cursor is client-owned and instant).
+Implemented. Builds on [0005](0005-mode-projected-keymap.md) (a focused clip
+owns every key but a tiny carve-out) and [0006](0006-client-owned-cursor.md)
+(the cursor is client-owned and instant).
+
+`mod+K` enters a 300ms "leader pending" state; the second key runs a clip
+command (`j`/`k` navigate via the client cursor, `r`/`d`/`o`/`J`/`K` the panel
+actions) and the panel never shows; pausing past the delay opens the panel as
+the which-key cheatsheet. Open items below (pass-through escape; whether the
+leader subsumes the navigate-mode `Alt` chords) are still deferred.
 
 ## Context
 
