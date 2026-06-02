@@ -1123,6 +1123,57 @@ test("clip-actions: Cmd-K opens the panel even when a terminal is focused", () =
     );
   }));
 
+// Bare j/k navigate clips in navigate mode (key-buffer is off there, so the
+// keys are free). No mod+K needed when not focused.
+test("bare j/k navigate clips in navigate mode", () =>
+  withApp(async (page) => {
+    await page.evaluate(async () => {
+      await fetch("/clip/add", {
+        method: "POST",
+        headers: { "content-type": "text/markdown" },
+        body: "two",
+      });
+    });
+    await page.waitForFunction(
+      () => document.querySelectorAll("#clips-list ul.clips li").length >= 2,
+      { timeout: 10000 },
+    );
+    const sel = () =>
+      page.evaluate(() =>
+        document.querySelector("#clips-list ul.clips li.selected")?.dataset
+          .clip || "none"
+      );
+    const before = await sel();
+    await page.keyboard.press("j");
+    await page.waitForFunction(
+      (b) =>
+        (document.querySelector("#clips-list ul.clips li.selected")?.dataset
+          .clip || "none") !== b,
+      before,
+      { timeout: 3000 },
+    );
+    const after = await sel();
+    assert.notEqual(after, before, "bare j moved the cursor in navigate mode");
+  }));
+
+// ADR 0008: mod+K while the panel is active dismisses it (prefix-prefix close).
+test("mod+K again closes the actions panel", () =>
+  withApp(async (page) => {
+    await page.keyboard.press("Meta+k");
+    await page.waitForSelector(".actions-backdrop", {
+      state: "visible",
+      timeout: 5000,
+    });
+    await page.keyboard.press("Meta+k");
+    await page.waitForFunction(
+      () =>
+        getComputedStyle(document.querySelector(".actions-backdrop"))
+          .display === "none",
+      { timeout: 3000 },
+    );
+    assert.ok(true, "second mod+K dismissed the panel");
+  }));
+
 // ADR 0008: the mod+K modal owns the keyboard continuously. Once the panel is
 // open (pause past the hint delay), the row letters still work -- bare `r`
 // opens rename. The panel is a delayed visual of a modal already in control,

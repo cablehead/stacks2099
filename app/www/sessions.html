@@ -702,6 +702,8 @@
     "openStacks": "window.app.openStacks()"
   }'
     data-keymap='{
+    "j": "next",
+    "k": "prev",
     "alt+t": "new",
     "alt+d": "close",
     "alt+j": "next",
@@ -1975,7 +1977,7 @@
       // whether or not it has painted (a deliberate mod+K r fires before the
       // panel ever shows). The keymap is the panel's rows (data-key) plus j/k
       // navigation -- one set, read live, no second makePicker handler.
-      const ACTIONS_HINT_MS = 300;
+      const ACTIONS_HINT_MS = 150;
       let actionsOwned = false; // modal owns the keyboard
       let actionsTimer = null; // panel show-timer
       function actionsActive() {
@@ -2054,6 +2056,11 @@
           }
           e.preventDefault();
           e.stopPropagation();
+          // mod+K again dismisses (prefix-prefix closes), like tmux's leader.
+          if (combo === "cmd+k" || combo === "ctrl+k") {
+            endActions();
+            return;
+          }
           // In-menu navigation invokes nothing, so it keeps ownership.
           if (k === "ArrowDown" || (e.ctrlKey && k === "n")) {
             moveActionsSel(1);
