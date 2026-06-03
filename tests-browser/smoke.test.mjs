@@ -455,6 +455,161 @@ test("seqno-diff: alternate-screen flip replaces the grid then restores main on 
     );
   }));
 
+test("resize reflow: live grid stays in sync with a fresh subscriber", () =>
+  withApp(async (page) => {
+    // Regression for resize desync: a resize reflows the buffer (rewraps lines,
+    // shifts stable ids), which invalidates the seqno diff basis the same way
+    // an alt-screen flip does. Without a full re-emit on a dimension change the
+    // live grid keeps diffing against the pre-resize buffer and drifts until a
+    // reconnect (the "refresh fixes it" symptom). We prove sync by comparing
+    // the live grid to a fresh /pty/view subscriber, whose first frame is the
+    // authoritative full render, taken after the resize.
+    await page.waitForFunction(
+      () => {
+        const g = document.querySelector("[id^='grid-']");
+        return g && parseInt(g.getAttribute("data-cols") || "0", 10) > 0;
+      },
+      { timeout: 15000 },
+    );
+    const sid = await page.evaluate(() =>
+      document.querySelector("[id^='screen-']").getAttribute("data-pty")
+    );
+    // The starting column count, from the initial full frame (always sent on
+    // subscribe, so this read is safe). We then resize narrower by direct
+    // POST -- no viewport/ResizeObserver timing, and no dependence on the
+    // resize updating data-cols (which is exactly the bug under test).
+    const startCols = await page.evaluate(() =>
+      parseInt(
+        document.querySelector("[id^='grid-']").getAttribute("data-cols"),
+        10,
+      )
+    );
+    const narrowCols = Math.max(20, Math.floor(startCols / 2));
+
+    // A run a bit wider than the start width: one full row + a remainder now,
+    // and a different wrap once we halve the width.
+    const runLen = startCols + 20;
+    await page.evaluate(
+      async ({ sid, runLen }) => {
+        await fetch(`/pty/input?sid=${encodeURIComponent(sid)}`, {
+          method: "POST",
+          body: `print (1..${runLen} | each { 'W' } | str join)\n`,
+        });
+      },
+      { sid, runLen },
+    );
+    // Wait until the run has rendered (a full-width W row appears).
+    await page.waitForFunction(
+      (startCols) =>
+        [...document.querySelectorAll("[id^='grid-'] .row")].some((r) =>
+          (r.textContent.match(/W+/)?.[0] || "").length >= startCols - 1
+        ),
+      startCols,
+      { timeout: 10000 },
+    );
+
+    // Resize narrower directly. The server reflows regardless of the view fix;
+    // a fresh subscriber will show the rewrap. The live grid only follows if
+    // the loop re-emits a full frame on the dimension change.
+    await page.evaluate(
+      async ({ sid, narrowCols }) => {
+        await fetch(`/pty/resize?sid=${encodeURIComponent(sid)}`, {
+          method: "POST",
+          body: JSON.stringify({ cols: narrowCols, rows: 24 }),
+        });
+      },
+      { sid, narrowCols },
+    );
+    // Settle on the rewrap if it lands (fix present); don't assert here -- the
+    // probe comparison below stays readable even when the live grid never
+    // reflows (the bug).
+    await page
+      .waitForFunction(
+        (narrowCols) =>
+          [...document.querySelectorAll("[id^='grid-'] .row")].every((r) =>
+            (r.textContent.match(/W+/)?.[0] || "").length <= narrowCols
+          ),
+        narrowCols,
+        { timeout: 6000 },
+      )
+      .catch(() => {});
+    await page.waitForTimeout(500); // let any trailing diff settle
+
+    const { live, probe } = await page.evaluate(async (sid) => {
+      const rows = (root) =>
+        [...root.querySelectorAll(".row")].map((r) =>
+          r.textContent.replace(/\s+$/, "")
+        );
+      const trimTail = (a) => {
+        const b = a.slice();
+        while (b.length && b[b.length - 1] === "") b.pop();
+        return b;
+      };
+
+      // A fresh subscriber's first frame is the whole grid at connect time.
+      const ctrl = new AbortController();
+      const resp = await fetch(
+        `/pty/view?sid=${encodeURIComponent(sid)}&target=t-probe`,
+        { signal: ctrl.signal },
+      );
+      const reader = resp.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      let frameHtml = null;
+      const deadline = Date.now() + 8000;
+      while (frameHtml === null && Date.now() < deadline) {
+        const timeout = new Promise((r) => setTimeout(() => r("t"), 200));
+        const got = await Promise.race([reader.read(), timeout]);
+        if (got === "t") continue;
+        if (got.done) break;
+        buf += dec.decode(got.value, { stream: true });
+        let i;
+        while ((i = buf.indexOf("\n\n")) !== -1) {
+          const raw = buf.slice(0, i);
+          buf = buf.slice(i + 2);
+          if (!raw.startsWith("event: datastar-patch-elements")) continue;
+          const els = raw
+            .split("\n")
+            .filter((l) => l.startsWith("data: elements "))
+            .map((l) => l.slice("data: elements ".length))
+            .join("\n");
+          if (els.includes('id="t-probe"')) {
+            frameHtml = els;
+            break;
+          }
+        }
+      }
+      ctrl.abort();
+
+      const doc = new DOMParser().parseFromString(
+        frameHtml || "",
+        "text/html",
+      );
+      return {
+        probe: trimTail(rows(doc.querySelector("#t-probe") || doc.body)),
+        live: trimTail(rows(document.querySelector("[id^='grid-']"))),
+      };
+    }, sid);
+
+    assert.ok(probe.length > 0, "fresh subscriber must deliver a full frame");
+    // Meaningfulness guard, keyed off the authoritative probe: the run must
+    // actually have rewrapped, else the resize wasn't a reflow and the test
+    // proves nothing.
+    const probeMaxRun = Math.max(
+      0,
+      ...probe.map((r) => (r.match(/W+/)?.[0] || "").length),
+    );
+    assert.ok(
+      probeMaxRun > 0 && probeMaxRun <= narrowCols,
+      `the W run must rewrap to the narrow width (probe max run ${probeMaxRun}, narrowCols ${narrowCols})`,
+    );
+    assert.deepEqual(
+      live,
+      probe,
+      "live grid must match a fresh subscriber after the resize; a mismatch means the diff basis wasn't rebased on reflow",
+    );
+  }));
+
 test("rename terminal: live grid + cursor survive; pane-head label updates", () =>
   withApp(async (page) => {
     // Regression: a clip.patch{label} for a terminal used to fall into the

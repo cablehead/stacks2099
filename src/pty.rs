@@ -1192,6 +1192,12 @@ impl Command for PtyViewCommand {
         // instead of seeing alt content overlay the first N rows of stale
         // main content (the symptom under `bat`/`less`/`vim`).
         let mut last_alt: bool = false;
+        // A resize reflows the buffer: row contents rewrap, stable ids shift,
+        // and the container's data-cols/rows go stale. A seqno diff against
+        // the pre-resize basis would desync the client until a reconnect, so
+        // a dimension change forces a full re-emit, same as a screen flip.
+        let mut last_cols: usize = 0;
+        let mut last_rows: usize = 0;
         let sid_owned = sid.clone();
         // One tick can produce several records (trim + changed rows + append
         // + cursor). We drain this queue one Value at a time and only run a
@@ -1261,17 +1267,21 @@ impl Command for PtyViewCommand {
                 // `get_changed_stable_rows(..last_seqno)` would lie about what
                 // the client needs to see. Treat the flip as a fresh subscribe.
                 let screen_flipped = sent_initial && alt_active != last_alt;
+                // A resize reflows every row and shifts stable ids, so the
+                // seqno diff basis is invalid; re-emit the whole grid instead.
+                let resized = sent_initial && (cols != last_cols || phys_rows != last_rows);
                 // Changed rows that the client still has: query only the
                 // overlap of the current stable range with what we last sent.
                 // New rows (above `last_max_stable`) are handled by the append
                 // path; purged rows fall off the front of the overlap so they
                 // don't appear here.
                 let changed_end = max_stable.min(last_max_stable);
-                let changed = if sent_initial && !screen_flipped && changed_end > stable_base {
-                    screen.get_changed_stable_rows(stable_base..changed_end, last_seqno)
-                } else {
-                    Vec::new()
-                };
+                let changed =
+                    if sent_initial && !screen_flipped && !resized && changed_end > stable_base {
+                        screen.get_changed_stable_rows(stable_base..changed_end, last_seqno)
+                    } else {
+                        Vec::new()
+                    };
                 let lines = screen.lines_in_phys_range(0..total);
                 ViewSnapshot {
                     cols,
@@ -1279,6 +1289,7 @@ impl Command for PtyViewCommand {
                     seqno,
                     alt_active,
                     screen_flipped,
+                    resized,
                     stable_base,
                     max_stable,
                     cursor_row,
@@ -1289,8 +1300,8 @@ impl Command for PtyViewCommand {
             };
             last_gen = gen_now;
 
-            if !sent_initial || snap.screen_flipped {
-                // First frame OR primary/alt screen flipped under us: hand the
+            if !sent_initial || snap.screen_flipped || snap.resized {
+                // First frame, alt/primary flip, or a resize reflow: hand the
                 // client the whole new grid in one record so idiomorph drops
                 // anything no longer present and the diff state starts fresh.
                 let frame = render_full_from_snap(&snap, &target);
@@ -1319,6 +1330,8 @@ impl Command for PtyViewCommand {
             last_stable_base = snap.stable_base;
             last_max_stable = snap.max_stable;
             last_alt = snap.alt_active;
+            last_cols = snap.cols;
+            last_rows = snap.rows;
             last_cursor = (snap.cursor_row, snap.cursor_col);
             // Loop: drain whatever we queued. If the tick produced nothing
             // (gen advanced with no visible change), fall through and wait
@@ -1348,6 +1361,10 @@ struct ViewSnapshot {
     /// last sample; the view loop treats this as "first frame all over
     /// again" and ships the whole grid instead of a diff.
     screen_flipped: bool,
+    /// True when the terminal's cols/rows changed since the subscriber's last
+    /// sample. A resize reflows the buffer, invalidating the seqno diff basis,
+    /// so the loop ships a full grid instead.
+    resized: bool,
     stable_base: StableRowIndex,
     max_stable: StableRowIndex,
     cursor_row: usize,
