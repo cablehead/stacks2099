@@ -340,6 +340,15 @@ fn event_to_string(config: &Config, val: Value) -> Result<String, ShellError> {
         }
     };
     let mut out = String::new();
+    // A `comment` field emits an SSE comment line (`: text`). Used for idle
+    // keepalives; the browser ignores it but proxies keep the stream open.
+    if let Some(comment) = rec.get("comment") {
+        if !matches!(comment, Value::Nothing { .. }) {
+            out.push_str(": ");
+            out.push_str(&comment.to_expanded_string("", config));
+            out.push_str(LINE_ENDING);
+        }
+    }
     if let Some(event) = rec.get("event") {
         if !matches!(event, Value::Nothing { .. }) {
             out.push_str("event: ");

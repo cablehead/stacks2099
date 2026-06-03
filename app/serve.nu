@@ -313,7 +313,7 @@ def render-pane [c: record]: nothing -> string {
     if $sid == "" {
       "<div class='pane-screen pane-dead'>[exited]</div>"
     } else {
-      let view = $"@get\('/pty/view?sid=($sid)&target=grid-($cid)&nosig=1', {openWhenHidden: true}\)"
+      let view = $"@get\('/pty/view?sid=($sid)&target=grid-($cid)', {openWhenHidden: true}\)"
       $"<div id='screen-($cid)' class='pane-screen' data-pty='($sid)' data-effect=\"($view)\"><div id='grid-($cid)'></div></div>"
     }
   } else {
@@ -896,14 +896,24 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
     (route {method: "GET", path: "/pty/view"} {|req ctx|
       let sid = $req.query.sid
       let target = ($req.query.target? | default "grid")
-      let nosig = (($req.query.nosig? | default "") != "")
-      if $nosig {
-        pty view $sid --target $target --no-signals
-        | metadata set --content-type "text/event-stream"
-      } else {
-        pty view $sid --target $target
-        | metadata set --content-type "text/event-stream"
-      }
+      # `pty view` emits HTML grid-update records (one buffer fact each); the
+      # pty stays datastar-agnostic. Map each kind to a datastar patch here.
+      pty view $sid --target $target
+      | each {|f|
+          match $f.kind {
+            # screen + row are morph-by-id (the html carries its own id).
+            "screen" => ($f.html | to datastar-patch-elements)
+            "row" => ($f.html | to datastar-patch-elements)
+            # new bottom rows append into the grid container.
+            "append" => ($f.html | to datastar-patch-elements --selector $"#($target)" --mode append)
+            # purged top rows: remove by id.
+            "trim" => ("" | to datastar-patch-elements --selector ($f.ids | each {|id| $"#($id)" } | str join ",") --mode remove)
+            # idle keepalive -> SSE comment.
+            "heartbeat" => {comment: "hb"}
+          }
+        }
+      | to sse
+      | metadata set --content-type "text/event-stream"
     })
 
     (route {method: "GET", path: "/md.css"} {|req ctx|
