@@ -680,6 +680,7 @@ test("rename modal pre-fills from the $label signal", () =>
     );
     const drafted = await page.waitForFunction(
       () => document.querySelector(".modal-input")?.value,
+      undefined,
       { timeout: 5000 },
     ).then((h) => h.jsonValue());
     assert.ok(
@@ -1225,7 +1226,10 @@ test("closing the focused clip moves the cursor to a surviving neighbour", () =>
     // actually moves (the pane goes active): a one-shot click can land before
     // Datastar has wired the freshly-morphed row's handler, silently no-op, and
     // strand the test. The click is idempotent ($cursor = '<cid>'), so polling
-    // it is safe and removes the wiring race.
+    // it is safe and removes the wiring race. Close inside the same poll
+    // iteration that confirms the selection: the row click also runs
+    // __focusClip, which can move $cursor off firstCid in the gap before a
+    // separate closeSelected() call, closing the wrong clip.
     const firstCid = await page.evaluate(() =>
       document.querySelector("#clips-list li[data-clip]").dataset.clip
     );
@@ -1233,13 +1237,15 @@ test("closing the focused clip moves the cursor to a surviving neighbour", () =>
       (cid) => {
         document.querySelector(`#clips-list li[data-clip="${cid}"] .row`)
           ?.click();
-        return document.querySelector("#pane-" + CSS.escape(cid))?.classList
-          .contains("active");
+        if (document.querySelector("#doc .pane.active")?.dataset.clip !== cid) {
+          return false;
+        }
+        window.app.closeSelected();
+        return true;
       },
       firstCid,
       { timeout: 5000, polling: 200 },
     );
-    await page.evaluate(() => window.app.closeSelected());
 
     // The closed clip's pane is gone, and the cursor now points at a clip that
     // is still present (a neighbour), not the closed one.
