@@ -42,7 +42,7 @@
         height: 100dvh;
       }
       /* niri reclaims the screen: collapse the stacks + clips rails so the strip
-         gets the full width. Navigation is Alt+J/K + the panning strip; Alt+L
+         gets the full width. Navigation is j/k + the panning strip; mod+K l
          restores flow (and the rails). */
       body.nav-collapsed {
         grid-template-columns: 0 0 1fr;
@@ -905,7 +905,7 @@
       </span>
     </footer>
 
-    <!-- Hidden trigger so the JS-only Alt+R action can seed signals through
+    <!-- Hidden trigger so the JS-only rename-clip action can seed signals through
        datastar's expression evaluator. `$label` is kept in sync server-side
        with the selected clip's display label (label-of in serve.nu); the
        click just copies that into the rename modal's draft input. -->
@@ -941,8 +941,8 @@
       </div>
     </div>
 
-    <!-- New-clip type picker (Alt+T / the + button). A cross-clip concept, so it
-       drops from the top bar (top-right), not the bottom status bar. Terminal
+    <!-- New-clip type picker (mod+K n / the + button). Rises from the bottom
+       status bar like the clip-actions panel. Terminal
        spawns a pty clip; Note creates a CAS text clip you land in to edit.
        Keyboard quick-select is wired by __syncPicker on the $picking edge:
        Ctrl-n/Ctrl-p or Down/Up move, Enter chooses, Esc closes. -->
@@ -1059,7 +1059,7 @@
       </div>
     </div>
 
-    <!-- Stacks switcher (top-left breadcrumb / Alt+[ ]). Switch or create stacks;
+    <!-- Stacks switcher (top-left breadcrumb / mod+K g). Switch or create stacks;
        the rail is hidden in niri, so this is how you navigate stacks there. The
        server fills #stack-switcher with the live stack rows (current one marked
        active) + a New stack row. Keyboard quick-select via __syncStacks. -->

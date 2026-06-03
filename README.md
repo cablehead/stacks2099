@@ -106,9 +106,9 @@ independently. The UI is three columns: **stacks** | **clips** | **content**
   over whatever view was showing; unfocusing returns to that view (rendered stays
   rendered).
 - A **stack** groups clips into a context. The top-left **breadcrumb** names the
-  current stack and opens a switcher to jump between stacks or create one
-  (`Alt+\`; `Alt+[` / `Alt+]` cycle). It stays reachable when the scrollable
-  layout hides the rail.
+  current stack and opens a switcher to jump between stacks or create one (`mod+K
+  g`; `mod+K [` / `]` cycle). It stays reachable when the scrollable layout hides
+  the rail.
 - Clips order **`auto`** (by activity -- newest edits float up) or **`manual`**
   (curated). The clips-header badge toggles the mode; `mod+K` then `J`/`K` moves
   the selected clip down/up (the first move freezes the current order into
