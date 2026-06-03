@@ -580,7 +580,10 @@ test("focusing a note opens the editor + receives keystrokes", () =>
     );
   }));
 
-test("markdown clip toggles rendered <-> edit", () =>
+// View (style) and focus are independent axes. mod+K v cycles the view
+// raw<->rendered (persisted); focus opens the source textarea regardless of the
+// view, and unfocus returns to whatever view was showing -- NOT forced to raw.
+test("view style (raw/rendered) is independent of focus", () =>
   withApp(async (page) => {
     await page.evaluate(async () => {
       await fetch("/clip/add", {
@@ -589,26 +592,59 @@ test("markdown clip toggles rendered <-> edit", () =>
         body: "# Heading\n\n- a\n- b\n",
       });
     });
+    // The markdown clip starts in raw view (a <pre> source).
     await page.waitForFunction(
       () =>
-        [...document.querySelectorAll("#doc .pane .mini-btn")].some((b) =>
-          b.textContent.includes("Rendered")
+        [...document.querySelectorAll("#doc .pane")].some((p) =>
+          p.dataset.render === "note"
         ),
       { timeout: 10000 },
     );
-    await page.locator("#doc .pane .mini-btn", { hasText: "Rendered" }).first()
-      .click();
+    const cid = await page.evaluate(() =>
+      [...document.querySelectorAll("#doc .pane")].find((p) =>
+        p.dataset.render === "note"
+      )?.dataset.clip
+    );
+    assert.ok(cid, "a note pane exists");
+    await page.waitForSelector("#doc .pane .note-pre", { timeout: 10000 });
+
+    // Select it, then mod+K v -> rendered. The <pre> becomes rendered HTML.
+    await page.evaluate((c) => {
+      document.querySelector("#clips-list li[data-clip='" + c + "'] .row")
+        ?.click();
+    }, cid);
+    await page.keyboard.press("Meta+k");
+    await page.keyboard.press("v");
     const h1 = await page.waitForSelector("#doc .pane .clip-md h1", {
       timeout: 10000,
     });
     assert.equal(
       (await h1.textContent())?.trim(),
       "Heading",
-      "markdown renders to HTML",
+      "mod+K v renders the markdown to HTML",
     );
-    await page.locator("#doc .pane .mini-btn", { hasText: "Edit" }).first()
-      .click();
-    await page.waitForSelector("#doc .pane .note-pre", { timeout: 10000 });
+
+    // Focus it (edit): the source textarea replaces the rendered view.
+    await page.evaluate((c) => window.__focusClip(c), cid);
+    const editing = await page.evaluate(() =>
+      document.activeElement?.classList.contains("note-edit")
+    );
+    assert.ok(
+      editing,
+      "focus opens the source textarea over the rendered view",
+    );
+    // The textarea holds the SOURCE, not the rendered text.
+    const val = await page.evaluate(() =>
+      document.querySelector(".note-edit")?.value
+    );
+    assert.ok(
+      val.includes("# Heading"),
+      `textarea has markdown source (got "${val}")`,
+    );
+
+    // Unfocus (blur) -> returns to the rendered view, not raw.
+    await page.evaluate(() => document.querySelector(".note-edit")?.blur());
+    await page.waitForSelector("#doc .pane .clip-md", { timeout: 10000 });
   }));
 
 // Regression: the server used to skip re-rendering a note's pane on every
@@ -646,7 +682,7 @@ test("an outside note update refreshes the <pre> live", () =>
     }, cid);
     await page.waitForFunction(
       (cid) =>
-        document.querySelector("#note-pre-" + CSS.escape(cid))?.textContent ===
+        document.querySelector("#note-view-" + CSS.escape(cid))?.textContent ===
           "after",
       cid,
       { timeout: 10000 },
@@ -690,7 +726,7 @@ test("an outside note update preserves an in-flight edit", () =>
     // The <pre> picks up the agent's body live...
     await page.waitForFunction(
       (cid) =>
-        document.querySelector("#note-pre-" + CSS.escape(cid))?.textContent ===
+        document.querySelector("#note-view-" + CSS.escape(cid))?.textContent ===
           "agent body",
       cid,
       { timeout: 10000 },

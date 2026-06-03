@@ -454,9 +454,6 @@
         background: #222;
         color: var(--fg);
       }
-      .note-actions {
-        padding: 0.25rem 0.6rem;
-      }
       /* The active (selected) pane is highlighted. In navigate mode every pane
          is dimmed (read-only); focus mode lights the active one fully. */
       .pane.active {
@@ -1147,6 +1144,29 @@
         <button
           type="button"
           class="picker-row"
+          data-key="v"
+          data-on:click="$acting = false; window.app.cycleView()"
+        >
+          <svg
+            class="icon"
+            xmlns="http://www.w3.org/2000/svg"
+            width="1em"
+            height="1em"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
+            <circle cx="12" cy="12" r="3" />
+          </svg> <span>View (raw/rendered)</span><span class="row-keys"><kbd
+            >v</kbd></span>
+        </button>
+        <button
+          type="button"
+          class="picker-row"
           data-key="r"
           data-on:click="$acting = false; window.app.openRenameTab()"
         >
@@ -1452,18 +1472,22 @@
         if (pane.__noteWired) return;
         pane.__noteWired = true;
         const cid = pane.dataset.clip;
-        const pre = pane.querySelector(".note-pre");
         const ta = pane.querySelector(".note-edit");
         if (!ta) return;
-        // Blur ends editing: clear $noteEditing (data-show reveals the <pre>),
-        // hide the editor, and persist (clip.update -> CAS). The <pre> text is
-        // mirrored optimistically so it doesn't flash the old body before the
-        // clip.update echo morphs it. The <pre>'s visibility is reactive, so we
-        // never touch its display here.
+        // Blur ends focus: clear $noteEditing (data-show reveals the styled
+        // view), hide the editor, and persist (clip.update -> CAS). For a raw
+        // view we optimistically mirror the source so it doesn't flash the old
+        // body before the echo; for a rendered view we let the clip.update echo
+        // re-render the markdown (mirroring raw text into .clip-md would flash
+        // unstyled source). The view's visibility is reactive, so we never touch
+        // its display here.
         ta.addEventListener("blur", () => {
           mergePatch({ noteEditing: "" });
           ta.style.display = "none";
-          pre.textContent = ta.value;
+          const view = pane.querySelector(".note-view");
+          if (view && view.classList.contains("note-pre")) {
+            view.textContent = ta.value;
+          }
           fetch("/clip/update?clip=" + encodeURIComponent(cid), {
             method: "POST",
             headers: { "content-type": "text/plain" },
@@ -1551,6 +1575,15 @@
         newSession() {
           // The + button sets $picking; opens the note/terminal type picker.
           document.querySelector("#clips-list .new-btn")?.click();
+        },
+        cycleView() {
+          // Cycle the current clip's view style (raw <-> rendered for markdown).
+          // Orthogonal to focus; server decides the next style by mime + current.
+          const cid = currentClip();
+          if (!cid) return;
+          fetch("/clip/view/cycle?clip=" + encodeURIComponent(cid), {
+            method: "POST",
+          }).catch(() => {});
         },
         closeSelected() {
           const cid = currentClip();
@@ -1918,23 +1951,19 @@
         // on notes never opened the editor and typing did nothing.
         if (pane.dataset.render === "note") {
           keybuf.setAttribute("enabled", "false");
-          const ta = pane.querySelector(".note-edit"),
-            pre = pane.querySelector(".note-pre");
-          // Only seed + focus on fresh entry. The selection signal re-fires
-          // __focusClip on every live clip.update; reseeding the textarea then
-          // would drop an in-flight draft and jump the caret. The editor is
-          // data-ignore-morph, so its own content lags the backend -- reseed it
-          // from the live <pre> when first opening it. $noteEditing is set by the
-          // textarea's focus handler (it fires after any prior editor's blur, so
-          // it resolves to the clip being entered, and hides this <pre> reactively
-          // via data-show). The textarea is morph-immune, so a plain inline
-          // display toggle here is safe.
+          const ta = pane.querySelector(".note-edit");
+          // Focus == editing the source: reveal the textarea (it replaces the
+          // styled view via $noteEditing/data-show) and focus it. The textarea
+          // is server-rendered with the source already, and is data-ignore-morph
+          // so a live clip.update never clobbers an in-flight draft -- so we do
+          // NOT reseed it here (reseeding from a rendered .clip-md view would
+          // corrupt the source). $noteEditing is set by the textarea's focus
+          // handler. Guard on activeElement so re-fires (every clip.update) don't
+          // jump the caret.
           if (ta && document.activeElement !== ta) {
-            if (pre) ta.value = pre.textContent;
             ta.style.display = "";
             ta.focus();
-            // Land the caret at the end so you continue the note where it left
-            // off rather than at the top.
+            // Land the caret at the end so you continue where it left off.
             ta.setSelectionRange(ta.value.length, ta.value.length);
             growNote(ta);
           }

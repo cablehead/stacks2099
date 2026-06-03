@@ -182,30 +182,27 @@ def render-content [c: record]: nothing -> string {
       let bar = $"<div class='embed-bar'><a class='embed-url' href='($src)' target='_blank' rel='noopener'>(html-escape $url)</a><button type='button' class='mini-btn' data-on:click=\"@post\('/clip/view?clip=($c.id)&view=raw'\)\">raw</button></div>"
       $"<div class='clip-embed-wrap'>($bar)<iframe class='clip-embed' src='($src)' referrerpolicy='no-referrer'></iframe></div>"
     }
-    "doc" => {
-      # Rendered markdown (read-only). `.md` -> highlighted HTML; styled by
-      # /md.css. "Edit" flips back to the raw editor.
-      let html = (clip-body $c | .md | get __html)
-      let edit = $"<button type='button' class='mini-btn' data-on:click=\"@post\('/clip/view?clip=($c.id)&view=raw'\)\">Edit</button>"
-      $"<div class='clip-md'>($html)</div><div class='note-actions'>($edit)</div>"
-    }
     "note" => {
+      # Editable text. Two orthogonal axes (see ADR/notes):
+      #   view (style): raw <pre> source, or rendered markdown HTML. Persisted
+      #     as `view`, cycled by mod+K v. This is what shows when NOT focused.
+      #   focus: the source <textarea> takes the keyboard, replacing the view.
+      #     Reactive on $noteEditing (the focused clip id).
+      # The styled view and the textarea are siblings keyed by clip id. The view
+      # shows while $noteEditing != this clip; the textarea shows while it ==. The
+      # view re-renders live on clip.update; the textarea carries data-ignore-morph
+      # so morph leaves an in-flight draft untouched (reseeded from source on focus,
+      # see wireNotePane). data-render stays 'note' regardless of style so the
+      # client always wires the editor.
       let body = (clip-body $c)
       let esc = (html-escape $body)
-      # A markdown note offers a "Rendered" view; a note that's just a URL
-      # offers an "Embed" view (live iframe).
-      let btns = ([
-        (if (($c.mime_type? | default "") == "text/markdown") { $"<button type='button' class='mini-btn' data-on:click=\"@post\('/clip/view?clip=($c.id)&view=rendered'\)\">Rendered ↗</button>" } else { "" })
-        (if (is-url $body) { $"<button type='button' class='mini-btn' data-on:click=\"@post\('/clip/view?clip=($c.id)&view=embed'\)\">Embed ↗</button>" } else { "" })
-      ] | where {|b| $b != "" } | str join " ")
-      let actions = if ($btns == "") { "" } else { $"<div class='note-actions'>($btns)</div>" }
-      # Display <pre> and editor <textarea> are siblings keyed by clip id. The
-      # <pre> re-renders live on every clip.update; its visibility is reactive
-      # on $noteEditing (the clip id being edited) so morph never fights an
-      # inline display toggle. The textarea carries data-ignore-morph: morph
-      # leaves it (and an unsaved draft) untouched, and the editor reseeds it
-      # from the live <pre> on focus (see wireNotePane in sessions.html).
-      $"<div class='note-body'><pre class='note-pre' id='note-pre-($c.id)' data-show=\"$noteEditing != '($c.id)'\">($esc)</pre><textarea class='note-edit' id='note-edit-($c.id)' data-ignore-morph spellcheck='false' style='display:none'>($esc)</textarea>($actions)</div>"
+      let styled = if (note-style $c) == "rendered" {
+        let html = (clip-body $c | .md | get __html)
+        $"<div class='clip-md note-view' id='note-view-($c.id)' data-show=\"$noteEditing != '($c.id)'\">($html)</div>"
+      } else {
+        $"<pre class='note-pre note-view' id='note-view-($c.id)' data-show=\"$noteEditing != '($c.id)'\">($esc)</pre>"
+      }
+      $"<div class='note-body'>($styled)<textarea class='note-edit' id='note-edit-($c.id)' data-ignore-morph spellcheck='false' style='display:none'>($esc)</textarea></div>"
     }
     _ => {
       let m = ($c.mime_type? | default "")
@@ -795,12 +792,25 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
     })
 
     (route {method: "POST", path: "/clip/view"} {|req ctx|
-      # Toggle a clip's view between 'embed' (live <iframe>) and 'raw' (render
-      # by mime). Persisted as clip.patch {view}; propagates via `.cat -f`.
+      # Set a clip's view style explicitly. Persisted as clip.patch {view};
+      # propagates via `.cat -f`.
       let cid = ($req.query.clip? | default "")
       let view = ($req.query.view? | default "")
       if $cid != "" and ($view in ["embed" "raw" "rendered"]) {
         null | .append "clip.patch" --meta {id: $cid, view: $view} --ttl forever | ignore
+      }
+      null | metadata set { merge {'http.response': {status: 204}} }
+    })
+
+    (route {method: "POST", path: "/clip/view/cycle"} {|req ctx|
+      # Cycle a clip's view style (mod+K v). For markdown today: raw <-> rendered.
+      # Other text has only raw, so this is a no-op there. Orthogonal to focus.
+      let cid = ($req.query.clip? | default "")
+      let proj = (.cat | projection project)
+      let clip = ($proj.stacks | each {|s| $s.clips } | flatten | where id == $cid | get 0?)
+      if ($clip | is-not-empty) and (($clip.mime_type? | default "") == "text/markdown") {
+        let next = if (($clip.view? | default "") == "rendered") { "raw" } else { "rendered" }
+        null | .append "clip.patch" --meta {id: $cid, view: $next} --ttl forever | ignore
       }
       null | metadata set { merge {'http.response': {status: 204}} }
     })

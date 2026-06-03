@@ -15,9 +15,10 @@ a key clicks its row and ownership ends, transferring to where the action lands.
 cross-stack tier is in (`n` new clip, `N` new stack, `R` rename stack, `s` sort,
 `l` layout, in a "Stack" group), and the redundant navigate-mode `Alt` chords it
 replaced were removed (bare `j`/`k` navigate, `Shift+J`/`Shift+K` move; stack
-nav keeps `Alt+[`/`Alt+]`/`Alt+\`). Still pending: pulling content-type toggles
-(Rendered/Embed) from the cursored pane as extra rows (the per-clip tier is
-currently the universal actions only); plus the 0007 deferred items.
+nav keeps `Alt+[`/`Alt+]`/`Alt+\`). `mod+K v` cycles a clip's view style
+(raw/rendered) -- view and focus are now independent axes (focus = the source
+editor takes the keyboard, regardless of view). Still pending: per-content-type
+leader rows beyond the universal set; plus the 0007 deferred items.
 
 ## Context
 

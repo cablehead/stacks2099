@@ -15,13 +15,21 @@ assert ((clip-render-type (clip {mime_type: "image/png"})) == "image") "image/* 
 assert ((clip-render-type (clip {mime_type: "image/svg+xml"})) == "image") "any image/* -> image"
 assert ((clip-render-type (clip {mime_type: "text/uri-list"})) == "embed") "uri-list -> embed"
 assert ((clip-render-type (clip {mime_type: "text/plain", view: "embed"})) == "embed") "view=embed wins -> embed"
-assert ((clip-render-type (clip {mime_type: "text/markdown", view: "rendered"})) == "doc") "view=rendered on markdown -> doc"
-assert ((clip-render-type (clip {mime_type: "text/plain", view: "rendered"})) == "doc") "view=rendered on plain text -> doc"
+# view (style) no longer changes the render type: editable text is always 'note'
+# (it carries both the styled view and the source textarea). Style is note-style.
+assert ((clip-render-type (clip {mime_type: "text/markdown", view: "rendered"})) == "note") "view=rendered markdown is still a note"
+assert ((clip-render-type (clip {mime_type: "text/plain", view: "rendered"})) == "note") "view=rendered plain text is still a note"
 assert ((clip-render-type (clip {mime_type: "application/pdf", view: "rendered"})) == "file") "view=rendered on non-text falls through -> file"
 assert ((clip-render-type (clip {mime_type: "text/plain"})) == "note") "text/plain -> note"
 assert ((clip-render-type (clip {mime_type: "text/markdown"})) == "note") "text/markdown -> note"
 assert ((clip-render-type (clip {mime_type: "application/json"})) == "file") "json -> file"
 assert ((clip-render-type {kind: "content"}) == "note") "missing mime defaults to text/plain -> note"
+
+# --- note-style: raw vs rendered (orthogonal to render type + focus) --------
+assert ((note-style (clip {mime_type: "text/markdown", view: "rendered"})) == "rendered") "markdown view=rendered -> rendered"
+assert ((note-style (clip {mime_type: "text/markdown"})) == "raw") "markdown default -> raw"
+assert ((note-style (clip {mime_type: "text/markdown", view: "raw"})) == "raw") "markdown view=raw -> raw"
+assert ((note-style (clip {mime_type: "text/plain", view: "rendered"})) == "raw") "plain text can't render -> raw"
 
 # --- is-url ----------------------------------------------------------------
 assert (is-url "http://example.com") "http url"

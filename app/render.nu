@@ -13,21 +13,19 @@ export def is-url [s: string]: nothing -> bool {
   (($t | str starts-with "http://") or ($t | str starts-with "https://")) and (not ($t | str contains " ")) and (($t | lines | length) == 1)
 }
 
-# A clip's render type, derived from kind + mime_type. The seed of the Phase 4
-# content-type dispatch (mime -> renderer); buckets:
+# A clip's render type -- WHAT it is, independent of view style or focus. The
+# seed of the Phase 4 content-type dispatch (mime -> renderer); buckets:
 #   terminal  live pty grid
-#   note      editable text (text/plain, text/markdown)
+#   note      editable text (text/plain, text/markdown) -- shows a styled view
+#             (raw or rendered, per note-style) plus a source textarea that
+#             focus reveals. `view` no longer changes the render type.
 #   image     image/*  -> <img> preview
 #   embed     text/uri-list or view=embed -> live <iframe>
-#   doc       view=rendered on markdown/text -> rendered HTML
 #   file      anything else -> read-only preview / download
 export def clip-render-type [c: record]: nothing -> string {
   if $c.kind == "terminal" { return "terminal" }
-  let view = ($c.view? | default "")
   let m = ($c.mime_type? | default "text/plain")
-  # Explicit views: embed -> live <iframe>; rendered -> markdown/text -> HTML.
-  if $view == "embed" { return "embed" }
-  if $view == "rendered" and ($m in ["text/markdown" "text/plain"]) { return "doc" }
+  if ($c.view? | default "") == "embed" { return "embed" }
   if ($m | str starts-with "image/") {
     "image"
   } else if $m == "text/uri-list" {
@@ -36,6 +34,17 @@ export def clip-render-type [c: record]: nothing -> string {
     "note"
   } else {
     "file"
+  }
+}
+
+# A note's display style when NOT focused: "rendered" (markdown -> HTML) or
+# "raw" (source <pre>). Only markdown can render; plain text is always raw.
+# Cycled via mod+K v (clip.patch {view}); orthogonal to focus.
+export def note-style [c: record]: nothing -> string {
+  if ($c.view? | default "") == "rendered" and ($c.mime_type? | default "") == "text/markdown" {
+    "rendered"
+  } else {
+    "raw"
   }
 }
 

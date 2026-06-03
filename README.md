@@ -98,9 +98,13 @@ independently. The UI is three columns: **stacks** | **clips** | **content**
   **terminal**, a live **embed** (a URL in an `<iframe>`), or -- for anything
   else -- a read-only / downloadable preview. An unknown mime type still holds
   and previews; rendering it nicely is a later add, not a prerequisite.
-- Some clips offer **alternate views**, toggled from a button on the pane: a
-  markdown note flips **edit ⇄ rendered**; a note whose body is a URL flips
-  **edit ⇄ embedded** (the live iframe). A `text/uri-list` clip starts embedded.
+- **View and focus are independent.** A clip's **view** is how it displays --
+  markdown cycles raw ⇄ rendered (`mod+K v`); a `text/uri-list` clip shows as a
+  live iframe. **Focus** (`mod+Enter`) is separate: it hands the keyboard to the
+  clip's input target as if it were the only thing on the page -- a terminal's
+  pty, or a text clip's source editor. Focusing an editable clip opens its source
+  over whatever view was showing; unfocusing returns to that view (rendered stays
+  rendered).
 - A **stack** groups clips into a context. The top-left **breadcrumb** names the
   current stack and opens a switcher to jump between stacks or create one
   (`Alt+\`; `Alt+[` / `Alt+]` cycle). It stays reachable when the scrollable
