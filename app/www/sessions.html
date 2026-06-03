@@ -712,21 +712,13 @@
     "next":      "window.app.cycle(1)",
     "prev":      "window.app.cycle(-1)",
     "moveDown":  "window.app.move(\"down\")",
-    "moveUp":    "window.app.move(\"up\")",
-    "rename":    "window.app.openRename()",
-    "prevStack": "window.app.cycleStack(-1)",
-    "nextStack": "window.app.cycleStack(1)",
-    "openStacks": "window.app.openStacks()"
+    "moveUp":    "window.app.move(\"up\")"
   }'
     data-keymap='{
     "j": "next",
     "k": "prev",
     "shift+j": "moveDown",
-    "shift+k": "moveUp",
-    "alt+shift+r": "rename",
-    "alt+[": "prevStack",
-    "alt+]": "nextStack",
-    "alt+\\": "openStacks"
+    "shift+k": "moveUp"
   }'
   >
     <!-- Three-pane: stacks | clips | content (#doc). Server overwrites the two
@@ -744,7 +736,7 @@
         <button
           class="bar-btn stack-crumb"
           type="button"
-          title="Switch stack (Alt+\ ; cycle Alt+[ / Alt+])"
+          title="Switch stack (mod+K g; cycle mod+K [ / ])"
           data-on:click="$stackPicking = true"
         >
           <svg
@@ -771,7 +763,7 @@
         <button
           class="title-display"
           type="button"
-          title="Rename window (Alt+Shift+R)"
+          title="Rename window"
           data-text="$title || 'untitled'"
           data-on:click="$draft = $title; $renameMode = 'title'; $renaming = true"
         >
@@ -1397,6 +1389,77 @@
           </svg> <span>Toggle layout</span><span class="row-keys"><kbd
             >l</kbd></span>
         </button>
+        <button
+          type="button"
+          class="picker-row"
+          data-key="["
+          data-on:click="$acting = false; window.app.cycleStack(-1)"
+        >
+          <svg
+            class="icon"
+            xmlns="http://www.w3.org/2000/svg"
+            width="1em"
+            height="1em"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="m15 18-6-6 6-6" />
+          </svg> <span>Prev stack</span><span class="row-keys"><kbd
+            >[</kbd></span>
+        </button>
+        <button
+          type="button"
+          class="picker-row"
+          data-key="]"
+          data-on:click="$acting = false; window.app.cycleStack(1)"
+        >
+          <svg
+            class="icon"
+            xmlns="http://www.w3.org/2000/svg"
+            width="1em"
+            height="1em"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="m9 18 6-6-6-6" />
+          </svg> <span>Next stack</span><span class="row-keys"><kbd
+            >]</kbd></span>
+        </button>
+        <button
+          type="button"
+          class="picker-row"
+          data-key="g"
+          data-on:click="$acting = false; window.app.openStacks()"
+        >
+          <svg
+            class="icon"
+            xmlns="http://www.w3.org/2000/svg"
+            width="1em"
+            height="1em"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path
+              d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"
+            />
+            <path
+              d="m6.08 9.5-3.49 1.59a1 1 0 0 0 0 1.81l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9a1 1 0 0 0 0-1.83l-3.49-1.59"
+            />
+          </svg> <span>Switch stack</span><span class="row-keys"><kbd
+            >g</kbd></span>
+        </button>
       </div>
     </div>
 
@@ -1997,9 +2060,9 @@
         if (mode === "focus") setMode("navigate");
       });
 
-      // Combo normalization. macOS substitutes a glyph for e.key when Alt is
-      // held (option+d -> the partial-derivative sign); fall back to e.code
-      // (KeyD -> "d") so alt+letter combos still match.
+      // Combo string for the keymap lookup. App chords are all mod (Cmd/Ctrl)
+      // combos or bare keys + Shift now (no Alt chords -- the leader replaced
+      // them), so no Option-glyph/e.code normalization is needed.
       function comboKey(e) {
         const parts = [];
         if (e.metaKey) parts.push("cmd");
@@ -2007,21 +2070,8 @@
         if (e.altKey) parts.push("alt");
         if (e.shiftKey) parts.push("shift");
         let k = e.key;
-        if (e.altKey && e.code && e.code.startsWith("Key")) {
-          k = e.code.slice(3).toLowerCase();
-        } else if (e.altKey && e.code === "BracketLeft") {
-          // macOS Option remaps the printed char (Alt+[ -> a special glyph), so
-          // resolve bracket chords by physical code instead of e.key.
-          k = "[";
-        } else if (e.altKey && e.code === "BracketRight") {
-          k = "]";
-        } else if (e.altKey && e.code === "Backslash") {
-          k = "\\";
-        } else if (k.length === 1 && /[a-zA-Z]/.test(k)) {
-          k = k.toLowerCase();
-        } else if (k === " ") {
-          k = "space";
-        }
+        if (k.length === 1 && /[a-zA-Z]/.test(k)) k = k.toLowerCase();
+        else if (k === " ") k = "space";
         parts.push(k.toLowerCase());
         return parts.join("+");
       }

@@ -215,8 +215,6 @@ leaves. `mod` is Cmd on macOS, Ctrl elsewhere.
 | `j` / `k`             | Next / previous clip    |
 | `Shift+J` / `Shift+K` | Move clip down / up     |
 | `Enter`               | Focus the selected clip |
-| `Alt+[` / `Alt+]`     | Previous / next stack   |
-| `Alt+\`               | Open the stack switcher |
 
 **The `mod+K` leader** (works in any mode, even over a focused terminal). `mod+K`
 then a letter runs a command; pausing opens the actions panel as a which-key
@@ -225,25 +223,28 @@ cheatsheet (`mod+K` again, or `Esc`, closes it). See
 
 Clip:
 
-| Chord            | Action                |
-| ---------------- | --------------------- |
-| `mod+K` then `j` | Next clip             |
-| `mod+K` then `k` | Previous clip         |
-| `mod+K` then `r` | Rename clip           |
-| `mod+K` then `d` | Delete clip           |
-| `mod+K` then `o` | Cycle terminal height |
-| `mod+K` then `J` | Move clip down        |
-| `mod+K` then `K` | Move clip up          |
+| Chord            | Action                    |
+| ---------------- | ------------------------- |
+| `mod+K` then `j` | Next clip                 |
+| `mod+K` then `k` | Previous clip             |
+| `mod+K` then `v` | View style (raw/rendered) |
+| `mod+K` then `r` | Rename clip               |
+| `mod+K` then `d` | Delete clip               |
+| `mod+K` then `o` | Cycle terminal height     |
+| `mod+K` then `J` | Move clip down            |
+| `mod+K` then `K` | Move clip up              |
 
 Stack:
 
-| Chord            | Action                      |
-| ---------------- | --------------------------- |
-| `mod+K` then `n` | New clip (note / terminal)  |
-| `mod+K` then `N` | New stack                   |
-| `mod+K` then `R` | Rename stack                |
-| `mod+K` then `s` | Toggle sort (auto / manual) |
-| `mod+K` then `l` | Toggle layout (flow / niri) |
+| Chord                  | Action                      |
+| ---------------------- | --------------------------- |
+| `mod+K` then `n`       | New clip (note / terminal)  |
+| `mod+K` then `N`       | New stack                   |
+| `mod+K` then `R`       | Rename stack                |
+| `mod+K` then `s`       | Toggle sort (auto / manual) |
+| `mod+K` then `l`       | Toggle layout (flow / niri) |
+| `mod+K` then `[` / `]` | Previous / next stack       |
+| `mod+K` then `g`       | Switch stack (switcher)     |
 
 The top bar carries the stack breadcrumb and the Theme button; the status bar
 shows the active mode.

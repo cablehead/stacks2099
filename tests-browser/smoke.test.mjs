@@ -1999,7 +1999,7 @@ test("stacks switcher: breadcrumb opens it; selecting a stack navigates to its p
     );
   }));
 
-test("Alt+] cycles to the next stack (works with the rail collapsed)", () =>
+test("mod+K ] navigates to the next stack (per-stack MPA)", () =>
   withApp(async (page) => {
     await page.evaluate(async () => {
       await fetch("/stack/new", { method: "POST" });
@@ -2008,23 +2008,25 @@ test("Alt+] cycles to the next stack (works with the rail collapsed)", () =>
       () => document.querySelectorAll("#stacks-list ul.stacks li").length >= 2,
       { timeout: 8000 },
     );
-    const sel0 = await page.evaluate(() =>
-      document.querySelector("#stacks-list ul.stacks li.selected .row")?.dataset
-        .stack
-    );
-    await page.keyboard.press("Alt+]");
+    const url0 = page.url();
+    await page.keyboard.press("Meta+k");
+    await page.keyboard.press("]");
     await page.waitForFunction(
-      (s) =>
-        document.querySelector("#stacks-list ul.stacks li.selected .row")
-          ?.dataset.stack !== s,
-      sel0,
-      { timeout: 5000 },
+      (u) => location.href !== u && /\/stack\//.test(location.href),
+      url0,
+      { timeout: 8000 },
+    );
+    assert.notEqual(
+      page.url(),
+      url0,
+      "mod+K ] navigated to another stack page",
     );
   }));
 
-test("Alt+\\ opens the stacks switcher", () =>
+test("mod+K g opens the stacks switcher", () =>
   withApp(async (page) => {
-    await page.keyboard.press("Alt+\\");
+    await page.keyboard.press("Meta+k");
+    await page.keyboard.press("g");
     await page.waitForSelector(".stack-backdrop", {
       state: "visible",
       timeout: 5000,
@@ -2035,7 +2037,7 @@ test("Alt+\\ opens the stacks switcher", () =>
           "none"
       ),
       true,
-      "Alt+\\ opens the stacks switcher",
+      "mod+K g opens the stacks switcher",
     );
   }));
 
