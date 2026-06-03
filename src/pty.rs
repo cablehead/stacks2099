@@ -24,7 +24,9 @@ use nu_protocol::{
     ShellError, Signature, Span, SyntaxShape, Type, Value,
 };
 use portable_pty::{native_pty_system, Child as PortableChild, CommandBuilder, MasterPty, PtySize};
-use wezterm_surface::hyperlink::Rule;
+use wezterm_surface::hyperlink::{
+    Rule, CLOSING_PARENTHESIS_HYPERLINK_PATTERN, GENERIC_HYPERLINK_PATTERN,
+};
 use wezterm_term::{
     color::{ColorAttribute, ColorPalette},
     CellAttributes, Intensity, Line, StableRowIndex, Terminal, TerminalConfiguration, TerminalSize,
@@ -78,10 +80,24 @@ impl Write for SharedWriter {
 /// Cheap structural equality on the attribute bits we render. CellAttributes
 /// implements PartialEq, which compares all bits (including hyperlinks and
 /// image refs we don't care about), so use a narrower check.
+///
+/// wezterm sets a per-cell `wrapped` flag on the last cell of a row that
+/// soft-wrapped to the next line. It marks line continuation, not appearance,
+/// so two cells differing only by it render identically. Normalize it off
+/// before comparing the bits -- otherwise a link or styled run that reaches
+/// the wrap column splits in two, doubling the `<a>` (or `<span>`) at the
+/// right edge of every wrapped row. wezterm's own `make_cluster` normalizes
+/// the same bit for the same reason.
 fn attrs_equiv(a: &CellAttributes, b: &CellAttributes) -> bool {
-    a.attribute_bits_equal(b)
-        && a.foreground() == b.foreground()
-        && a.background() == b.background()
+    let bits_equal = if a.wrapped() == b.wrapped() {
+        a.attribute_bits_equal(b)
+    } else {
+        let (mut a, mut b) = (a.clone(), b.clone());
+        a.set_wrapped(false);
+        b.set_wrapped(false);
+        a.attribute_bits_equal(&b)
+    };
+    bits_equal && a.foreground() == b.foreground() && a.background() == b.background()
 }
 
 /// Map any palette index to xterm's canonical RGB.
@@ -233,17 +249,32 @@ fn html_escape(s: &str, out: &mut String) {
     }
 }
 
-/// URL detection rules for bare (non-OSC-8) text. Same patterns wezterm's
-/// own default set is built from (wezterm-surface): an explicit-scheme URL
-/// and a bare email mapped to `mailto:`. Compiled once. The renderer feeds
-/// these to `Line::scan_and_create_hyperlinks` so a printed URL becomes a
-/// clickable link even when the program didn't emit an OSC 8 escape.
+/// URL detection rules for bare (non-OSC-8) text. This is wezterm's own
+/// `default_hyperlink_rules` set, rebuilt from the patterns wezterm-surface
+/// exports. Compiled once. The renderer feeds these to
+/// `Line::scan_and_create_hyperlinks` so a printed URL becomes a clickable
+/// link even when the program didn't emit an OSC 8 escape.
+///
+/// The bracket rules link the URL without its surrounding `()`/`[]`/`<>`
+/// (capture group 1 is the highlighted range). The generic pattern ends in
+/// `[_/a-zA-Z0-9-]`, so trailing prose punctuation (`.`, `,`, `)`) is left
+/// out of the link while a real trailing `/` or `-` is kept -- and it has no
+/// TLD requirement, so `http://localhost:8080` and `http://127.0.0.1:5099`
+/// link too. A hand-rolled `\.[a-z]{2,15}` rule used to miss both and to drop
+/// trailing slashes; matching wezterm avoids re-deriving that logic here.
 fn hyperlink_rules() -> &'static [Rule] {
     static RULES: OnceLock<Vec<Rule>> = OnceLock::new();
     RULES
         .get_or_init(|| {
             vec![
-                Rule::new(r"\b\w+://(?:[\w.-]+)\.[a-z]{2,15}\S*\b", "$0").unwrap(),
+                // URLs wrapped in brackets: link the inner URL, not the bracket.
+                Rule::with_highlight(r"\((\w+://\S+)\)", "$1", 1).unwrap(),
+                Rule::with_highlight(r"\[(\w+://\S+)\]", "$1", 1).unwrap(),
+                Rule::with_highlight(r"<(\w+://\S+)>", "$1", 1).unwrap(),
+                // Bare URLs: balanced closing paren, then the generic form.
+                Rule::new(CLOSING_PARENTHESIS_HYPERLINK_PATTERN, "$0").unwrap(),
+                Rule::new(GENERIC_HYPERLINK_PATTERN, "$0").unwrap(),
+                // Implicit mailto.
                 Rule::new(r"\b\w+@[\w-]+(\.[\w-]+)+\b", "mailto:$0").unwrap(),
             ]
         })
@@ -742,6 +773,19 @@ fn open_exec(
         builder.env(k, v);
     }
     builder.env("TERM", "xterm-256color");
+    // Advertise as WezTerm: our grid is rendered by wezterm-term, so the same
+    // capabilities hold (truecolor, OSC 8 hyperlinks, etc.). CLIs gate features
+    // on TERM_PROGRAM -- e.g. Claude Code emits a bare, hard-wrapped login URL
+    // to unknown terminals but an OSC 8 hyperlink to ones it trusts, and an
+    // OSC 8 link survives wrapping where a printed URL can't. COLORTERM unlocks
+    // truecolor for the same programs.
+    builder.env("TERM_PROGRAM", "WezTerm");
+    // WezTerm's version format is `YYYYMMDD-HHMMSS-<shorthash>`. This encodes
+    // the `wezterm-term` git rev pinned in Cargo.toml (its commit date + short
+    // hash), so the reported version is the engine we actually bundle. Update
+    // it alongside the rev when bumping wezterm-term.
+    builder.env("TERM_PROGRAM_VERSION", "20260331-040028-577474d8");
+    builder.env("COLORTERM", "truecolor");
     if let Ok(cwd) = std::env::current_dir() {
         builder.cwd(cwd);
     }
@@ -2062,6 +2106,76 @@ mod tests {
         assert!(
             hrefs.iter().filter(|h| h.as_str() == full).count() >= 2,
             "both wrapped rows should carry the href, got {hrefs:?}"
+        );
+    }
+
+    /// The head of a wrapped link is one continuous anchor, not two. wezterm
+    /// flags the last cell of a soft-wrapped row with a per-cell `wrapped`
+    /// bit; if `attrs_equiv` keyed on it, the run-length merge would break at
+    /// the wrap column and emit a second, redundant `<a>` for that final cell.
+    #[test]
+    fn render_wrapped_link_head_is_one_anchor() {
+        // 20 cols: "https://example.com/" fills row 0 exactly (its last cell
+        // carries the wrap bit), "abcdef" wraps to row 1.
+        let mut term = term_with_bytes(4, 20, b"https://example.com/abcdef");
+        let html = render_grid_html(&mut term, "grid");
+        let row0 = rows_of(&html)
+            .into_iter()
+            .find(|(id, _)| *id == 0)
+            .expect("row 0 present");
+        // Find the row-0 fragment in the raw HTML to count its anchors.
+        let frag = {
+            let start = html.find("id=\"grid-r-0\"").unwrap();
+            let rest = &html[start..];
+            &rest[..rest.find("</div>").unwrap()]
+        };
+        assert_eq!(
+            frag.matches("<a ").count(),
+            1,
+            "wrapped link head must be a single anchor, got row {row0:?}:\n{frag}"
+        );
+    }
+
+    /// The detection rules match wezterm's defaults, so URLs that the old
+    /// hand-rolled `\.[a-z]{2,15}\S*\b` rule mangled now link correctly:
+    /// a host with a port but no letter TLD (`localhost`, a bare IP) links,
+    /// a real trailing `/` is kept, surrounding brackets are excluded, and
+    /// trailing prose punctuation is left out of the link.
+    #[test]
+    fn render_url_rules_match_wezterm_defaults() {
+        let href1 = |bytes: &[u8]| {
+            let mut term = term_with_bytes(2, 60, bytes);
+            hrefs_of(&render_grid_html(&mut term, "grid"))
+                .into_iter()
+                .next()
+        };
+        // No letter TLD: a port (was unlinkable) and a bare IP (was unlinkable).
+        assert_eq!(
+            href1(b"open http://localhost:8080/foo here").as_deref(),
+            Some("http://localhost:8080/foo"),
+        );
+        assert_eq!(
+            href1(b"http://127.0.0.1:5099/ here").as_deref(),
+            Some("http://127.0.0.1:5099/"),
+        );
+        // A real trailing slash stays part of the URL (was dropped).
+        assert_eq!(
+            href1(b"https://example.com/path/ x").as_deref(),
+            Some("https://example.com/path/"),
+        );
+        // Surrounding brackets are excluded from the link target.
+        assert_eq!(
+            href1(b"(https://example.com/a) ok").as_deref(),
+            Some("https://example.com/a"),
+        );
+        assert_eq!(
+            href1(b"<https://example.com/a> ok").as_deref(),
+            Some("https://example.com/a"),
+        );
+        // Trailing prose punctuation is not swallowed into the link.
+        assert_eq!(
+            href1(b"see https://example.com/a, then").as_deref(),
+            Some("https://example.com/a"),
         );
     }
 }
