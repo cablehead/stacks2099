@@ -37,6 +37,7 @@ test("boots: stacks + clips columns and a live terminal grid", () =>
     await page.waitForSelector("#doc .pane", { timeout: 15000 });
     await page.waitForFunction(
       () => !!document.querySelector("[id^='grid-'] *"),
+      undefined,
       { timeout: 15000 },
     );
     const s = await page.evaluate(() => ({
@@ -56,10 +57,14 @@ test("image clip renders inline via /clip/blob", () =>
         body: new Uint8Array(bytes),
       });
     }, [...PNG_1x1]);
-    await page.waitForFunction(() => {
-      const i = document.querySelector("#doc .pane img.clip-img");
-      return i && i.complete && i.naturalWidth > 0;
-    }, { timeout: 10000 });
+    await page.waitForFunction(
+      () => {
+        const i = document.querySelector("#doc .pane img.clip-img");
+        return i && i.complete && i.naturalWidth > 0;
+      },
+      undefined,
+      { timeout: 10000 },
+    );
   }));
 
 test("uri-list clip renders a live <iframe> embed", () =>
@@ -94,6 +99,7 @@ test("move reorders #doc panes by relocating nodes (terminal stays live)", () =>
     });
     await page.waitForFunction(
       () => document.querySelectorAll("#doc .pane").length === 3,
+      undefined,
       { timeout: 10000 },
     );
     await page.waitForTimeout(400);
@@ -142,10 +148,14 @@ test("terminal row ids stay stable across scrollback purge", () =>
     // leaves them untouched. Pre-fix the ids would shift by one per purge and the
     // browser re-morphed the entire scrollback on every frame.
     await page.waitForSelector("#doc .pane", { timeout: 15000 });
-    await page.waitForFunction(() => {
-      const s = document.querySelector("[id^='screen-']");
-      return s && s.getAttribute("data-pty");
-    }, { timeout: 15000 });
+    await page.waitForFunction(
+      () => {
+        const s = document.querySelector("[id^='screen-']");
+        return s && s.getAttribute("data-pty");
+      },
+      undefined,
+      { timeout: 15000 },
+    );
     const sid = await page.evaluate(() =>
       document.querySelector("[id^='screen-']").getAttribute("data-pty")
     );
@@ -224,10 +234,14 @@ test("seqno-diff: post-cap keystroke ships a bounded patch", () =>
     // every frame). Opens its own /pty/view subscriber so we can size the
     // raw SSE bytes without coordinating with the page's stream.
     await page.waitForSelector("#doc .pane", { timeout: 15000 });
-    await page.waitForFunction(() => {
-      const s = document.querySelector("[id^='screen-']");
-      return s && s.getAttribute("data-pty");
-    }, { timeout: 15000 });
+    await page.waitForFunction(
+      () => {
+        const s = document.querySelector("[id^='screen-']");
+        return s && s.getAttribute("data-pty");
+      },
+      undefined,
+      { timeout: 15000 },
+    );
     const sid = await page.evaluate(() =>
       document.querySelector("[id^='screen-']").getAttribute("data-pty")
     );
@@ -330,10 +344,14 @@ test("seqno-diff: appended rows are direct siblings with no text node between th
     // the grid that text node renders as a blank line between every appended
     // row -- one per line of pty output, accumulating fast.
     await page.waitForSelector("#doc .pane", { timeout: 15000 });
-    await page.waitForFunction(() => {
-      const s = document.querySelector("[id^='screen-']");
-      return s && s.getAttribute("data-pty");
-    }, { timeout: 15000 });
+    await page.waitForFunction(
+      () => {
+        const s = document.querySelector("[id^='screen-']");
+        return s && s.getAttribute("data-pty");
+      },
+      undefined,
+      { timeout: 15000 },
+    );
     const sid = await page.evaluate(() =>
       document.querySelector("[id^='screen-']").getAttribute("data-pty")
     );
@@ -350,6 +368,7 @@ test("seqno-diff: appended rows are direct siblings with no text node between th
     );
     await page.waitForFunction(
       () => document.querySelectorAll("[id^='grid-'] .row").length >= 200,
+      undefined,
       { timeout: 15000 },
     );
 
@@ -377,10 +396,14 @@ test("seqno-diff: alternate-screen flip replaces the grid then restores main on 
     // less's status line lands somewhere nonsensical. We force the same
     // entry/exit a TUI would and assert that the row set actually swaps.
     await page.waitForSelector("#doc .pane", { timeout: 15000 });
-    await page.waitForFunction(() => {
-      const s = document.querySelector("[id^='screen-']");
-      return s && s.getAttribute("data-pty");
-    }, { timeout: 15000 });
+    await page.waitForFunction(
+      () => {
+        const s = document.querySelector("[id^='screen-']");
+        return s && s.getAttribute("data-pty");
+      },
+      undefined,
+      { timeout: 15000 },
+    );
     const sid = await page.evaluate(() =>
       document.querySelector("[id^='screen-']").getAttribute("data-pty")
     );
@@ -415,6 +438,7 @@ test("seqno-diff: alternate-screen flip replaces the grid then restores main on 
         [...document.querySelectorAll("[id^='grid-'] .row")].some((r) =>
           r.textContent.trim().startsWith("MAIN_")
         ),
+      undefined,
       { timeout: 10000 },
     );
 
@@ -425,6 +449,7 @@ test("seqno-diff: alternate-screen flip replaces the grid then restores main on 
         [...document.querySelectorAll("[id^='grid-'] .row")].some((r) =>
           /^#\s*Network services/.test(r.textContent.trim())
         ),
+      undefined,
       { timeout: 10000 },
     );
     assert.ok(
@@ -443,6 +468,7 @@ test("seqno-diff: alternate-screen flip replaces the grid then restores main on 
         [...document.querySelectorAll("[id^='grid-'] .row")].some((r) =>
           r.textContent.trim().startsWith("MAIN_")
         ),
+      undefined,
       { timeout: 10000 },
     );
     assert.ok(
@@ -469,6 +495,7 @@ test("resize reflow: live grid stays in sync with a fresh subscriber", () =>
         const g = document.querySelector("[id^='grid-']");
         return g && parseInt(g.getAttribute("data-cols") || "0", 10) > 0;
       },
+      undefined,
       { timeout: 15000 },
     );
     const sid = await page.evaluate(() =>
@@ -620,6 +647,7 @@ test("rename terminal: live grid + cursor survive; pane-head label updates", () 
     await page.waitForSelector("#doc .pane", { timeout: 15000 });
     await page.waitForFunction(
       () => !!document.querySelector("[id^='grid-'] .row"),
+      undefined,
       { timeout: 15000 },
     );
     const before = await page.evaluate(() => ({
@@ -670,6 +698,7 @@ test("rename modal pre-fills from the $label signal", () =>
     await page.waitForSelector("#doc .pane", { timeout: 15000 });
     await page.waitForFunction(
       () => !!document.querySelector("[id^='grid-'] .row"),
+      undefined,
       { timeout: 15000 },
     );
 
@@ -705,6 +734,7 @@ test("focusing a note opens the editor + receives keystrokes", () =>
     });
     await page.waitForFunction(
       () => document.querySelectorAll("#doc .pane").length >= 2,
+      undefined,
       { timeout: 10000 },
     );
     await page.waitForFunction(
@@ -712,6 +742,7 @@ test("focusing a note opens the editor + receives keystrokes", () =>
         [...document.querySelectorAll("#doc .pane")].some((p) =>
           p.dataset.render === "note"
         ),
+      undefined,
       { timeout: 10000 },
     );
     const cid = await page.evaluate(() =>
@@ -754,6 +785,7 @@ test("view style (raw/rendered) is independent of focus", () =>
         [...document.querySelectorAll("#doc .pane")].some((p) =>
           p.dataset.render === "note"
         ),
+      undefined,
       { timeout: 10000 },
     );
     const cid = await page.evaluate(() =>
@@ -821,6 +853,7 @@ test("an outside note update refreshes the <pre> live", () =>
         [...document.querySelectorAll("#doc .pane")].some((p) =>
           p.dataset.render === "note"
         ),
+      undefined,
       { timeout: 10000 },
     );
     const cid = await page.evaluate(() =>
@@ -862,6 +895,7 @@ test("an outside note update preserves an in-flight edit", () =>
         [...document.querySelectorAll("#doc .pane")].some((p) =>
           p.dataset.render === "note"
         ),
+      undefined,
       { timeout: 10000 },
     );
     const cid = await page.evaluate(() =>
@@ -937,6 +971,7 @@ test("new-clip picker: Ctrl-n/Ctrl-p and arrows move selection; Enter creates th
       () =>
         document.querySelector(".picker-panel .picker-row.sel") ===
           document.querySelector(".picker-panel .picker-row"),
+      undefined,
       { timeout: 3000 },
     );
     assert.deepEqual(
@@ -952,6 +987,7 @@ test("new-clip picker: Ctrl-n/Ctrl-p and arrows move selection; Enter creates th
         [...document.querySelectorAll(".picker-panel .picker-row")].findIndex((
           r,
         ) => r.classList.contains("sel")) === 1,
+      undefined,
       { timeout: 3000 },
     );
     await page.keyboard.press("Control+p");
@@ -966,6 +1002,7 @@ test("new-clip picker: Ctrl-n/Ctrl-p and arrows move selection; Enter creates th
         [...document.querySelectorAll(".picker-panel .picker-row")].findIndex((
           r,
         ) => r.classList.contains("sel")) === 1,
+      undefined,
       { timeout: 3000 },
     );
 
@@ -978,6 +1015,7 @@ test("new-clip picker: Ctrl-n/Ctrl-p and arrows move selection; Enter creates th
       () =>
         getComputedStyle(document.querySelector(".picker-backdrop")).display ===
           "none",
+      undefined,
       { timeout: 3000 },
     );
     await page.waitForTimeout(300);
@@ -1001,6 +1039,7 @@ test("new-clip picker: Ctrl-n/Ctrl-p and arrows move selection; Enter creates th
         [...document.querySelectorAll(".picker-panel .picker-row")].findIndex((
           r,
         ) => r.classList.contains("sel")) === 1,
+      undefined,
       { timeout: 3000 },
     );
     assert.equal(await selIdx(), 1, "Note row is selected before Enter");
@@ -1009,6 +1048,7 @@ test("new-clip picker: Ctrl-n/Ctrl-p and arrows move selection; Enter creates th
       () =>
         getComputedStyle(document.querySelector(".picker-backdrop")).display ===
           "none",
+      undefined,
       { timeout: 3000 },
     );
     assert.ok(await hidden(), "Enter closes the picker");
@@ -1017,6 +1057,7 @@ test("new-clip picker: Ctrl-n/Ctrl-p and arrows move selection; Enter creates th
         [...document.querySelectorAll("#doc .pane")].some((p) =>
           p.dataset.render === "note"
         ),
+      undefined,
       { timeout: 10000 },
     );
   }));
@@ -1030,6 +1071,7 @@ test("new-clip picker: while open, keystrokes don't leak to the terminal", () =>
   withApp(async (page) => {
     await page.waitForFunction(
       () => !!document.querySelector("[id^='grid-'] .row"),
+      undefined,
       { timeout: 15000 },
     );
     const cid = await page.evaluate(() =>
@@ -1052,6 +1094,7 @@ test("new-clip picker: while open, keystrokes don't leak to the terminal", () =>
       () =>
         getComputedStyle(document.querySelector(".picker-backdrop")).display ===
           "none",
+      undefined,
       { timeout: 3000 },
     );
 
@@ -1066,6 +1109,7 @@ test("new-clip picker: while open, keystrokes don't leak to the terminal", () =>
         [...document.querySelectorAll("[id^='grid-'] .row")].some((r) =>
           r.textContent.includes("SENT9")
         ),
+      undefined,
       { timeout: 10000 },
     );
     const leaked = await page.evaluate(() =>
@@ -1108,6 +1152,7 @@ test("clip-actions: mod-K opens in navigate; Ctrl-n/Ctrl-p move; Enter opens ren
         [...document.querySelectorAll(".actions-panel .picker-row")].findIndex((
           r,
         ) => r.classList.contains("sel")) === 1,
+      undefined,
       { timeout: 3000 },
     );
     await page.keyboard.press("Control+p");
@@ -1119,6 +1164,7 @@ test("clip-actions: mod-K opens in navigate; Ctrl-n/Ctrl-p move; Enter opens ren
       () =>
         getComputedStyle(document.querySelector(".actions-backdrop"))
           .display === "none",
+      undefined,
       { timeout: 3000 },
     );
     assert.equal(
@@ -1161,6 +1207,7 @@ test("clip-actions: Delete removes the selected clip", () =>
     });
     await page.waitForFunction(
       () => document.querySelectorAll("#doc .pane").length >= 2,
+      undefined,
       { timeout: 10000 },
     );
     const noteCid = await page.evaluate(() =>
@@ -1220,6 +1267,7 @@ test("closing the focused clip moves the cursor to a surviving neighbour", () =>
     });
     await page.waitForFunction(
       () => document.querySelectorAll("#clips-list li[data-clip]").length >= 3,
+      undefined,
       { timeout: 10000 },
     );
     // Select the first clip row, then close it. Re-click until the cursor
@@ -1270,6 +1318,7 @@ test("clip-actions: Ctrl-K stays with a focused terminal (readline kill-line, no
     // NOT open the panel while a terminal is focused -- only Cmd+K does.
     await page.waitForFunction(
       () => !!document.querySelector("[id^='grid-'] .row"),
+      undefined,
       { timeout: 15000 },
     );
     const cid = await page.evaluate(() =>
@@ -1296,6 +1345,7 @@ test("clip-actions: Cmd-K opens the panel even when a terminal is focused", () =
     // -- it opens clip actions in every mode, including a focused terminal.
     await page.waitForFunction(
       () => !!document.querySelector("[id^='grid-'] .row"),
+      undefined,
       { timeout: 15000 },
     );
     const cid = await page.evaluate(() =>
@@ -1333,6 +1383,7 @@ test("bare j/k navigate clips in navigate mode", () =>
     });
     await page.waitForFunction(
       () => document.querySelectorAll("#clips-list ul.clips li").length >= 2,
+      undefined,
       { timeout: 10000 },
     );
     const sel = () =>
@@ -1366,6 +1417,7 @@ test("Shift+J moves a clip in navigate mode", () =>
     });
     await page.waitForFunction(
       () => document.querySelectorAll("#clips-list ul.clips li").length >= 2,
+      undefined,
       { timeout: 10000 },
     );
     const order0 = await page.evaluate(() =>
@@ -1391,6 +1443,7 @@ test("plain Enter focuses the selected clip in navigate mode", () =>
   withApp(async (page) => {
     await page.waitForFunction(
       () => !!document.querySelector("[id^='grid-'] .row"),
+      undefined,
       { timeout: 15000 },
     );
     assert.equal(
@@ -1403,6 +1456,7 @@ test("plain Enter focuses the selected clip in navigate mode", () =>
     await page.keyboard.press("Enter");
     await page.waitForFunction(
       () => document.body.classList.contains("mode-focus"),
+      undefined,
       { timeout: 5000 },
     );
     assert.ok(true, "plain Enter entered focus mode");
@@ -1421,6 +1475,7 @@ test("mod+K again closes the actions panel", () =>
       () =>
         getComputedStyle(document.querySelector(".actions-backdrop"))
           .display === "none",
+      undefined,
       { timeout: 3000 },
     );
     assert.ok(true, "second mod+K dismissed the panel");
@@ -1507,6 +1562,7 @@ test("mod+K j navigates clips while focused, without opening the panel", () =>
     });
     await page.waitForFunction(
       () => document.querySelectorAll("#clips-list ul.clips li").length >= 2,
+      undefined,
       { timeout: 10000 },
     );
     const before = await page.evaluate(() =>
@@ -1577,6 +1633,7 @@ test("key-buffer forwards an Option-composed character literally (not ESC-prefix
   withApp(async (page) => {
     await page.waitForFunction(
       () => !!document.querySelector("[id^='grid-'] .row"),
+      undefined,
       { timeout: 15000 },
     );
     const cid = await page.evaluate(() =>
@@ -1667,6 +1724,7 @@ test("modified arrow keys encode the modifier for the pty", () =>
   withApp(async (page) => {
     await page.waitForFunction(
       () => !!document.querySelector("[id^='grid-'] .row"),
+      undefined,
       { timeout: 15000 },
     );
     const cid = await page.evaluate(() =>
@@ -1717,6 +1775,7 @@ test("focused terminal sends the composed character (compositionend) to the pty"
   withApp(async (page) => {
     await page.waitForFunction(
       () => !!document.querySelector("[id^='grid-'] .row"),
+      undefined,
       { timeout: 15000 },
     );
     const cid = await page.evaluate(() =>
@@ -1775,6 +1834,7 @@ test("typing after a grid selection refocuses the hidden input and still reaches
   withApp(async (page) => {
     await page.waitForFunction(
       () => !!document.querySelector("[id^='grid-'] .row"),
+      undefined,
       { timeout: 15000 },
     );
     const cid = await page.evaluate(() =>
@@ -1837,6 +1897,7 @@ test("focusInput does not steal focus (and collapse the selection) while selecti
   withApp(async (page) => {
     await page.waitForFunction(
       () => !!document.querySelector("[id^='grid-'] .row"),
+      undefined,
       { timeout: 15000 },
     );
     const cid = await page.evaluate(() =>
@@ -1874,6 +1935,7 @@ test("Cmd+C over a grid selection keeps the selection (no refocus)", () =>
   withApp(async (page) => {
     await page.waitForFunction(
       () => !!document.querySelector("[id^='grid-'] .row"),
+      undefined,
       { timeout: 15000 },
     );
     const cid = await page.evaluate(() =>
@@ -1920,6 +1982,7 @@ test("focus mode passes an Option-composed ~ (physical BracketRight) to the pty,
   withApp(async (page) => {
     await page.waitForFunction(
       () => !!document.querySelector("[id^='grid-'] .row"),
+      undefined,
       { timeout: 15000 },
     );
     const cid = await page.evaluate(() =>
@@ -1979,6 +2042,7 @@ test("layout flip to niri resizes the pty to the niri column, not the flow width
     // the niri pane.
     await page.waitForFunction(
       () => !!document.querySelector("[id^='grid-'] .row"),
+      undefined,
       { timeout: 15000 },
     );
     await page.evaluate(() => {
@@ -1996,6 +2060,7 @@ test("layout flip to niri resizes the pty to the niri column, not the flow width
     await page.evaluate(() => window.app.toggleLayout());
     await page.waitForFunction(
       () => document.getElementById("doc").classList.contains("layout-niri"),
+      undefined,
       { timeout: 5000 },
     );
     await page.waitForTimeout(700);
@@ -2048,11 +2113,13 @@ test("theme picker: top-bar button opens it; Nord recolors the terminal", () =>
         [...document.querySelectorAll(".theme-panel .picker-row")].findIndex((
           r,
         ) => r.classList.contains("sel")) === 1,
+      undefined,
       { timeout: 3000 },
     );
     await page.keyboard.press("Enter");
     await page.waitForFunction(
       () => document.body.getAttribute("data-theme") === "nord",
+      undefined,
       { timeout: 3000 },
     );
     // The terminal pane background now resolves to Nord's --term-bg (#2e3440).
@@ -2074,6 +2141,7 @@ test("reverse video renders its color via the themable var (so it follows the th
     // + 31 (red fg) makes the cell background palette index 1 -> background:var(--c1).
     await page.waitForFunction(
       () => !!document.querySelector("[id^='grid-'] .row"),
+      undefined,
       { timeout: 15000 },
     );
     const sid = await page.evaluate(() =>
@@ -2115,6 +2183,7 @@ test("stacks switcher: breadcrumb opens it; selecting a stack navigates to its p
     await page.waitForSelector("#clips-list li[data-clip]", { timeout: 15000 });
     await page.waitForFunction(
       () => document.querySelectorAll(".stack-panel .picker-row").length >= 2,
+      undefined,
       { timeout: 8000 },
     );
 
@@ -2167,6 +2236,7 @@ test("mod+K ] navigates to the next stack (per-stack MPA)", () =>
     });
     await page.waitForFunction(
       () => document.querySelectorAll("#stacks-list ul.stacks li").length >= 2,
+      undefined,
       { timeout: 8000 },
     );
     const url0 = page.url();
@@ -2240,6 +2310,7 @@ test("loading /stack/<id> scopes the view to that stack", () =>
         [...document.querySelectorAll("#doc .pane")].some((p) =>
           p.textContent.includes("CLIP-IN-A")
         ),
+      undefined,
       { timeout: 10000 },
     );
     assert.ok(
@@ -2259,6 +2330,7 @@ test("loading /stack/<id> scopes the view to that stack", () =>
         [...document.querySelectorAll("#doc .pane")].some((p) =>
           p.textContent.includes("CLIP-IN-B")
         ),
+      undefined,
       { timeout: 10000 },
     );
     assert.ok(
