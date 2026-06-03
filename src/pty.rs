@@ -8,10 +8,12 @@
 //!
 //! Sessions live in a process-wide map keyed by sid. The canonical screen
 //! state lives in a server-side `wezterm_term::Terminal` per sid. Clients
-//! subscribe via `pty view` and receive HTML grid snapshots over SSE,
-//! morphed in place by Datastar.
+//! subscribe via `pty view`, which streams HTML grid-update records; the
+//! caller frames them as Datastar patches over SSE and the client morphs
+//! them in place.
 
 use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::fmt::Write as _;
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -20,8 +22,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use nu_engine::command_prelude::*;
 use nu_protocol::{
-    record, shell_error::generic::GenericError, ByteStream, ByteStreamType, Category, PipelineData,
-    ShellError, Signature, Span, SyntaxShape, Type, Value,
+    record, shell_error::generic::GenericError, Category, ListStream, PipelineData, ShellError,
+    Signals, Signature, Span, SyntaxShape, Type, Value,
 };
 use portable_pty::{native_pty_system, Child as PortableChild, CommandBuilder, MasterPty, PtySize};
 use wezterm_surface::hyperlink::Rule;
@@ -481,25 +483,6 @@ fn render_grid_html(term: &mut Terminal, target: &str) -> String {
     }
     out.push_str("</div>");
     out
-}
-
-/// Append a JSON string literal (with surrounding quotes) for `s` into `out`.
-fn json_string(out: &mut String, s: &str) {
-    out.push('"');
-    for c in s.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c if (c as u32) < 0x20 => {
-                let _ = write!(out, "\\u{:04x}", c as u32);
-            }
-            c => out.push(c),
-        }
-    }
-    out.push('"');
 }
 
 // --- session bookkeeping ----------------------------------------------------
@@ -1148,7 +1131,7 @@ impl Command for PtyViewCommand {
     }
 
     fn description(&self) -> &str {
-        "Stream the pty's visible screen as morph-able HTML grid frames over SSE (Datastar datastar-patch-elements events)"
+        "Stream the pty's visible screen as a list of HTML grid-update records. Each record is one buffer fact -- {kind: screen|row|append|trim|heartbeat, ...} -- carrying rendered HTML but no SSE or Datastar framing; the caller maps them to datastar-patch-elements + `to sse`."
     }
 
     fn signature(&self) -> Signature {
@@ -1160,12 +1143,7 @@ impl Command for PtyViewCommand {
                 "id of the morph-target element (default 'grid'); use a unique id per pane when several views render at once",
                 None,
             )
-            .switch(
-                "no-signals",
-                "suppress the termCols/termRows/termTitle signal patch (use when multiple views would otherwise collide on the same global signals)",
-                None,
-            )
-            .input_output_types(vec![(Type::Nothing, Type::String)])
+            .input_output_types(vec![(Type::Nothing, Type::List(Box::new(Type::record())))])
             .category(Category::Custom("http".into()))
     }
 
@@ -1181,8 +1159,6 @@ impl Command for PtyViewCommand {
         let target: String = call
             .get_flag(engine_state, stack, "target")?
             .unwrap_or_else(|| "grid".to_string());
-        let no_signals = call.has_flag(engine_state, stack, "no-signals")?;
-
         // Resolve term + dirty handles once. The session may go away while we
         // stream; we treat that as natural EOF by checking `sessions()` each
         // iteration and bailing if the sid is gone.
@@ -1194,12 +1170,9 @@ impl Command for PtyViewCommand {
             (session.term.clone(), session.dirty.clone())
         };
 
+        let signals = engine_state.signals().clone();
         let mut last_gen: u64 = 0;
         let mut sent_initial = false;
-        // Last (cols, rows, title) emitted as signals; only re-emit the
-        // patch-signals event when one changes so keystroke frames don't
-        // carry a redundant signal patch.
-        let mut last_meta: Option<(usize, usize, String)> = None;
         // Per-subscriber diff state, set on the first frame and advanced on
         // each subsequent one. `last_seqno` is wezterm's monotonic counter
         // (a `usize` alias for `SequenceNo`); we ask the screen which lines
@@ -1207,7 +1180,7 @@ impl Command for PtyViewCommand {
         // and `last_max_stable` track the [start, end) of stable ids
         // currently mounted in the client so we can compute purges (top
         // shrinks) and new rows (bottom grows). `last_cursor` short-circuits
-        // a cursor patch when nothing moved.
+        // a cursor record when nothing moved.
         let mut last_seqno: usize = 0;
         let mut last_stable_base: StableRowIndex = 0;
         let mut last_max_stable: StableRowIndex = 0;
@@ -1220,141 +1193,142 @@ impl Command for PtyViewCommand {
         // main content (the symptom under `bat`/`less`/`vim`).
         let mut last_alt: bool = false;
         let sid_owned = sid.clone();
+        // One tick can produce several records (trim + changed rows + append
+        // + cursor). We drain this queue one Value at a time and only run a
+        // new tick once it empties.
+        let mut queue: VecDeque<Value> = VecDeque::new();
 
-        let stream = ByteStream::from_fn(
-            head,
-            engine_state.signals().clone(),
-            ByteStreamType::String,
-            move |buffer: &mut Vec<u8>| {
-                // Bail when the session is gone (closed or child exited).
-                if !sessions().lock().unwrap().contains_key(&sid_owned) {
-                    return Ok(false);
+        let iter = std::iter::from_fn(move || loop {
+            if let Some(v) = queue.pop_front() {
+                return Some(v);
+            }
+            if signals.interrupted() {
+                return None;
+            }
+            // Bail when the session is gone (closed or child exited).
+            if !sessions().lock().unwrap().contains_key(&sid_owned) {
+                return None;
+            }
+
+            if sent_initial {
+                // Wait for the dirty counter to advance or for the heartbeat
+                // timeout to fire. notify_all from the reader thread wakes us
+                // with the new generation.
+                let (lock, cv) = &*dirty;
+                let mut guard = lock.lock().unwrap();
+                let mut timed_out = false;
+                while *guard == last_gen {
+                    let (g, t) = cv.wait_timeout(guard, VIEW_HEARTBEAT).unwrap();
+                    guard = g;
+                    if t.timed_out() {
+                        timed_out = true;
+                        break;
+                    }
                 }
-
-                if sent_initial {
-                    // Wait for the dirty counter to advance or for the
-                    // heartbeat timeout to fire. notify_all from the reader
-                    // thread wakes us with the new generation.
-                    let (lock, cv) = &*dirty;
-                    let mut guard = lock.lock().unwrap();
-                    let mut emitted_heartbeat = false;
-                    while *guard == last_gen {
-                        let (g, timeout) = cv.wait_timeout(guard, VIEW_HEARTBEAT).unwrap();
-                        guard = g;
-                        if timeout.timed_out() {
-                            // Emit an SSE comment so proxies don't drop us.
-                            buffer.extend_from_slice(b": hb\n\n");
-                            emitted_heartbeat = true;
-                            break;
-                        }
-                    }
-                    drop(guard);
-                    if emitted_heartbeat {
-                        return Ok(true);
-                    }
-                    // Coalesce: sleep briefly so a burst of chunks collapses
-                    // into one frame rather than one frame per chunk.
-                    std::thread::sleep(VIEW_COALESCE);
+                drop(guard);
+                if timed_out {
+                    // Keepalive: the caller renders this as an SSE comment so
+                    // proxies don't drop an idle stream.
+                    return Some(heartbeat_record(head));
                 }
+                // Coalesce: sleep briefly so a burst of chunks collapses into
+                // one frame rather than one frame per chunk.
+                std::thread::sleep(VIEW_COALESCE);
+            }
 
-                // Snapshot the latest generation + everything we need to
-                // either render the full first frame or compute the diff,
-                // under a single term lock. Lines come out cloned so we can
-                // render outside the lock.
-                let (lock, _cv) = &*dirty;
-                let gen_now = *lock.lock().unwrap();
-                let snap: ViewSnapshot = {
-                    let term_guard = term.lock().unwrap();
-                    let size = term_guard.get_size();
-                    let cols = size.cols;
-                    let phys_rows = size.rows;
-                    let cursor = term_guard.cursor_pos();
-                    let title = term_guard.get_title().to_string();
-                    let seqno = term_guard.current_seqno();
-                    let alt_active = term_guard.is_alt_screen_active();
-                    let screen = term_guard.screen();
-                    let total = screen.scrollback_rows();
-                    let visible_start = total.saturating_sub(phys_rows);
-                    let stable_base = screen.phys_to_stable_row_index(0);
-                    let max_stable = stable_base + total as StableRowIndex;
-                    let cursor_row = visible_start + cursor.y as usize;
-                    let cursor_col = cursor.x;
-                    // A screen flip (primary <-> alt) invalidates the diff
-                    // basis: the two screens have independent line storage
-                    // and seqnos, so `get_changed_stable_rows(..last_seqno)`
-                    // would lie about what the client needs to see. Treat
-                    // the flip as if it were a fresh subscription.
-                    let screen_flipped = sent_initial && alt_active != last_alt;
-                    // Changed rows that the client still has: query only the
-                    // overlap of the current stable range with what we last
-                    // sent. New rows (above `last_max_stable`) are handled
-                    // by the append path; purged rows fall off the front of
-                    // the overlap so they don't appear here.
-                    let changed_end = max_stable.min(last_max_stable);
-                    let changed = if sent_initial && !screen_flipped && changed_end > stable_base {
-                        screen.get_changed_stable_rows(stable_base..changed_end, last_seqno)
-                    } else {
-                        Vec::new()
-                    };
-                    let lines = screen.lines_in_phys_range(0..total);
-                    ViewSnapshot {
-                        cols,
-                        rows: phys_rows,
-                        title,
-                        seqno,
-                        alt_active,
-                        screen_flipped,
-                        stable_base,
-                        max_stable,
-                        cursor_row,
-                        cursor_col,
-                        lines,
-                        changed,
-                    }
-                };
-                last_gen = gen_now;
-
-                if !sent_initial || snap.screen_flipped {
-                    // First frame OR primary/alt screen flipped under us:
-                    // hand the client the whole new grid in one outer morph
-                    // so idiomorph drops anything no longer present and the
-                    // diff state starts fresh.
-                    let frame = render_full_from_snap(&snap, &target);
-                    emit_patch_elements(buffer, &frame);
-                    sent_initial = true;
+            // Snapshot the latest generation + everything we need to either
+            // render the full first frame or compute the diff, under a single
+            // term lock. Lines come out cloned so we can render outside it.
+            let (lock, _cv) = &*dirty;
+            let gen_now = *lock.lock().unwrap();
+            let snap: ViewSnapshot = {
+                let term_guard = term.lock().unwrap();
+                let size = term_guard.get_size();
+                let cols = size.cols;
+                let phys_rows = size.rows;
+                let cursor = term_guard.cursor_pos();
+                let seqno = term_guard.current_seqno();
+                let alt_active = term_guard.is_alt_screen_active();
+                let screen = term_guard.screen();
+                let total = screen.scrollback_rows();
+                let visible_start = total.saturating_sub(phys_rows);
+                let stable_base = screen.phys_to_stable_row_index(0);
+                let max_stable = stable_base + total as StableRowIndex;
+                let cursor_row = visible_start + cursor.y as usize;
+                let cursor_col = cursor.x;
+                // A screen flip (primary <-> alt) invalidates the diff basis:
+                // the two screens have independent line storage and seqnos, so
+                // `get_changed_stable_rows(..last_seqno)` would lie about what
+                // the client needs to see. Treat the flip as a fresh subscribe.
+                let screen_flipped = sent_initial && alt_active != last_alt;
+                // Changed rows that the client still has: query only the
+                // overlap of the current stable range with what we last sent.
+                // New rows (above `last_max_stable`) are handled by the append
+                // path; purged rows fall off the front of the overlap so they
+                // don't appear here.
+                let changed_end = max_stable.min(last_max_stable);
+                let changed = if sent_initial && !screen_flipped && changed_end > stable_base {
+                    screen.get_changed_stable_rows(stable_base..changed_end, last_seqno)
                 } else {
-                    emit_diff(buffer, &snap, &target, last_stable_base, last_max_stable);
-                    let cursor_now = (snap.cursor_row, snap.cursor_col);
-                    if cursor_now != last_cursor {
-                        let mut html = String::with_capacity(96);
-                        render_cursor_into(&mut html, &target, cursor_now.0, cursor_now.1);
-                        emit_patch_elements(buffer, &html);
-                    }
+                    Vec::new()
+                };
+                let lines = screen.lines_in_phys_range(0..total);
+                ViewSnapshot {
+                    cols,
+                    rows: phys_rows,
+                    seqno,
+                    alt_active,
+                    screen_flipped,
+                    stable_base,
+                    max_stable,
+                    cursor_row,
+                    cursor_col,
+                    lines,
+                    changed,
                 }
+            };
+            last_gen = gen_now;
 
-                last_seqno = snap.seqno;
-                last_stable_base = snap.stable_base;
-                last_max_stable = snap.max_stable;
-                last_alt = snap.alt_active;
-                last_cursor = (snap.cursor_row, snap.cursor_col);
-
-                // Surface dims + title as signals so the client binds them
-                // declaratively (status line, document.title) instead of
-                // observing DOM attributes. Only emit on change, and never
-                // when several views share the page (--no-signals) since the
-                // signals are global and would clobber each other.
-                if !no_signals {
-                    let meta = (snap.cols, snap.rows, snap.title.clone());
-                    if last_meta.as_ref() != Some(&meta) {
-                        emit_patch_signals(buffer, meta.0, meta.1, &meta.2);
-                        last_meta = Some(meta);
-                    }
+            if !sent_initial || snap.screen_flipped {
+                // First frame OR primary/alt screen flipped under us: hand the
+                // client the whole new grid in one record so idiomorph drops
+                // anything no longer present and the diff state starts fresh.
+                let frame = render_full_from_snap(&snap, &target);
+                queue.push_back(screen_record(head, snap.seqno, frame));
+                sent_initial = true;
+            } else {
+                push_diff(
+                    &mut queue,
+                    head,
+                    &snap,
+                    &target,
+                    last_stable_base,
+                    last_max_stable,
+                );
+                let cursor_now = (snap.cursor_row, snap.cursor_col);
+                if cursor_now != last_cursor {
+                    // The cursor overlay is a self-identified element, so a
+                    // move is just another morph-by-id row record.
+                    let mut html = String::with_capacity(96);
+                    render_cursor_into(&mut html, &target, cursor_now.0, cursor_now.1);
+                    queue.push_back(row_record(head, snap.seqno, html));
                 }
-                Ok(true)
-            },
-        );
+            }
 
-        Ok(PipelineData::ByteStream(stream, None))
+            last_seqno = snap.seqno;
+            last_stable_base = snap.stable_base;
+            last_max_stable = snap.max_stable;
+            last_alt = snap.alt_active;
+            last_cursor = (snap.cursor_row, snap.cursor_col);
+            // Loop: drain whatever we queued. If the tick produced nothing
+            // (gen advanced with no visible change), fall through and wait
+            // for the next generation instead of spinning.
+        });
+
+        Ok(PipelineData::ListStream(
+            ListStream::new(iter, head, Signals::empty()),
+            None,
+        ))
     }
 }
 
@@ -1364,7 +1338,6 @@ impl Command for PtyViewCommand {
 struct ViewSnapshot {
     cols: usize,
     rows: usize,
-    title: String,
     seqno: usize,
     /// True when the terminal is currently rendering its alternate screen
     /// (vim, less, htop, etc. switch into it with `\x1b[?1049h`). The
@@ -1408,13 +1381,15 @@ fn render_full_from_snap(snap: &ViewSnapshot, target: &str) -> String {
     out
 }
 
-/// Emit the per-frame diff bundle: a `mode: remove` selector list for any
-/// stable ids that purged off the top, default-mode-outer patches for any
-/// existing rows whose line seqno advanced, and a `mode: append` block of
-/// rows that appeared at the bottom. Cursor moves are handled separately
-/// by the caller.
-fn emit_diff(
-    buffer: &mut Vec<u8>,
+/// Build the per-frame diff as records and push them onto the queue: a
+/// `trim` record for stable ids that purged off the top, one `row` record per
+/// existing line whose seqno advanced, and a single `append` record for the
+/// block of rows that appeared at the bottom. Cursor moves are handled
+/// separately by the caller (also as a `row`). Each record carries rendered
+/// HTML but no datastar/SSE framing; the caller maps the kind to a mode.
+fn push_diff(
+    queue: &mut VecDeque<Value>,
+    span: Span,
     snap: &ViewSnapshot,
     target: &str,
     last_stable_base: StableRowIndex,
@@ -1422,135 +1397,89 @@ fn emit_diff(
 ) {
     let default_attrs = CellAttributes::default();
 
-    // Rows that purged off the top since last frame -- comma-joined so one
-    // SSE event removes them all at once. The id is grid-scoped
-    // (`{target}-r-{stable}`) so two panes can't fight over the same id.
+    // Rows that purged off the top since last frame. Element ids are
+    // grid-scoped (`{target}-r-{stable}`) so two panes can't collide; the
+    // caller turns the id list into a remove selector.
     if snap.stable_base > last_stable_base {
-        let mut selector = String::new();
-        for id in last_stable_base..snap.stable_base {
-            if !selector.is_empty() {
-                selector.push(',');
-            }
-            let _ = write!(selector, "#{target}-r-{id}");
-        }
-        emit_patch(buffer, Some(&selector), Some("remove"), &[]);
+        let ids: Vec<String> = (last_stable_base..snap.stable_base)
+            .map(|id| format!("{target}-r-{id}"))
+            .collect();
+        queue.push_back(trim_record(span, snap.seqno, ids));
     }
 
-    // Existing rows whose content changed. Default mode is `outer` and
-    // datastar matches each element by id, so no selector is needed -- the
-    // ids inside the HTML drive the morph.
-    if !snap.changed.is_empty() {
-        let mut htmls: Vec<String> = Vec::with_capacity(snap.changed.len());
-        for &id in &snap.changed {
-            let idx = (id - snap.stable_base) as usize;
-            if let Some(line) = snap.lines.get(idx) {
-                let mut s = String::with_capacity(snap.cols * 2 + 64);
-                render_row_into(&mut s, target, line, snap.cols, id, &default_attrs);
-                htmls.push(s);
-            }
-        }
-        if !htmls.is_empty() {
-            emit_patch(buffer, None, None, &htmls);
+    // Existing rows whose content changed: one morph-by-id row record each.
+    for &id in &snap.changed {
+        let idx = (id - snap.stable_base) as usize;
+        if let Some(line) = snap.lines.get(idx) {
+            let mut s = String::with_capacity(snap.cols * 2 + 64);
+            render_row_into(&mut s, target, line, snap.cols, id, &default_attrs);
+            queue.push_back(row_record(span, snap.seqno, s));
         }
     }
 
-    // New rows at the bottom: append into the grid container. last_max_stable
-    // can lag the current top (after a fast burst that's also purged the
-    // start of what we'd been about to add); clamp to the current base.
+    // New rows at the bottom: one append record carrying the whole block.
+    // last_max_stable can lag the current top (after a fast burst that's also
+    // purged the start of what we'd been about to add); clamp to the base.
     let new_start = last_max_stable.max(snap.stable_base);
     if snap.max_stable > new_start {
-        let mut htmls: Vec<String> = Vec::with_capacity((snap.max_stable - new_start) as usize);
+        let mut html = String::with_capacity((snap.max_stable - new_start) as usize * 64);
         for id in new_start..snap.max_stable {
             let idx = (id - snap.stable_base) as usize;
             if let Some(line) = snap.lines.get(idx) {
-                let mut s = String::with_capacity(snap.cols * 2 + 64);
-                render_row_into(&mut s, target, line, snap.cols, id, &default_attrs);
-                htmls.push(s);
+                render_row_into(&mut html, target, line, snap.cols, id, &default_attrs);
             }
         }
-        if !htmls.is_empty() {
-            let selector = format!("#{target}");
-            emit_patch(buffer, Some(&selector), Some("append"), &htmls);
+        if !html.is_empty() {
+            queue.push_back(append_record(span, snap.seqno, html));
         }
     }
 }
 
-/// General `datastar-patch-elements` SSE event. Any of `selector`, `mode`,
-/// `elements` may be omitted; datastar defaults `mode` to `outer` and (for
-/// outer/replace) matches by element id, so a default-mode patch with no
-/// selector morphs each top-level element in `elements` into its same-id
-/// counterpart in the DOM.
-///
-/// All elements are concatenated onto a **single** `data: elements <...>`
-/// line. Per the SSE spec multiple `data:` lines in the same event get
-/// joined with `\n` by the browser, and datastar's parser feeds the result
-/// to `DOMParser` -- which would turn that `\n` between top-level siblings
-/// into a text node child of the fragment. With `white-space: pre` on the
-/// grid, that text node renders as a literal blank line between every
-/// appended/morphed row. Rendered rows never contain a literal newline
-/// (we don't pretty-print), so a single concatenated line is safe.
-fn emit_patch(
-    buffer: &mut Vec<u8>,
-    selector: Option<&str>,
-    mode: Option<&str>,
-    elements: &[String],
-) {
-    buffer.extend_from_slice(b"event: datastar-patch-elements\n");
-    if let Some(s) = selector {
-        buffer.extend_from_slice(b"data: selector ");
-        buffer.extend_from_slice(s.as_bytes());
-        buffer.push(b'\n');
-    }
-    if let Some(m) = mode {
-        buffer.extend_from_slice(b"data: mode ");
-        buffer.extend_from_slice(m.as_bytes());
-        buffer.push(b'\n');
-    }
-    if !elements.is_empty() {
-        buffer.extend_from_slice(b"data: elements ");
-        for el in elements {
-            // Defensive: a literal newline inside a single element gets
-            // turned into a `\ndata: elements ` continuation so the
-            // browser's SSE join puts it back as a `\n` *inside* that
-            // element, not a separator between elements.
-            if el.contains('\n') {
-                let mut first = true;
-                for line in el.split('\n') {
-                    if !first {
-                        buffer.extend_from_slice(b"\ndata: elements ");
-                    }
-                    first = false;
-                    buffer.extend_from_slice(line.as_bytes());
-                }
-            } else {
-                buffer.extend_from_slice(el.as_bytes());
-            }
-        }
-        buffer.push(b'\n');
-    }
-    buffer.push(b'\n');
+/// `{kind: "screen", seqno, html}` -- the whole grid container. The caller
+/// morphs it by id (the html carries `id="{target}"`).
+fn screen_record(span: Span, seqno: usize, html: String) -> Value {
+    grid_record(span, "screen", seqno, html)
 }
 
-/// Default-outer single-element patch: idiomorph finds the existing element
-/// by id and morphs in place. Used for the first full-grid frame and for
-/// cursor-move patches.
-fn emit_patch_elements(buffer: &mut Vec<u8>, html: &str) {
-    emit_patch(buffer, None, None, std::slice::from_ref(&html.to_string()));
+/// `{kind: "row", seqno, html}` -- one self-identified element (a changed
+/// line or the cursor overlay), morphed by id.
+fn row_record(span: Span, seqno: usize, html: String) -> Value {
+    grid_record(span, "row", seqno, html)
 }
 
-/// Emit a `datastar-patch-signals` event carrying the frame's dimensions
-/// and OSC title, so the client surfaces them via signal bindings rather
-/// than reading DOM attributes. Signals are prefixed `term*` so they don't
-/// collide with surface-level signals (e.g. the sessions window `$title`).
-fn emit_patch_signals(buffer: &mut Vec<u8>, cols: usize, rows: usize, title: &str) {
-    let mut signals = String::new();
-    let _ = write!(signals, "{{termCols:{cols},termRows:{rows},termTitle:");
-    json_string(&mut signals, title);
-    signals.push('}');
-    buffer.extend_from_slice(b"event: datastar-patch-signals\n");
-    buffer.extend_from_slice(b"data: signals ");
-    buffer.extend_from_slice(signals.as_bytes());
-    buffer.extend_from_slice(b"\n\n");
+/// `{kind: "append", seqno, html}` -- a block of new bottom rows the caller
+/// appends into the grid container.
+fn append_record(span: Span, seqno: usize, html: String) -> Value {
+    grid_record(span, "append", seqno, html)
+}
+
+fn grid_record(span: Span, kind: &str, seqno: usize, html: String) -> Value {
+    Value::record(
+        record! {
+            "kind" => Value::string(kind, span),
+            "seqno" => Value::int(seqno as i64, span),
+            "html" => Value::string(html, span),
+        },
+        span,
+    )
+}
+
+/// `{kind: "trim", seqno, ids}` -- element ids that left the buffer top; the
+/// caller removes them.
+fn trim_record(span: Span, seqno: usize, ids: Vec<String>) -> Value {
+    Value::record(
+        record! {
+            "kind" => Value::string("trim", span),
+            "seqno" => Value::int(seqno as i64, span),
+            "ids" => Value::list(ids.into_iter().map(|s| Value::string(s, span)).collect(), span),
+        },
+        span,
+    )
+}
+
+/// `{kind: "heartbeat"}` -- idle keepalive, no payload.
+fn heartbeat_record(span: Span) -> Value {
+    Value::record(record! { "kind" => Value::string("heartbeat", span) }, span)
 }
 
 // --- pty close --------------------------------------------------------------
