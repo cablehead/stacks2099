@@ -1463,6 +1463,59 @@ test("key-buffer forwards an Option-composed character literally (not ESC-prefix
 // parks DOM focus on key-buffer's hidden input so the OS composes there; the
 // finished string from compositionend is what reaches the pty -- not the raw
 // dead-key keydowns, which would collapse to the base letter.
+// Modified cursor keys reach the pty as xterm modifier sequences (CSI 1;<mod>X),
+// so Alt/Ctrl/Cmd + arrow do word/line motion in a focused TUI -- they were
+// previously stripped to a bare arrow. mod = 1 + shift + 2*alt + 4*ctrl + 8*meta.
+test("modified arrow keys encode the modifier for the pty", () =>
+  withApp(async (page) => {
+    await page.waitForFunction(
+      () => !!document.querySelector("[id^='grid-'] .row"),
+      { timeout: 15000 },
+    );
+    const cid = await page.evaluate(() =>
+      document.querySelector("#doc .pane[data-render='terminal']")?.dataset.clip
+    );
+    await page.evaluate((cid) => window.__focusClip(cid), cid);
+    await page.waitForTimeout(150);
+
+    const send = (opts) =>
+      page.evaluate((o) =>
+        new Promise((resolve) => {
+          let done = false;
+          const orig = window.fetch;
+          window.fetch = function (url, opt) {
+            if (
+              typeof url === "string" && url.includes("/pty/input") &&
+              opt?.body != null && !done
+            ) {
+              done = true;
+              window.fetch = orig;
+              resolve(opt.body);
+            }
+            return orig.apply(this, arguments);
+          };
+          window.dispatchEvent(
+            new KeyboardEvent("keydown", {
+              key: "ArrowLeft",
+              altKey: !!o.alt,
+              ctrlKey: !!o.ctrl,
+              metaKey: !!o.meta,
+              bubbles: true,
+              cancelable: true,
+            }),
+          );
+          setTimeout(() => {
+            window.fetch = orig;
+            resolve(done ? undefined : "NONE");
+          }, 400);
+        }), opts);
+
+    assert.equal(await send({}), "\x1b[D", "plain Left is the bare sequence");
+    assert.equal(await send({ alt: true }), "\x1b[1;3D", "Alt+Left -> ;3");
+    assert.equal(await send({ ctrl: true }), "\x1b[1;5D", "Ctrl+Left -> ;5");
+    assert.equal(await send({ meta: true }), "\x1b[1;9D", "Cmd+Left -> ;9");
+  }));
+
 test("focused terminal sends the composed character (compositionend) to the pty", () =>
   withApp(async (page) => {
     await page.waitForFunction(

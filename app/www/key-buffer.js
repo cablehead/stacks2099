@@ -25,24 +25,63 @@ function keyEventToInput(ev) {
   }
 
   // Named special keys -> escape sequences. xterm/vt100 semantics where they
-  // disagree; bash + readline grok this set.
-  const SPECIAL = {
+  // disagree; bash + readline grok this set. Two CSI shapes: cursor/edit keys
+  // ending in a letter (CSI <final>, or CSI 1 ; <mod> <final> when modified),
+  // and the "tilde" keys (CSI <n> ~, or CSI <n> ; <mod> ~ when modified).
+  const CSI_LETTER = {
+    ArrowUp: { final: "A", display: "UP" },
+    ArrowDown: { final: "B", display: "DN" },
+    ArrowRight: { final: "C", display: "R" },
+    ArrowLeft: { final: "D", display: "L" },
+    Home: { final: "H", display: "HM" },
+    End: { final: "F", display: "END" },
+  };
+  const CSI_TILDE = {
+    PageUp: { n: 5, display: "PgU" },
+    PageDown: { n: 6, display: "PgD" },
+    Delete: { n: 3, display: "DEL" },
+    Insert: { n: 2, display: "INS" },
+  };
+  // xterm modifier parameter: 1 + shift + 2*alt + 4*ctrl + 8*meta. 1 means
+  // "no modifiers" -- in which case we omit the parameter entirely (bare CSI).
+  const xtermMod = () =>
+    1 + (ev.shiftKey ? 1 : 0) + (ev.altKey ? 2 : 0) + (ev.ctrlKey ? 4 : 0) +
+    (ev.metaKey ? 8 : 0);
+  const modDisplay = () =>
+    (ev.metaKey ? "M-" : "") + (ev.ctrlKey ? "^" : "") +
+    (ev.altKey ? "A-" : "") + (ev.shiftKey ? "S-" : "");
+
+  if (CSI_LETTER[ev.key]) {
+    const { final, display } = CSI_LETTER[ev.key];
+    const m = xtermMod();
+    const bytes = m === 1 ? `\x1b[${final}` : `\x1b[1;${m}${final}`;
+    return { bytes, display: modDisplay() + display };
+  }
+  if (CSI_TILDE[ev.key]) {
+    const { n, display } = CSI_TILDE[ev.key];
+    const m = xtermMod();
+    const bytes = m === 1 ? `\x1b[${n}~` : `\x1b[${n};${m}~`;
+    return { bytes, display: modDisplay() + display };
+  }
+
+  // Enter/Tab/Backspace/Escape: bare control bytes. Modified Backspace is
+  // useful (Alt+BS = delete word, Ctrl+W-ish), so encode it; the others have no
+  // standard modified form here, so send the plain byte.
+  if (ev.key === "Backspace") {
+    if (ev.altKey && !ev.ctrlKey && !ev.metaKey) {
+      return { bytes: "\x1b\x7f", display: "A-BS" }; // Meta-DEL: delete word
+    }
+    if (ev.ctrlKey && !ev.altKey && !ev.metaKey) {
+      return { bytes: "\x17", display: "^W" }; // delete word back
+    }
+    return { bytes: "\x7f", display: "BS" };
+  }
+  const PLAIN = {
     Enter: { bytes: "\r", display: "RET" },
     Tab: { bytes: "\t", display: "TAB" },
-    Backspace: { bytes: "\x7f", display: "BS" },
     Escape: { bytes: "\x1b", display: "ESC" },
-    ArrowUp: { bytes: "\x1b[A", display: "UP" },
-    ArrowDown: { bytes: "\x1b[B", display: "DN" },
-    ArrowRight: { bytes: "\x1b[C", display: "R" },
-    ArrowLeft: { bytes: "\x1b[D", display: "L" },
-    Home: { bytes: "\x1b[H", display: "HM" },
-    End: { bytes: "\x1b[F", display: "END" },
-    PageUp: { bytes: "\x1b[5~", display: "PgU" },
-    PageDown: { bytes: "\x1b[6~", display: "PgD" },
-    Delete: { bytes: "\x1b[3~", display: "DEL" },
-    Insert: { bytes: "\x1b[2~", display: "INS" },
   };
-  if (SPECIAL[ev.key]) return SPECIAL[ev.key];
+  if (PLAIN[ev.key]) return PLAIN[ev.key];
 
   // Single-char key: handle Ctrl/Alt combos, then send the literal.
   if (ev.key.length === 1) {
@@ -85,8 +124,9 @@ function keyEventToInput(ev) {
       return { bytes: "\x1b" + ch, display: "M-" + ch };
     }
     if (ev.metaKey) {
-      // Don't fight the OS for Cmd-anything; let the browser handle it
-      // (Cmd-V paste lands as separate input events).
+      // Cmd+letter has no terminal byte -- it's an OS/browser shortcut (copy,
+      // paste, reload). Leave it to them. (Cmd+arrow/Backspace etc. are encoded
+      // above as modified CSI sequences and never reach here.)
       return null;
     }
     return { bytes: ch, display: ch };
