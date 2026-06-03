@@ -823,6 +823,10 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
         focusedClip: (load-focused-sid)
         focusedStack: (clip-stack-of $proj (load-focused-sid))
         stacks: ($proj.stacks | each {|s| {id: $s.id, name: ($s.name? | default null), clips: ($s.clips | length)} })
+        # Live ptys so CLI tooling can find a terminal's sid (picking by label
+        # or clip if it likes) without scraping /sse. label is the rename, null
+        # until renamed; clip is the owning clip id.
+        terminals: (pty list | each {|p| {sid: $p.sid, label: ($p.meta.label? | default null), clip: ($p.meta.clip_id? | default null)} })
       } | to json | metadata set --content-type "application/json"
     })
 
@@ -914,6 +918,13 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
         }
       | to sse
       | metadata set --content-type "text/event-stream"
+    })
+
+    (route {method: "GET", path: "/pty/raw"} {|req ctx|
+      # Live tee of a session's raw output bytes (escape sequences and all).
+      # Ends when the session closes; closing the connection drops the tee.
+      pty raw $req.query.sid
+      | metadata set --content-type "application/octet-stream"
     })
 
     (route {method: "GET", path: "/md.css"} {|req ctx|

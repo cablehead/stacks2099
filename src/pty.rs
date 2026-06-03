@@ -17,6 +17,7 @@ use std::collections::VecDeque;
 use std::fmt::Write as _;
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{sync_channel, RecvTimeoutError, SyncSender};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -537,6 +538,11 @@ struct PtySession {
     // then renders the current screen. Many subscribers per sid are fine --
     // notify_all wakes them all.
     dirty: Arc<(Mutex<u64>, Condvar)>,
+    // Live raw-byte tees (`pty raw` subscribers). Each holds a bounded sender;
+    // the reader thread fans every chunk out and drops a sender when its buffer
+    // fills (a slow reader) or its receiver is gone (connection closed) -- so a
+    // tee costs nothing once nobody's watching and never stalls the reader.
+    raw_subs: Arc<Mutex<Vec<SyncSender<Vec<u8>>>>>,
     // ms since epoch of the most recent write to this session's stdin. Seeded
     // to creation time so a freshly-spawned session sorts above quiet ones.
     // Bumped by `bump_last_input`, read by `pty list` so the sidebar can
@@ -711,11 +717,12 @@ impl Command for PtyOpenCommand {
         let (cols_n, rows_n) = (size.cols as i64, size.rows as i64);
         let term = session.term.clone();
         let dirty = session.dirty.clone();
+        let raw_subs = session.raw_subs.clone();
         sessions().lock().unwrap().insert(sid.clone(), session);
 
         // Spawn the reader thread now (after insert) so it can self-reap
         // by sid when the child eventually exits.
-        spawn_reader(sid.clone(), reader, term, dirty, self.bus.clone());
+        spawn_reader(sid.clone(), reader, term, dirty, raw_subs, self.bus.clone());
 
         self.bus.publish(
             PTY_EVENTS_TOPIC,
@@ -821,6 +828,7 @@ fn open_exec(
         meta: HashMap::new(),
         term,
         dirty,
+        raw_subs: Arc::new(Mutex::new(Vec::new())),
         last_input_ms: AtomicU64::new(now_ms()),
         bus,
     };
@@ -834,22 +842,23 @@ fn open_exec(
 /// `pty view` subscribers are notified so they can re-render. When `read`
 /// returns 0 the child has exited; the thread removes the session from the
 /// map (if `pty close` didn't already) and publishes `died` on the bus.
+/// Send `chunk` to each live raw tee, dropping any sender whose buffer is full
+/// (a slow reader we won't let back-pressure the pty) or whose receiver has
+/// hung up (the `pty raw` connection closed). `try_send` is non-blocking, so
+/// this never stalls the reader thread no matter how a tee behaves.
+fn fan_out_raw(subs: &mut Vec<SyncSender<Vec<u8>>>, chunk: &[u8]) {
+    subs.retain(|tx| tx.try_send(chunk.to_vec()).is_ok());
+}
+
 fn spawn_reader(
     sid: String,
     mut reader: Box<dyn Read + Send>,
     term: Arc<Mutex<Terminal>>,
     dirty: Arc<(Mutex<u64>, Condvar)>,
+    raw_subs: Arc<Mutex<Vec<SyncSender<Vec<u8>>>>>,
     bus: Arc<Bus>,
 ) {
-    let dump_path = std::env::var("HTTP_NU_PTY_DUMP").ok();
     std::thread::spawn(move || {
-        let mut dump_file = dump_path.as_deref().and_then(|p| {
-            std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(p)
-                .ok()
-        });
         let mut buf = [0u8; 4096];
         // Seqno of the last hyperlink scan; advanced each chunk so only lines
         // changed by this chunk get re-scanned.
@@ -858,10 +867,9 @@ fn spawn_reader(
             match reader.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
-                    if let Some(f) = dump_file.as_mut() {
-                        let _ = writeln!(f, "[{sid}] {}", escape_bytes(&buf[..n]));
-                        let _ = f.flush();
-                    }
+                    // Fan the raw chunk out to any live `pty raw` tees. Over an
+                    // empty list this allocates nothing.
+                    fan_out_raw(&mut raw_subs.lock().unwrap(), &buf[..n]);
                     {
                         let mut term_guard = term.lock().unwrap();
                         term_guard.advance_bytes(&buf[..n]);
@@ -919,23 +927,6 @@ fn spawn_reader(
             );
         }
     });
-}
-
-/// Render a byte slice with ANSI escapes / control chars made visible, so
-/// HTTP_NU_PTY_DUMP=/tmp/pty.log dumps are readable in `tail`.
-fn escape_bytes(b: &[u8]) -> String {
-    let mut s = String::with_capacity(b.len() * 2);
-    for &c in b {
-        match c {
-            0x1b => s.push_str("\\e"),
-            b'\n' => s.push_str("\\n"),
-            b'\r' => s.push_str("\\r"),
-            b'\t' => s.push_str("\\t"),
-            0x20..=0x7e => s.push(c as char),
-            _ => s.push_str(&format!("\\x{c:02x}")),
-        }
-    }
-    s
 }
 
 #[allow(clippy::result_large_err)]
@@ -1386,6 +1377,102 @@ impl Command for PtyViewCommand {
             ListStream::new(iter, head, Signals::empty()),
             None,
         ))
+    }
+}
+
+/// How many chunks a `pty raw` tee buffers before the reader thread drops it.
+/// Chunks are up to 4 KiB, so this is a few MiB of slack for a reader that
+/// briefly stalls; a reader that stays behind past this is dropped rather than
+/// allowed to back-pressure the pty.
+const RAW_TEE_BUFFER: usize = 1024;
+
+/// How long the raw stream blocks waiting for the next chunk before yielding
+/// control. Yielding lets the runtime notice a closed connection and tear the
+/// stream down (which drops the receiver, pruning the tee on the next chunk)
+/// even when the pty is idle.
+const RAW_TEE_POLL: Duration = Duration::from_secs(15);
+
+/// `pty raw <sid>`: stream a session's raw output bytes live -- a tee off the
+/// same chunks the reader thread feeds to the virtual screen, before any
+/// rendering. Registers a bounded sender on the session and yields whatever
+/// arrives; ends when the session closes. Dropping the stream (the HTTP
+/// connection going away) drops the receiver, so the reader thread prunes the
+/// tee on its next chunk. Used for debugging what a program actually emits
+/// (escape sequences, OSC 8 links, etc.).
+#[derive(Clone)]
+pub struct PtyRawCommand;
+
+impl PtyRawCommand {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for PtyRawCommand {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Command for PtyRawCommand {
+    fn name(&self) -> &str {
+        "pty raw"
+    }
+
+    fn signature(&self) -> Signature {
+        Signature::build("pty raw")
+            .required("sid", SyntaxShape::String, "Session id to tee")
+            .input_output_types(vec![(Type::Nothing, Type::Binary)])
+            .category(Category::Experimental)
+    }
+
+    fn description(&self) -> &str {
+        "Stream a pty session's raw output bytes live (a tee, ends when the session closes)."
+    }
+
+    fn run(
+        &self,
+        engine_state: &EngineState,
+        stack: &mut Stack,
+        call: &Call,
+        _input: PipelineData,
+    ) -> Result<PipelineData, ShellError> {
+        let head = call.head;
+        let sid: String = call.req(engine_state, stack, 0)?;
+
+        // Register a bounded sender on the session; bail if it's gone.
+        let rx = {
+            let map = sessions().lock().unwrap();
+            let session = map
+                .get(&sid)
+                .ok_or_else(|| err(head, format!("no pty session: {sid}"), ""))?;
+            let (tx, rx) = sync_channel::<Vec<u8>>(RAW_TEE_BUFFER);
+            session.raw_subs.lock().unwrap().push(tx);
+            rx
+        };
+
+        let sid_owned = sid.clone();
+        let stream = ByteStream::from_fn(
+            head,
+            engine_state.signals().clone(),
+            ByteStreamType::Binary,
+            move |buffer: &mut Vec<u8>| match rx.recv_timeout(RAW_TEE_POLL) {
+                Ok(chunk) => {
+                    buffer.extend_from_slice(&chunk);
+                    Ok(true)
+                }
+                // Idle: end if the session is gone, otherwise yield an empty
+                // frame so the runtime can detect a closed connection and drop
+                // us (which prunes the tee on the reader thread's next chunk).
+                Err(RecvTimeoutError::Timeout) => {
+                    Ok(sessions().lock().unwrap().contains_key(&sid_owned))
+                }
+                // Reader thread gone (session closed): natural EOF.
+                Err(RecvTimeoutError::Disconnected) => Ok(false),
+            },
+        );
+
+        Ok(PipelineData::ByteStream(stream, None))
     }
 }
 
@@ -2080,6 +2167,35 @@ mod tests {
             1,
             "wrapped link head must be a single anchor, got row {row0:?}:\n{frag}"
         );
+    }
+
+    /// The raw tee fan-out drops a reader whose buffer is full (too slow to
+    /// keep up) and one whose receiver has hung up (connection closed), while
+    /// a live reader keeps getting every chunk in order. This is what keeps a
+    /// `pty raw` connection from back-pressuring the pty and what makes "the
+    /// connection goes, the tee goes" hold.
+    #[test]
+    fn raw_tee_prunes_slow_and_dead_readers() {
+        let (live_tx, live_rx) = sync_channel::<Vec<u8>>(8);
+        let (dead_tx, dead_rx) = sync_channel::<Vec<u8>>(8);
+        let (slow_tx, _slow_rx) = sync_channel::<Vec<u8>>(1); // holds one chunk
+        let mut subs = vec![live_tx, dead_tx, slow_tx];
+
+        // Closed connection: the receiver is gone.
+        drop(dead_rx);
+
+        // First chunk: dead sender is disconnected and pruned; slow sender
+        // takes its one buffer slot; live sender is fine.
+        fan_out_raw(&mut subs, b"a");
+        assert_eq!(subs.len(), 2, "dead reader pruned on first chunk");
+
+        // Second chunk: slow sender's buffer is full (never drained) -> pruned.
+        fan_out_raw(&mut subs, b"b");
+        assert_eq!(subs.len(), 1, "slow reader pruned once its buffer fills");
+
+        // The live reader received both chunks, in order.
+        assert_eq!(live_rx.recv().unwrap(), b"a");
+        assert_eq!(live_rx.recv().unwrap(), b"b");
     }
 
     /// The detection rules match wezterm's defaults, so URLs that the old
