@@ -629,25 +629,25 @@ test("rename terminal: live grid + cursor survive; pane-head label updates", () 
     assert.ok(before.rows > 0, "grid must have rows before the rename");
     assert.ok(before.cursor, "cursor overlay must exist before the rename");
 
-    // Open the rename modal, type a new name, submit.
+    // Open the rename modal, type a new name, submit. Real key events: a
+    // synthetically dispatched KeyboardEvent does not drive datastar's
+    // data-on:keydown, so the @post never fires.
     await page.evaluate(() =>
       document.getElementById("rename-tab-trigger")?.click()
     );
     await page.waitForSelector(".modal-input", { timeout: 5000 });
-    await page.evaluate(() => {
-      const i = document.querySelector(".modal-input");
-      i.value = "RENAMED_PROBE";
-      i.dispatchEvent(new Event("input", { bubbles: true }));
-      i.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
-    });
+    await page.fill(".modal-input", "RENAMED_PROBE");
+    await page.press(".modal-input", "Enter");
 
     // The label patch and head update arrive over SSE; wait for the new label
-    // to appear in the pane-head text.
+    // to appear in the pane-head text. (Third arg is options; the function
+    // takes no bound arg.)
     await page.waitForFunction(
       () =>
         !!document.querySelector("#doc .pane .pane-head")?.textContent
           ?.includes("RENAMED_PROBE"),
-      { timeout: 5000 },
+      undefined,
+      { timeout: 8000 },
     );
 
     const after = await page.evaluate(() => ({
