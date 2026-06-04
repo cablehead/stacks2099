@@ -471,6 +471,26 @@ fn render_row_into(
     out.push_str("</div>");
 }
 
+/// Render the entire retained buffer (all scrollback plus the visible screen)
+/// as plain text: one line per row, trailing spaces trimmed per line, trailing
+/// blank rows dropped. The one-shot snapshot `pty snap` / GET /pty/snap return
+/// for tooling that wants to read a terminal's state -- no HTML, no cursor.
+/// Leans on wezterm for the rows and each row's recomposed text; we only add
+/// the trimming.
+fn screen_to_text(term: &Terminal) -> String {
+    let screen = term.screen();
+    let total = screen.scrollback_rows();
+    let mut out: Vec<String> = screen
+        .lines_in_phys_range(0..total)
+        .iter()
+        .map(|line| line.as_str().trim_end().to_string())
+        .collect();
+    while out.last().is_some_and(|l| l.is_empty()) {
+        out.pop();
+    }
+    out.join("\n")
+}
+
 /// Render the cursor overlay element. Lives inside the grid container, gets
 /// its position from CSS custom properties so the only thing that crosses
 /// the wire on a cursor move is the style attribute (~20 bytes per patch).
@@ -1476,6 +1496,62 @@ impl Command for PtyRawCommand {
     }
 }
 
+/// `pty snap <sid>`: return the session's current visible screen as plain
+/// text. A one-shot snapshot (locks the term, renders once, returns) -- no
+/// subscription, no streaming, for tooling that just wants to read a
+/// terminal's current state.
+#[derive(Clone)]
+pub struct PtySnapCommand;
+
+impl PtySnapCommand {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for PtySnapCommand {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Command for PtySnapCommand {
+    fn name(&self) -> &str {
+        "pty snap"
+    }
+
+    fn signature(&self) -> Signature {
+        Signature::build("pty snap")
+            .required("sid", SyntaxShape::String, "Session id to snapshot")
+            .input_output_types(vec![(Type::Nothing, Type::String)])
+            .category(Category::Experimental)
+    }
+
+    fn description(&self) -> &str {
+        "Return a pty session's current visible screen as plain text (one-shot snapshot)."
+    }
+
+    fn run(
+        &self,
+        engine_state: &EngineState,
+        stack: &mut Stack,
+        call: &Call,
+        _input: PipelineData,
+    ) -> Result<PipelineData, ShellError> {
+        let head = call.head;
+        let sid: String = call.req(engine_state, stack, 0)?;
+        let text = {
+            let map = sessions().lock().unwrap();
+            let session = map
+                .get(&sid)
+                .ok_or_else(|| err(head, format!("no pty session: {sid}"), ""))?;
+            let term = session.term.lock().unwrap();
+            screen_to_text(&term)
+        };
+        Ok(PipelineData::Value(Value::string(text, head), None))
+    }
+}
+
 /// Everything PtyViewCommand's stream loop needs out of one term-lock pass:
 /// metadata + the cloned scrollback lines (for rendering outside the lock)
 /// + the precomputed changed-rows set. Built fresh each iteration.
@@ -2099,6 +2175,24 @@ mod tests {
             rows[0].1, "Click",
             "link text should render as the cell text"
         );
+    }
+
+    /// `screen_to_text` returns the entire retained buffer (scrollback plus the
+    /// visible screen) as plain text: one line per row, trailing spaces
+    /// trimmed, trailing blank rows dropped. Output that scrolled past the
+    /// viewport is still in the snapshot. This is what `pty snap` / GET
+    /// /pty/snap hand back -- no streaming, no HTML.
+    #[test]
+    fn screen_to_text_includes_scrollback() {
+        // Two-row viewport, six printed lines: four have scrolled into history,
+        // but the snapshot returns all of them.
+        let term = term_with_bytes(2, 20, b"l1\r\nl2\r\nl3\r\nl4\r\nl5\r\nl6");
+        assert_eq!(screen_to_text(&term), "l1\nl2\nl3\nl4\nl5\nl6");
+
+        // A wide glyph spans two columns but contributes one char, with no pad
+        // space leaking into its continuation column.
+        let term = term_with_bytes(2, 8, "ab\u{4E2D}cd".as_bytes());
+        assert_eq!(screen_to_text(&term), "ab\u{4E2D}cd");
     }
 
     /// Implicit detection: a bare URL printed as plain text carries no OSC 8
