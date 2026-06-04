@@ -83,6 +83,24 @@ cargo run -- --dev 127.0.0.1:5099 --store ./dev-store
 
 Only changing the Rust (the pty projection, new builtins) needs `cargo build`.
 
+### App lives in the store
+
+On a non-`--dev` launch the binary unpacks its baked-in app (`serve.nu`,
+`render.nu`, `www/`, fonts) into `<store>/app/` and serves it from there. The
+app travels with the store it serves, not a shared per-user cache, so each store
+carries its own copy.
+
+This lets different stores run different versions of the app. Point an older
+binary at one store and a newer binary at another, and each serves the app it
+shipped with. The unpack overwrites on every launch, so a store always reflects
+the binary that last opened it; to pin a store to a version, keep opening it with
+that binary.
+
+To hack on the app for one store without rebuilding, edit the files under
+`<store>/app/` directly. The next non-`--dev` launch overwrites them, so copy
+lasting changes back into the source tree (or use `--dev`, which serves from
+source and never unpacks).
+
 ## Model
 
 Clips, stacks, and the window title are frames in an append-only
