@@ -16,8 +16,8 @@ use include_dir::{include_dir, Dir};
 /// this and runs the same tree live from source instead.
 static APP_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/app");
 
-/// Per-user base dir for stacks2099 state (the embedded app is unpacked here,
-/// and the default store lives under it). XDG_DATA_HOME, else ~/.local/share,
+/// Per-user fallback base dir, used only when no --store is given (the app
+/// normally unpacks into the store dir). XDG_DATA_HOME, else ~/.local/share,
 /// else the temp dir.
 fn data_dir() -> PathBuf {
     if let Ok(x) = std::env::var("XDG_DATA_HOME") {
@@ -762,24 +762,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         std::process::exit(exit_code);
     }
 
-    // stacks2099 runs the workspace app -- nothing else. Under --dev it runs
-    // from the source tree (hot-reload, relaxed cookie security); otherwise it
-    // runs the copy baked into the binary, unpacked to a per-user cache dir.
-    // You choose where it listens (ADDR) and where state lives (--store); both
-    // are required.
-    let script_path: String = if args.dev {
-        concat!(env!("CARGO_MANIFEST_DIR"), "/app/serve.nu").to_string()
-    } else {
-        let app = data_dir().join("app");
-        if let Err(e) = extract_app(&app) {
-            eprintln!("Failed to unpack the bundled app to {}: {e}", app.display());
-            std::process::exit(1);
-        }
-        app.join("serve.nu").display().to_string()
-    };
-    let watch = args.dev; // --dev implies hot-reload; production never watches
-    let datastar = true; // the app always needs the Datastar bundle
-
+    // stacks2099 runs the workspace app -- nothing else. You choose where it
+    // listens (ADDR) and where state lives (--store); both are required.
     let Some(addr) = args.addr.clone() else {
         eprintln!("Error: an ADDR ([HOST]:PORT) is required.");
         eprintln!("Usage: stacks2099 <ADDR> --store <DIR>");
@@ -793,6 +777,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         eprintln!("       stacks2099 --dev <ADDR> --store <DIR>   # run from source, hot-reload");
         std::process::exit(1);
     }
+
+    // Under --dev it runs from the source tree (hot-reload, relaxed cookie
+    // security); otherwise it runs the copy baked into the binary, unpacked into
+    // the store dir so the assets live with the workspace state they serve.
+    let script_path: String = if args.dev {
+        concat!(env!("CARGO_MANIFEST_DIR"), "/app/serve.nu").to_string()
+    } else {
+        let base = args.store.clone().unwrap_or_else(data_dir);
+        let app = base.join("app");
+        if let Err(e) = extract_app(&app) {
+            eprintln!("Failed to unpack the bundled app to {}: {e}", app.display());
+            std::process::exit(1);
+        }
+        app.join("serve.nu").display().to_string()
+    };
+    let watch = args.dev; // --dev implies hot-reload; production never watches
+    let datastar = true; // the app always needs the Datastar bundle
 
     // Create channel for engines
     let (tx, rx) = mpsc::channel::<Engine>(1);
