@@ -20,10 +20,16 @@ not populate `$in`, so `curl ... | {{ bin | safe }} eval -c '$in | from json'` s
 
 ## Discovery
 
-| Endpoint         | Returns                                                   |
-| ---------------- | --------------------------------------------------------- |
-| `GET /api`       | this overview (markdown)                                  |
-| `GET /api/state` | stacks and live terminals (`sid`, `label`, `clip`, `cwd`) |
+| Endpoint         | Returns                                |
+| ---------------- | -------------------------------------- |
+| `GET /api`       | this overview (markdown)               |
+| `GET /api/state` | stacks, every clip, and live terminals |
+
+`/api/state` returns `{focusedClip, focusedStack, stacks, clips, terminals}`.
+`stacks` is `{id, name}`; `clips` is a flat list across all stacks, each tagged
+with its owning `stack` -- `{id, stack, kind, label, mime, view, position}` -- so
+you can find a clip by label or scope to a stack without a second call.
+`terminals` carries the live pty `sid`, `label`, `clip`, and `cwd`.
 
 ## Terminals
 

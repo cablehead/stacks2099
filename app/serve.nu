@@ -868,7 +868,25 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
       {
         focusedClip: (load-focused-sid)
         focusedStack: (clip-stack-of $proj (load-focused-sid))
-        stacks: ($proj.stacks | each {|s| {id: $s.id, name: ($s.name? | default null), clips: ($s.clips | length)} })
+        stacks: ($proj.stacks | each {|s| {id: $s.id, name: ($s.name? | default null)} })
+        # Every clip across all stacks, each tagged with its owning stack, in
+        # that stack's render order -- a flat list mirroring `terminals`. Scripts
+        # find a clip by label (`where label == X`) or scope to a stack (`where
+        # stack == id`) without a second round-trip, so they need no local
+        # registry. label is the rename (null until renamed); view is the style
+        # override (rendered/embed, null when default); position is null while a
+        # stack is auto-sorted.
+        clips: ($proj.stacks | each {|s|
+          projection sorted-clips $s | each {|c| {
+            id: $c.id
+            stack: $s.id
+            kind: ($c.kind? | default "content")
+            label: ($c.label? | default null)
+            mime: ($c.mime_type? | default null)
+            view: ($c.view? | default null)
+            position: ($c.position?)
+          } }
+        } | flatten)
         # Live ptys so CLI tooling can find a terminal's sid (picking by label
         # or clip if it likes) without scraping /sse. label is the rename, null
         # until renamed; clip is the owning clip id; cwd is from OSC 7 (null
