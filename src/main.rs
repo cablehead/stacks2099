@@ -63,6 +63,7 @@ use http_nu::{
         init_broadcast, log_reloaded, log_started, log_stop_timed_out, log_stopped, log_stopping,
         run_human_handler, run_jsonl_handler, shutdown, StartupOptions,
     },
+    response::value_to_json,
     store::Store,
     Engine, Listener,
 };
@@ -734,8 +735,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
         let exit_code = match engine.eval(&script, script_path.as_deref()) {
             Ok(value) => {
-                let output = value.to_expanded_string(" ", &engine.state.config);
-                if !output.is_empty() {
+                // eval emits JSON so its stdout pipes cleanly into `from json`.
+                // A void result (Nothing) stays silent rather than printing "null".
+                if !matches!(value, nu_protocol::Value::Nothing { .. }) {
+                    let output = serde_json::to_string(&value_to_json(&value)).unwrap_or_default();
                     println!("{output}");
                 }
                 0

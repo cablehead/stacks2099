@@ -68,7 +68,12 @@ pub fn value_to_json(value: &Value) -> serde_json::Value {
             }
             serde_json::Value::Object(map)
         }
-        _ => todo!(),
+        // Types without a direct JSON analogue (dates, durations, filesizes,
+        // binary, closures, ...) fall back to their string rendering rather
+        // than panicking.
+        other => serde_json::Value::String(
+            other.to_expanded_string(", ", &nu_protocol::Config::default()),
+        ),
     }
 }
 
