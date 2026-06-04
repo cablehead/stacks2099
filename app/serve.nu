@@ -744,35 +744,69 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
     })
 
     (route {method: "POST", path: "/clip/move"} {|req ctx|
-      # Move the selected clip up/down within its stack. The first move in an
-      # auto stack (or a manual one with unset positions) renumbers the whole
-      # stack in the new order; after that each move is one position patch.
-      let dir = ($req.query.dir? | default "")
+      # Reorder or relocate a clip. Keyed by ?clip=; the source stack is derived
+      # from the clip, so callers don't pass it. Modes:
+      #   ?dir=up|down   one step within its stack (the GUI path)
+      #   ?to=<n>        absolute 0-based index within the destination stack
+      #   ?stack=<dest>  move to another stack (id or name); ?to= places it, else
+      #                  it appends and the destination's own sort decides the slot
+      # An ordered placement (?to=, or an in-stack ?dir=) freezes the destination
+      # to manual sort, the same as the first drag/move in the UI does. The first
+      # ordered move in an auto stack (or a manual one with unset positions)
+      # renumbers the whole stack; after that each move is one position patch.
       let cid = ($req.query.clip? | default "")
-      let sid_stack = ($req.query.stack? | default "")
+      let dir = ($req.query.dir? | default "")
+      let to_raw = ($req.query.to? | default "")
+      let to = if $to_raw == "" { null } else { (try { $to_raw | into int } catch { null }) }
+      let dest_q = ($req.query.stack? | default "")
       let proj = (.cat | projection project)
-      let stack = ($proj.stacks | where id == $sid_stack | get 0?)
-      if $cid != "" and ($dir in ["up" "down"]) and ($stack | is-not-empty) {
-        let clips = (projection sorted-clips $stack)
-        let idx = ($clips | enumerate | where item.id == $cid | get 0?.index)
-        let tgt = if $idx == null { -1 } else if $dir == "up" { $idx - 1 } else { $idx + 1 }
-        if $idx != null and $tgt >= 0 and $tgt < ($clips | length) {
-          let moved = ($clips | get $idx)
-          let rest = ($clips | drop nth $idx)
-          let new_order = ($rest | first $tgt | append $moved | append ($rest | skip $tgt))
-          let needs_renumber = ($stack.sort != "manual") or ($clips | any {|c| ($c.position? | default null) == null })
-          if $needs_renumber {
-            if $stack.sort != "manual" { null | .append "stack.update" --meta {id: $stack.id, sort: "manual"} --ttl forever | ignore }
-            renumber-stack $new_order
-          } else {
-            let ni = ($new_order | enumerate | where item.id == $cid | get 0.index)
-            let prev = if $ni == 0 { null } else { ($new_order | get ($ni - 1) | get position?) }
-            let next = if $ni == (($new_order | length) - 1) { null } else { ($new_order | get ($ni + 1) | get position?) }
-            let newpos = (projection position-between $prev $next)
-            if $newpos == null {
+      let src = ($proj.stacks | where {|s| $s.clips | any {|c| $c.id == $cid }} | get 0?)
+      let dest_id = if $dest_q == "" {
+        ($src.id? | default "")
+      } else if ($proj.stacks | any {|s| $s.id == $dest_q }) {
+        $dest_q
+      } else {
+        ($proj.stacks | where {|s| ($s.name? | default "") == $dest_q } | get 0?.id | default "")
+      }
+      let dest = ($proj.stacks | where id == $dest_id | get 0?)
+      if $cid != "" and ($src | is-not-empty) and ($dest | is-not-empty) {
+        let cross = ($dest_id != $src.id)
+        let moved = ($src.clips | where id == $cid | get 0)
+        if $cross and ($to == null) {
+          # Plain relocation: hand the clip to the destination, let its sort place it.
+          null | .append "clip.patch" --meta {id: $cid, stack_id: $dest_id} --ttl forever | ignore
+        } else {
+          # Ordered placement. `base` is the destination's clips without the moved
+          # one; we insert at `ti` and re-derive positions.
+          let base = if $cross { (projection sorted-clips $dest) } else { (projection sorted-clips $src | where id != $cid) }
+          let n = ($base | length)
+          let ti = if $to != null {
+            let lo = ([$to 0] | math max)
+            ([$lo $n] | math min)
+          } else if (not $cross) and ($dir in ["up" "down"]) {
+            let full = (projection sorted-clips $src)
+            let cur = ($full | enumerate | where item.id == $cid | get 0?.index | default (-1))
+            if $dir == "up" { $cur - 1 } else { $cur + 1 }
+          } else { (-1) }
+          if $ti >= 0 and $ti <= $n {
+            let new_order = (($base | first $ti) | append $moved | append ($base | skip $ti))
+            let needs_renumber = ($dest.sort != "manual") or ($base | any {|c| ($c.position? | default null) == null })
+            if $dest.sort != "manual" { null | .append "stack.update" --meta {id: $dest_id, sort: "manual"} --ttl forever | ignore }
+            if $needs_renumber {
+              if $cross { null | .append "clip.patch" --meta {id: $cid, stack_id: $dest_id} --ttl forever | ignore }
               renumber-stack $new_order
             } else {
-              null | .append "clip.patch" --meta {id: $cid, position: $newpos} --ttl forever | ignore
+              let ni = ($new_order | enumerate | where item.id == $cid | get 0.index)
+              let prev = if $ni == 0 { null } else { ($new_order | get ($ni - 1) | get position?) }
+              let next = if $ni == (($new_order | length) - 1) { null } else { ($new_order | get ($ni + 1) | get position?) }
+              let newpos = (projection position-between $prev $next)
+              if $newpos == null {
+                if $cross { null | .append "clip.patch" --meta {id: $cid, stack_id: $dest_id} --ttl forever | ignore }
+                renumber-stack $new_order
+              } else {
+                let meta = if $cross { {id: $cid, stack_id: $dest_id, position: $newpos} } else { {id: $cid, position: $newpos} }
+                null | .append "clip.patch" --meta $meta --ttl forever | ignore
+              }
             }
           }
         }

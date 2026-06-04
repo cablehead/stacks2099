@@ -215,21 +215,21 @@ cat notes.md | xs append ./store clip.add --ttl forever \
 In a store-connected Nushell (`xs` gives you one) the builtin form is
 `<body> | .append <topic> --meta {...}` -- exactly what each route runs.
 
-| Action        | HTTP                            | Frame appended                                   |
-| ------------- | ------------------------------- | ------------------------------------------------ |
-| New stack     | `POST /stack/new`               | `stack.add {sort}`                               |
-| Rename stack  | `POST /stack/rename`            | `stack.update {id, name}`                        |
-| Delete stack  | `POST /stack/close?stack=`      | `stack.delete {id}`                              |
-| Add clip      | `POST /clip/add`                | `clip.add {stack_id, kind, mime_type}` + body    |
-| Update clip   | `POST /clip/update?clip=`       | `clip.update {id}` + body                        |
-| Rename clip   | `POST /clip/label?clip=&label=` | `clip.patch {id, label}`                         |
-| Set view      | `POST /clip/view?clip=&view=`   | `clip.patch {id, view}`                          |
-| Close clip    | `POST /clip/close?clip=`        | `clip.delete {id}`                               |
-| Move clip     | `POST /clip/move?dir=&clip=`    | `clip.patch {id, position}` (renumber on freeze) |
-| Toggle sort   | `POST /stack/sort?stack=`       | `stack.update {id, sort}`                        |
-| Toggle layout | `POST /stack/layout?stack=`     | `stack.update {id, layout}`                      |
-| Switch stack  | navigate to `/stack/<id>`       | (the URL is the stack; a fresh `/sse?stack=`)    |
-| Move cursor   | `POST /nav` (best-effort)       | persists focused clip; cursor is client-owned    |
+| Action        | HTTP                                      | Frame appended                                |
+| ------------- | ----------------------------------------- | --------------------------------------------- |
+| New stack     | `POST /stack/new`                         | `stack.add {sort}`                            |
+| Rename stack  | `POST /stack/rename`                      | `stack.update {id, name}`                     |
+| Delete stack  | `POST /stack/close?stack=`                | `stack.delete {id}`                           |
+| Add clip      | `POST /clip/add`                          | `clip.add {stack_id, kind, mime_type}` + body |
+| Update clip   | `POST /clip/update?clip=`                 | `clip.update {id}` + body                     |
+| Rename clip   | `POST /clip/label?clip=&label=`           | `clip.patch {id, label}`                      |
+| Set view      | `POST /clip/view?clip=&view=`             | `clip.patch {id, view}`                       |
+| Close clip    | `POST /clip/close?clip=`                  | `clip.delete {id}`                            |
+| Move clip     | `POST /clip/move?clip=&dir=\|to=\|stack=` | `clip.patch {id, position, stack_id?}`        |
+| Toggle sort   | `POST /stack/sort?stack=`                 | `stack.update {id, sort}`                     |
+| Toggle layout | `POST /stack/layout?stack=`               | `stack.update {id, layout}`                   |
+| Switch stack  | navigate to `/stack/<id>`                 | (the URL is the stack; a fresh `/sse?stack=`) |
+| Move cursor   | `POST /nav` (best-effort)                 | persists focused clip; cursor is client-owned |
 
 The topics and fields _are_ the protocol -- defined in `app/projection.nu`.
 Terminal clips are the exception: their pty is spawned by a `POST` to
@@ -239,6 +239,11 @@ Terminal clips are the exception: their pty is spawned by a `POST` to
 scripted caller that sends `Accept: application/json` gets `{id}` instead, no
 redirect to scrape. (`POST /clip/add` already returns the new clip id as plain
 text.)
+
+`POST /clip/move` derives the source stack from `?clip=`, so you only say where
+it goes: `?dir=up|down` for one step, `?to=<n>` for an absolute index, or
+`?stack=<id|name>` to move it to another stack (add `?to=` to place it, else it
+appends). An ordered move freezes the destination to manual sort.
 
 ## Keys
 
