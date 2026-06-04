@@ -154,6 +154,14 @@ def sid-for-clip [cid: string]: nothing -> string {
   if ($m | is-empty) { "" } else { $m | first | get sid }
 }
 
+# True when a live pty session has this sid. The /pty GET routes guard on it so
+# a stale, wrong, or missing sid returns a clean 404 instead of letting the pty
+# command error mid-handler (which http-nu surfaces as an opaque 500 "channel
+# closed").
+def pty-sid-live [sid: string]: nothing -> bool {
+  ($sid != "") and (pty list | where sid == $sid | is-not-empty)
+}
+
 # Spawn a pty for a clip and tag it (meta.clip_id) so it can be rebound to the
 # same clip after a restart. Re-applies the clip's persisted label.
 def spawn-for-clip [cid: string]: nothing -> string {
@@ -898,40 +906,52 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
     })
 
     (route {method: "GET", path: "/pty/view"} {|req ctx|
-      let sid = $req.query.sid
-      let target = ($req.query.target? | default "grid")
-      # `pty view` emits HTML grid-update records (one buffer fact each); the
-      # pty stays datastar-agnostic. Map each kind to a datastar patch here.
-      pty view $sid --target $target
-      | each {|f|
-          match $f.kind {
-            # screen + row are morph-by-id (the html carries its own id).
-            "screen" => ($f.html | to datastar-patch-elements)
-            "row" => ($f.html | to datastar-patch-elements)
-            # new bottom rows append into the grid container.
-            "append" => ($f.html | to datastar-patch-elements --selector $"#($target)" --mode append)
-            # purged top rows: remove by id.
-            "trim" => ("" | to datastar-patch-elements --selector ($f.ids | each {|id| $"#($id)" } | str join ",") --mode remove)
-            # idle keepalive -> SSE comment.
-            "heartbeat" => {comment: "hb"}
+      let sid = ($req.query.sid? | default "")
+      if not (pty-sid-live $sid) {
+        $"no pty session: ($sid)" | metadata set { merge {'http.response': {status: 404}} }
+      } else {
+        let target = ($req.query.target? | default "grid")
+        # `pty view` emits HTML grid-update records (one buffer fact each); the
+        # pty stays datastar-agnostic. Map each kind to a datastar patch here.
+        pty view $sid --target $target
+        | each {|f|
+            match $f.kind {
+              # screen + row are morph-by-id (the html carries its own id).
+              "screen" => ($f.html | to datastar-patch-elements)
+              "row" => ($f.html | to datastar-patch-elements)
+              # new bottom rows append into the grid container.
+              "append" => ($f.html | to datastar-patch-elements --selector $"#($target)" --mode append)
+              # purged top rows: remove by id.
+              "trim" => ("" | to datastar-patch-elements --selector ($f.ids | each {|id| $"#($id)" } | str join ",") --mode remove)
+              # idle keepalive -> SSE comment.
+              "heartbeat" => {comment: "hb"}
+            }
           }
-        }
-      | to sse
-      | metadata set --content-type "text/event-stream"
+        | to sse
+        | metadata set --content-type "text/event-stream"
+      }
     })
 
     (route {method: "GET", path: "/pty/raw"} {|req ctx|
       # Live tee of a session's raw output bytes (escape sequences and all).
       # Ends when the session closes; closing the connection drops the tee.
-      pty raw $req.query.sid
-      | metadata set --content-type "application/octet-stream"
+      let sid = ($req.query.sid? | default "")
+      if not (pty-sid-live $sid) {
+        $"no pty session: ($sid)" | metadata set { merge {'http.response': {status: 404}} }
+      } else {
+        pty raw $sid | metadata set --content-type "application/octet-stream"
+      }
     })
 
     (route {method: "GET", path: "/pty/snap"} {|req ctx|
       # One-shot plain-text snapshot of a session's full buffer (scrollback
       # included). Not a stream -- returns the current screen state and ends.
-      pty snap $req.query.sid
-      | metadata set --content-type "text/plain; charset=utf-8"
+      let sid = ($req.query.sid? | default "")
+      if not (pty-sid-live $sid) {
+        $"no pty session: ($sid)" | metadata set { merge {'http.response': {status: 404}} }
+      } else {
+        pty snap $sid | metadata set --content-type "text/plain; charset=utf-8"
+      }
     })
 
     (route {method: "GET", path: "/md.css"} {|req ctx|
