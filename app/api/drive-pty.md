@@ -11,9 +11,10 @@ use it.)
 {{ bin | safe }} eval -c 'http get {{ base | safe }}/api/state | get terminals'
 ```
 
-`terminals` has `sid` (pass this to the `/pty/*` routes), `label` (the rename,
-or null), `clip` (the owning clip id -- not the sid; passing it yields
-`404 no pty session`), and `cwd` (the shell's directory via OSC 7, or null).
+`terminals` has `sid` (pass this to the `/pty/*` routes), `clip` (the owning
+clip id -- not the sid; passing it yields `404 no pty session`), and `cwd` (the
+shell's directory via OSC 7, or null). The terminal's label lives on its clip;
+join `clip` into the `clips` list from `/api/state` for it.
 
 ## Send keystrokes and read the result
 

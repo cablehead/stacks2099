@@ -33,7 +33,7 @@
 #   POST /clip/new?type=    -> create a clip (terminal | note) and select it
 #   POST /clip/update?clip= -> persist a note body
 #   POST /clip/close?clip=  -> tombstone a clip (+ kill its pty)
-#   POST /pty/label         -> rename the selected clip
+#   POST /clip/label?clip=  -> rename a clip (label=)
 #   POST /title             -> set the window title
 #   POST /pty/input?sid=    -> raw input bytes to pty stdin
 #   POST /pty/resize?sid=   -> resize pty (cols, rows in JSON body)
@@ -123,15 +123,6 @@ def set-clip-label [cid: string, label: string]: nothing -> nothing {
   null | .append "clip.patch" --meta {id: $cid, label: $label} --ttl forever | ignore
 }
 
-# A clip's persisted label (latest clip.patch{id,label}); "" if none. Used at
-# spawn time, before projection state is in hand.
-def clip-label [cid: string]: nothing -> string {
-  let f = (.cat
-    | where {|f| $f.topic == "clip.patch" and (($f.meta.id? | default "") == $cid) and (($f.meta.label? | default null) != null) }
-    | last)
-  if ($f | is-empty) { "" } else { ($f.meta.label? | default "") }
-}
-
 # A content clip's body: the CAS blob at its current hash, or "" for none.
 def clip-body [c: record]: nothing -> string {
   if (($c.hash? | default "") == "") { "" } else { (.cas $c.hash) }
@@ -181,8 +172,6 @@ def spawn-for-clip [cid: string]: nothing -> string {
   let cmd = $env.GHOSTTY_WEB_NU_CMD? | default "nu"
   let sid = if $cmd == "nu" { pty open --embedded } else { pty open $cmd }
   pty meta set $sid "clip_id" $cid
-  let lbl = (clip-label $cid)
-  if ($lbl | is-not-empty) { pty meta set $sid "label" $lbl }
   $sid
 }
 
@@ -887,11 +876,11 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
             position: ($c.position?)
           } }
         } | flatten)
-        # Live ptys so CLI tooling can find a terminal's sid (picking by label
-        # or clip if it likes) without scraping /sse. label is the rename, null
-        # until renamed; clip is the owning clip id; cwd is from OSC 7 (null
-        # until the shell reports one).
-        terminals: (pty list | each {|p| {sid: $p.sid, label: ($p.meta.label? | default null), clip: ($p.meta.clip_id? | default null), cwd: ($p.cwd? | default null)} })
+        # Live ptys so CLI tooling can map a clip to its sid (and back) without
+        # scraping /sse. clip is the owning clip id; cwd is from OSC 7 (null
+        # until the shell reports one). The label lives on the clip -- join via
+        # `clip` into `clips` above for it.
+        terminals: (pty list | each {|p| {sid: $p.sid, clip: ($p.meta.clip_id? | default null), cwd: ($p.cwd? | default null)} })
       } | to json | metadata set --content-type "application/json"
     })
 
@@ -921,19 +910,14 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
       null | metadata set { merge {'http.response': {status: 204}} }
     })
 
-    (route {method: "POST", path: "/pty/label"} {|req ctx|
-      # Rename the selected clip. The label persists on the clip (clip.patch),
-      # which propagates via `.cat -f` so every sidebar re-renders. Mirror onto
-      # the live pty's meta if it's a terminal with a bound pty.
-      let body = $in
-      let signals = $body | from datastar-signals $req
-      let cid = ($signals.cursor? | default "")
-      let new = ($signals.label? | default "" | str trim)
-      if $cid != "" {
-        set-clip-label $cid $new
-        let sid = (sid-for-clip $cid)
-        if $sid != "" { pty meta set $sid "label" $new }
-      }
+    (route {method: "POST", path: "/clip/label"} {|req ctx|
+      # Rename a clip. The label persists on the clip (clip.patch {label}) and
+      # propagates via `.cat -f`, so every sidebar + pane head re-renders. The
+      # label is clip-level (notes, images, terminals alike), so this is a
+      # `/clip/` route keyed by ?clip=, like its siblings -- no pty involved.
+      let cid = ($req.query.clip? | default "")
+      let new = ($req.query.label? | default "" | str trim)
+      if $cid != "" { set-clip-label $cid $new }
       null | metadata set { merge {'http.response': {status: 204}} }
     })
 

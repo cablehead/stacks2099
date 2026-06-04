@@ -936,7 +936,7 @@
           aria-label="rename"
           data-bind="draft"
           data-effect="$renaming && requestAnimationFrame(() => { el.focus(); el.setSelectionRange(0, el.value.length); })"
-          data-on:keydown="if (evt.key === 'Enter') { if ($renameMode === 'tab') { $label = $draft; $renaming = false; @post('/pty/label') } else if ($renameMode === 'stack') { $renaming = false; @post('/stack/rename') } else { $title = $draft; $renaming = false; @post('/title') } } else if (evt.key === 'Escape') { $renaming = false }"
+          data-on:keydown="if (evt.key === 'Enter') { if ($renameMode === 'tab') { $label = $draft; $renaming = false; @post('/clip/label?clip=' + encodeURIComponent($cursor) + '&label=' + encodeURIComponent($draft)) } else if ($renameMode === 'stack') { $renaming = false; @post('/stack/rename') } else { $title = $draft; $renaming = false; @post('/title') } } else if (evt.key === 'Escape') { $renaming = false }"
         >
       </div>
     </div>

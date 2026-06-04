@@ -29,7 +29,8 @@ not populate `$in`, so `curl ... | {{ bin | safe }} eval -c '$in | from json'` s
 `stacks` is `{id, name}`; `clips` is a flat list across all stacks, each tagged
 with its owning `stack` -- `{id, stack, kind, label, mime, view, position}` -- so
 you can find a clip by label or scope to a stack without a second call.
-`terminals` carries the live pty `sid`, `label`, `clip`, and `cwd`.
+`terminals` carries the live pty `sid`, `clip`, and `cwd`; a terminal's label
+lives on its clip, so join via `clip` into `clips`.
 
 ## Terminals
 
