@@ -45,6 +45,9 @@ use ./projection.nu
 use ./render.nu *   # pure render helpers (html-escape, is-url, clip-render-type, ...)
 
 const STATIC = (path self | path dirname | path join "www")
+# Markdown API docs, served at /api and /api/howto/:topic. Baked into the
+# binary alongside this script (include_dir), so they travel with it.
+const API_DOCS = (path self | path dirname | path join "api")
 
 # Window title: one evolving value as `ghostty.title` frames; latest wins.
 const TITLE_ADJ = [calm bold brave bright crisp eager fierce gentle happy keen lucky merry quiet swift wild]
@@ -821,6 +824,25 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
         null | .append "clip.patch" --meta {id: $cid, view: $next} --ttl forever | ignore
       }
       null | metadata set { merge {'http.response': {status: 204}} }
+    })
+
+    (route {method: "GET", path: "/api"} {|req ctx|
+      # Self-describing API overview (markdown). Travels with the binary so any
+      # running instance documents itself: curl <base>/api.
+      open --raw ($API_DOCS | path join "index.md")
+      | metadata set --content-type "text/markdown; charset=utf-8"
+    })
+
+    (route {method: "GET", path-matches: "/api/howto/:topic"} {|req ctx|
+      # Individual howto docs linked from /api. Topic is one path segment;
+      # restrict it to a slug so it can't escape the docs dir.
+      let topic = ($ctx.topic? | default "")
+      let file = ($API_DOCS | path join $"($topic).md")
+      if ($topic =~ '^[a-z0-9-]+$') and ($file | path exists) {
+        open --raw $file | metadata set --content-type "text/markdown; charset=utf-8"
+      } else {
+        $"no such howto: ($topic)" | metadata set { merge {'http.response': {status: 404}} }
+      }
     })
 
     (route {method: "GET", path: "/api/state"} {|req ctx|
