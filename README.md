@@ -233,6 +233,11 @@ The topics and fields _are_ the protocol -- defined in `app/projection.nu`.
 Terminal clips are the exception: their pty is spawned by a `POST` to
 `/clip/new?type=terminal`, so create those through the API.
 
+`POST /stack/new` answers a browser with a redirect to the new stack's page. A
+scripted caller that sends `Accept: application/json` gets `{id}` instead, no
+redirect to scrape. (`POST /clip/add` already returns the new clip id as plain
+text.)
+
 ## Keys
 
 Two modes. **Navigate** browses (read-only, dimmed); **focus** drives the

@@ -664,12 +664,22 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
     })
 
     (route {method: "POST", path: "/stack/new"} {|req ctx|
-      # Create a new (manual-sort) stack and navigate to its page. No name --
-      # the UI shows the stack's scru128 id until it's renamed. MPA: the new
-      # stack is its own URL, so redirect the caller there (datastar applies the
-      # redirect to the page that POSTed).
+      # Create a new (manual-sort) stack. No name -- the UI shows the stack's
+      # scru128 id until it's renamed. A browser (datastar) gets a redirect SSE
+      # to the new stack's page (MPA: the stack is its own URL). A scripted
+      # caller sending `Accept: application/json` gets {id} instead, so it can
+      # target the new stack without scraping the redirect script out of HTML.
       let f = (null | .append "stack.add" --meta {sort: "manual"} --ttl forever)
-      $"/stack/($f.id)" | to datastar-redirect | to sse | metadata set --content-type "text/event-stream"
+      # datastar asks for `text/event-stream, text/html, application/json`, so
+      # the redirect wins whenever event-stream is on the list. JSON is only for
+      # a caller that asks for it without event-stream (a plain script).
+      let accept = ($req.headers | get accept? | default "")
+      let wants_json = ($accept | str contains "application/json") and (not ($accept | str contains "text/event-stream"))
+      if $wants_json {
+        {id: $f.id} | to json | metadata set { merge {'http.response': {status: 201, headers: {"content-type": "application/json"}}} }
+      } else {
+        $"/stack/($f.id)" | to datastar-redirect | to sse | metadata set --content-type "text/event-stream"
+      }
     })
 
     (route {method: "POST", path: "/stack/rename"} {|req ctx|
