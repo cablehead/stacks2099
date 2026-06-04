@@ -165,6 +165,16 @@ def pty-sid-live [sid: string]: nothing -> bool {
   ($sid != "") and (pty list | where sid == $sid | is-not-empty)
 }
 
+# This instance's base URL, derived from the request, so the served API docs
+# show the address the caller actually reached us on instead of a placeholder.
+# Honors X-Forwarded-Proto when fronted by a proxy; falls back to the doc's
+# literal example if the Host header is somehow absent.
+def api-base [req: record]: nothing -> string {
+  let host = ($req.headers | get host? | default "127.0.0.1:5099")
+  let scheme = ($req.headers | get "x-forwarded-proto"? | default "http")
+  $"($scheme)://($host)"
+}
+
 # Spawn a pty for a clip and tag it (meta.clip_id) so it can be rebound to the
 # same clip after a restart. Re-applies the clip's persisted label.
 def spawn-for-clip [cid: string]: nothing -> string {
@@ -828,8 +838,9 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
 
     (route {method: "GET", path: "/api"} {|req ctx|
       # Self-describing API overview (markdown). Travels with the binary so any
-      # running instance documents itself: curl <base>/api.
-      open --raw ($API_DOCS | path join "index.md")
+      # running instance documents itself: curl <base>/api. Rendered as a
+      # minijinja template so `{{ base }}` resolves to this instance's address.
+      {base: (api-base $req)} | .mj ($API_DOCS | path join "index.md")
       | metadata set --content-type "text/markdown; charset=utf-8"
     })
 
@@ -839,7 +850,8 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
       let topic = ($ctx.topic? | default "")
       let file = ($API_DOCS | path join $"($topic).md")
       if ($topic =~ '^[a-z0-9-]+$') and ($file | path exists) {
-        open --raw $file | metadata set --content-type "text/markdown; charset=utf-8"
+        {base: (api-base $req)} | .mj $file
+        | metadata set --content-type "text/markdown; charset=utf-8"
       } else {
         $"no such howto: ($topic)" | metadata set { merge {'http.response': {status: 404}} }
       }

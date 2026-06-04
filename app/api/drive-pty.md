@@ -1,45 +1,59 @@
 # Drive a pty
 
 A terminal clip is backed by a live pty. Find its session id, then write to its
-stdin and read it back. Examples assume `BASE=http://127.0.0.1:5099`.
+stdin and read it back. Examples are Nushell.
+
+```nushell
+let base = "{{ base | safe }}"
+```
 
 ## 1. Find the session id
 
-    SID=$(curl -s "$BASE/api/state" | jq -r '.terminals[0].sid')
+```nushell
+let sid = (http get $"($base)/api/state" | get terminals.0.sid)
+```
 
-`GET /api/state` lists `terminals[]`, each with:
-
-- `sid` -- pass this to the `/pty/*` routes
-- `label` -- the rename, or null until renamed
-- `clip` -- the owning clip id; NOT the sid (a common mix-up that yields
-  `404 no pty session`)
+`GET /api/state` lists `terminals`, each with `sid` (pass this to the `/pty/*`
+routes), `label` (the rename, or null), and `clip` (the owning clip id -- not
+the sid; passing it yields `404 no pty session`).
 
 ## 2. Send keystrokes
 
-Input is raw bytes on the request body. `\r` is Enter, `\x1b` is Esc.
+The request body is written straight to the pty's stdin. In a Nushell string
+`\r` is Enter and `\e` is Esc.
 
-    printf 'ls\r' | curl -s -X POST "$BASE/pty/input?sid=$SID" --data-binary @-
-    printf '\x1b' | curl -s -X POST "$BASE/pty/input?sid=$SID" --data-binary @-
+```nushell
+http post $"($base)/pty/input?sid=($sid)" "ls\r"
+http post $"($base)/pty/input?sid=($sid)" "\e"
+```
 
 ## 3. Resize (optional)
 
-    curl -s -X POST "$BASE/pty/resize?sid=$SID" \
-      -H 'content-type: application/json' --data '{"cols":120,"rows":40}'
+```nushell
+{cols: 120, rows: 40} | to json | http post $"($base)/pty/resize?sid=($sid)" --content-type application/json
+```
 
 ## 4. Read it back
 
-- One-shot snapshot: see [Snapshot a pty](/api/howto/snapshot-pty).
-- Live raw bytes (escape sequences and all):
+A one-shot snapshot (see [Snapshot a pty]({{ base | safe }}/api/howto/snapshot-pty)):
 
-      curl -sN "$BASE/pty/raw?sid=$SID"
+```nushell
+http get $"($base)/pty/snap?sid=($sid)"
+```
 
-  This is a tee: it streams output from the moment you connect (it does not
-  replay existing scrollback), ends when the session closes, and is dropped
-  when you close the connection.
+Or a live tee of the raw output bytes (escape sequences and all) -- it streams
+until the session closes, and is dropped when you disconnect:
 
-## Example: run a command and read the result
+```nushell
+http get $"($base)/pty/raw?sid=($sid)"
+```
 
-    SID=$(curl -s "$BASE/api/state" | jq -r '.terminals[0].sid')
-    printf 'echo hello\r' | curl -s -X POST "$BASE/pty/input?sid=$SID" --data-binary @-
-    sleep 1
-    curl -s "$BASE/pty/snap?sid=$SID"
+## Run a command and read the result
+
+```nushell
+let base = "{{ base | safe }}"
+let sid = (http get $"($base)/api/state" | get terminals.0.sid)
+http post $"($base)/pty/input?sid=($sid)" "echo hello\r"
+sleep 1sec
+http get $"($base)/pty/snap?sid=($sid)"
+```
