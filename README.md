@@ -101,6 +101,26 @@ To hack on the app for one store without rebuilding, edit the files under
 lasting changes back into the source tree (or use `--dev`, which serves from
 source and never unpacks).
 
+### Terminal limit over HTTP/1.1
+
+Each live terminal holds its own streaming connection. Browsers cap concurrent
+connections per origin at roughly 6 over HTTP/1.1, so once you open about that
+many terminals the next connection (including the POSTs that carry your
+keystrokes) has nowhere to go and queues. All input freezes.
+
+To recover, close a terminal through the server API to free a connection. Get a
+clip id from `curl localhost:5099/api/state`, then:
+
+```bash
+curl -X POST 'localhost:5099/clip/close?clip=<CLIP_ID>'
+```
+
+Serving over HTTP/2 sidesteps this -- a single connection multiplexes every
+stream, so the per-origin cap never bites. Run with `--tls` (browsers negotiate
+HTTP/2 only over TLS) and the limit is gone. The planned fix multiplexes the
+whole interface over a single `/sse` connection so plain HTTP/1.1 stops being a
+ceiling.
+
 ## Model
 
 Clips, stacks, and the window title are frames in an append-only
