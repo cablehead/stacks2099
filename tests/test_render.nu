@@ -9,6 +9,10 @@ use ($script_dir | path join ".." "app" "render.nu") *
 
 def clip [rec: record]: nothing -> record { {kind: "content", mime_type: "text/plain"} | merge $rec }
 
+# --- id-tail: crop the entropy end of a scru128, not the timestamp prefix ----
+assert ((id-tail "03g9058viwkbqxibsyxgoxi4g") == "yxgoxi4g") "id-tail shows the trailing chars"
+assert ((id-tail "abc") == "abc") "id-tail of a short string is the whole string"
+
 # --- clip-render-type: the dispatch ----------------------------------------
 assert ((clip-render-type (clip {kind: "terminal"})) == "terminal") "terminal kind"
 assert ((clip-render-type (clip {mime_type: "image/png"})) == "image") "image/* -> image"

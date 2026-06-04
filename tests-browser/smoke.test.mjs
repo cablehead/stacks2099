@@ -1216,10 +1216,10 @@ test("clip-actions: Delete removes the selected clip", () =>
       )?.dataset.clip
     );
     assert.ok(noteCid, "a note pane exists");
-    // Select the note's clips-list row (matched by the id prefix in its <small>)
+    // Select the note's clips-list row (matched by the id tail in its <small>)
     // so it becomes the current (.active) clip.
     await page.evaluate((cid) => {
-      const short = cid.slice(0, 8);
+      const short = cid.slice(-8);
       const li = [...document.querySelectorAll("#clips-list ul.clips li")]
         .find((el) =>
           el.querySelector(".row small")?.textContent?.trim() === short

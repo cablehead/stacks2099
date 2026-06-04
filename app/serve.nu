@@ -247,7 +247,7 @@ def render-clip-row [c: record]: nothing -> string {
   # server so it can remember the stack's cursor + answer /api/state.
   let onclick = $"$cursor = '($c.id)'; @post\('/nav'\)"
   let onclose = $"@post\('/clip/close?clip=($c.id)'\)"
-  $"<li data-clip='($c.id)' data-class:selected=\"$cursor == '($c.id)'\"><button type='button' class='row' data-on:click=\"($onclick)\">(icon-svg (clip-render-type $c))($label)<small>($c.id | str substring 0..8)</small></button><button type='button' class='close' data-on:click=\"($onclose)\" title='Close'>×</button></li>"
+  $"<li data-clip='($c.id)' data-class:selected=\"$cursor == '($c.id)'\"><button type='button' class='row' data-on:click=\"($onclick)\">(icon-svg (clip-render-type $c))($label)<small>(id-tail $c.id)</small></button><button type='button' class='close' data-on:click=\"($onclose)\" title='Close'>×</button></li>"
 }
 
 # A stack row: click navigates to that stack's page, double-click renames (reuses the
@@ -258,7 +258,7 @@ def render-stack-row [s: record, selected: string]: nothing -> string {
   # Stored name may be null; display falls back to the scru128 id. data-name
   # carries the *real* name (empty when unset) so rename starts from blank.
   let real = ($s.name? | default "")
-  let display = (html-escape (if ($real | is-empty) { $s.id } else { $real }))
+  let display = (html-escape (if ($real | is-empty) { (id-tail $s.id) } else { $real }))
   let nm_attr = ((html-escape $real) | str replace -a "'" '&#39;')
   # MPA: switching stacks is navigation -- go to that stack's page.
   let onclick = $"window.location = '/stack/($s.id)'"
@@ -283,7 +283,7 @@ def render-stack-switcher [proj: record]: nothing -> string {
   let sel = ($proj.selectedStackId | default "")
   let rows = ($proj.stacks | sort-by lastTouched | reverse | each {|s|
     let real = ($s.name? | default "")
-    let display = (html-escape (if ($real | is-empty) { $s.id } else { $real }))
+    let display = (html-escape (if ($real | is-empty) { (id-tail $s.id) } else { $real }))
     let active = if $s.id == $sel { " active" } else { "" }
     $"<button type='button' class='picker-row($active)' data-on:click=\"window.location = '/stack/($s.id)'\">($display)</button>"
   } | str join "")
@@ -299,7 +299,7 @@ def stack-name-of [proj: record]: nothing -> string {
   let s = ($proj.stacks | where id == $sel | get 0?)
   if ($s | is-empty) { "" } else {
     let real = ($s.name? | default "")
-    if ($real | is-empty) { $sel } else { $real }
+    if ($real | is-empty) { (id-tail $sel) } else { $real }
   }
 }
 
@@ -326,7 +326,7 @@ def render-pane [c: record]: nothing -> string {
   # The pane-head has its own id so a label-only clip.patch on a terminal
   # can update just this header rather than re-morph the whole <section>
   # (which would wipe the live `<div id='grid-{cid}'>` underneath).
-  let head = $"<header class='bar pane-head' id='pane-head-($cid)'>($label)<small>($cid | str substring 0..8)</small></header>"
+  let head = $"<header class='bar pane-head' id='pane-head-($cid)'>($label)<small>(id-tail $cid)</small></header>"
   let onsel = $"$cursor = '($cid)'; @post\('/nav'\); window.__focusClip && window.__focusClip\('($cid)'\)"
   let rtype = (clip-render-type $c)
   let body = if $c.kind == "terminal" {
@@ -600,7 +600,7 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
                   if $is_terminal {
                     if $label_touched {
                       let lbl = (html-escape (clip-display-label $rc))
-                      ($"<header class='bar pane-head' id='pane-head-($rid)'>($lbl)<small>($rid | str substring 0..8)</small></header>" | to datastar-patch-elements --selector $"#pane-head-($rid)")
+                      ($"<header class='bar pane-head' id='pane-head-($rid)'>($lbl)<small>(id-tail $rid)</small></header>" | to datastar-patch-elements --selector $"#pane-head-($rid)")
                     } else { null }
                   } else {
                     (render-pane $rc | to datastar-patch-elements --selector $"#pane-($rid)")

@@ -7,6 +7,14 @@ export def html-escape [s: string]: nothing -> string {
   $s | str replace -a '&' '&amp;' | str replace -a '<' '&lt;' | str replace -a '>' '&gt;'
 }
 
+# Short, recognizable fragment of a scru128 id for display. scru128 is
+# time-ordered: the timestamp lives in the leading chars and the entropy in the
+# trailing chars, so ids minted close together share a prefix. Crop the tail
+# (the part that actually distinguishes them), never the head.
+export def id-tail [id: string]: nothing -> string {
+  $id | str substring (-8..)
+}
+
 # Is `s` a single http(s) URL? Used to offer an "Embed" view on URL notes.
 export def is-url [s: string]: nothing -> bool {
   let t = ($s | str trim)

@@ -16,7 +16,7 @@
   >
     <div
       id="status"
-      data-text="$termCols > 0 ? ('sid ' + ($pty ? $pty.slice(0,8) : '') + ' (' + $termCols + 'x' + $termRows + ')') : 'connecting...'"
+      data-text="$termCols > 0 ? ('sid ' + ($pty ? $pty.slice(-8) : '') + ' (' + $termCols + 'x' + $termRows + ')') : 'connecting...'"
     >
       connecting...
     </div>
