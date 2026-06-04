@@ -22,4 +22,13 @@ let page = (do $handler {method: "GET" path: $"/stack/($sid)" headers: {} query:
 assert (($page | str downcase) | str contains "<!doctype html") "stack page serves the sessions shell"
 assert ($page | str contains "data-signals") "shell includes the datastar root"
 
+# /clip/new must never orphan a clip: a bogus selectedStack (here the literal
+# "None") should fall back to a real stack via resolve-stack, not be trusted
+# verbatim and then dropped by the projection.
+'{"selectedStack":"None"}' | do $handler {method: "POST" path: "/clip/new" headers: {} query: {type: "note"}}
+let added = (.cat | where {|f| $f.topic == "clip.add" } | last)
+assert ($added.meta.stack_id == $sid) $"bogus selectedStack should home the clip to a real stack, got ($added.meta.stack_id)"
+let proj = (.cat | projection project)
+assert (($proj.stacks | where id == $sid | get 0.clips | length) >= 1) "the new clip is visible in the stack (not orphaned)"
+
 print "test_routes.nu: all assertions passed"

@@ -655,7 +655,11 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
       let body = $in
       let signals = $body | from datastar-signals $req
       let target = ($signals.selectedStack? | default "")
-      let stack = if $target == "" { (default-stack-id) } else { $target }
+      # Resolve against real stacks (id or name), falling back to the focused or
+      # default stack. Never trust the raw signal -- an unknown value would home
+      # the clip to a non-existent stack, which the projection drops, leaving a
+      # live pty bound to no stack (an orphan you can't see or close in the UI).
+      let stack = (resolve-stack (.cat | projection project) $target)
       let type = ($req.query.type? | default "note")
       let cid = if $type == "terminal" {
         let c = (add-clip $stack "terminal" "application/x-stacks-terminal")
