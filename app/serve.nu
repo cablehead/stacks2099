@@ -798,7 +798,8 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
       # command-line entry point. Mime comes from ?mime_type= or the
       # Content-Type header (so `curl -H 'content-type: image/png'` just
       # works); the target stack from ?stack= (id OR name), else the current
-      # (last-focused) stack, else the default. Returns the new clip id.
+      # (last-focused) stack, else the default. Optional ?view= sets the display
+      # style (embed | raw | rendered). Returns the new clip id.
       #
       #   curl --data-binary @diagram.png -H 'content-type: image/png' :5099/clip/add
       #   cat notes.md | curl --data-binary @- -H 'content-type: text/markdown' :5099/clip/add
@@ -809,6 +810,13 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
       let proj = (.cat | projection project)
       let stack = (resolve-stack $proj ($req.query.stack? | default ""))
       let cid = ($body | add-clip $stack "content" $mime)
+      # Optional ?view= sets the display style at creation (e.g. a markdown clip
+      # straight to `rendered`, a URL note to `embed`), saving a round-trip to
+      # /clip/view. Unknown values are ignored -- the clip keeps its default.
+      let view = ($req.query.view? | default "")
+      if ($view in ["embed" "raw" "rendered"]) {
+        null | .append "clip.patch" --meta {id: $cid, view: $view} --ttl forever | ignore
+      }
       save-focused-sid $cid
       {} | .bus pub "clip.events"
       {id: $cid} | .bus pub "clip.select"

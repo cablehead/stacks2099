@@ -174,6 +174,8 @@ From the command line, POST any asset to the running server:
 curl --data-binary @diagram.png -H 'content-type: image/png' localhost:5099/clip/add
 cat notes.md | curl --data-binary @- -H 'content-type: text/markdown' localhost:5099/clip/add
 curl --data-binary @logo.svg -H 'content-type: image/svg+xml' 'localhost:5099/clip/add?stack=design'
+# ?view= sets the display style at creation (rendered markdown, no second call)
+cat notes.md | curl --data-binary @- -H 'content-type: text/markdown' 'localhost:5099/clip/add?view=rendered'
 ```
 
 Embed a live URL (e.g. a dev server you're watching) as an iframe clip:
@@ -190,7 +192,7 @@ curl --data-binary @diagram.png 'localhost:5099/clip/update?clip=<id>'
 ```
 
 `?stack=` takes a stack id or name; omit it for the current stack. `/api/state`
-lists the stacks (ids, names, clip counts) for scripting.
+lists the stacks and every clip (id, stack, label, mime, view) for scripting.
 
 ## API and events
 
