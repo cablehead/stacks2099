@@ -119,6 +119,33 @@ def renumber-stack [order: list]: nothing -> nothing {
   } | ignore
 }
 
+# Position a just-added clip directly after `after_cid` in its stack's manual
+# order (below it in flow, to its right in niri). `proj` is the projection from
+# BEFORE the add, so its clips are the existing order. No-op for an auto stack
+# (recency decides the slot) or an unknown/empty cursor (the clip keeps the
+# default slot). Mirrors the move route: renumber if positions are unset or a
+# gap runs out, else a single position patch.
+def place-after [proj: record, stack_id: string, new_cid: string, after_cid: string]: nothing -> nothing {
+  let stack = ($proj.stacks | where id == $stack_id | get 0?)
+  if ($stack | is-empty) or ($stack.sort? != "manual") or ($after_cid == "") { return }
+  let existing = (projection sorted-clips $stack)
+  let idx = ($existing | enumerate | where item.id == $after_cid | get 0?.index)
+  if $idx == null { return }
+  let new_order = (($existing | first ($idx + 1)) | append {id: $new_cid} | append ($existing | skip ($idx + 1)))
+  if ($existing | any {|c| ($c.position? | default null) == null }) {
+    renumber-stack $new_order
+  } else {
+    let prev = ($existing | get $idx | get position?)
+    let next = if ($idx + 1) >= ($existing | length) { null } else { ($existing | get ($idx + 1) | get position?) }
+    let newpos = (projection position-between $prev $next)
+    if $newpos == null {
+      renumber-stack $new_order
+    } else {
+      null | .append "clip.patch" --meta {id: $new_cid, position: $newpos} --ttl forever | ignore
+    }
+  }
+}
+
 def set-clip-label [cid: string, label: string]: nothing -> nothing {
   null | .append "clip.patch" --meta {id: $cid, label: $label} --ttl forever | ignore
 }
@@ -644,11 +671,13 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
       let body = $in
       let signals = $body | from datastar-signals $req
       let target = ($signals.selectedStack? | default "")
+      let cursor = ($signals.cursor? | default "")
       # Resolve against real stacks (id or name), falling back to the focused or
       # default stack. Never trust the raw signal -- an unknown value would home
       # the clip to a non-existent stack, which the projection drops, leaving a
       # live pty bound to no stack (an orphan you can't see or close in the UI).
-      let stack = (resolve-stack (.cat | projection project) $target)
+      let proj = (.cat | projection project)
+      let stack = (resolve-stack $proj $target)
       let type = ($req.query.type? | default "note")
       let cid = if $type == "terminal" {
         let c = (add-clip $stack "terminal" "application/x-stacks-terminal")
@@ -657,6 +686,10 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
       } else {
         "" | add-clip $stack "content" "text/markdown"
       }
+      # Land the new clip directly after the selected one (below in flow, right
+      # in niri) rather than at the top/bottom. `proj` predates the add, so it
+      # holds the existing order.
+      place-after $proj $stack $cid $cursor
       save-focused-sid $cid
       {} | .bus pub "clip.events"
       {id: $cid} | .bus pub "clip.select"
