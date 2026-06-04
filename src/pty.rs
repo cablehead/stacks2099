@@ -491,6 +491,22 @@ fn screen_to_text(term: &Terminal) -> String {
     out.join("\n")
 }
 
+/// The terminal's current working directory, if a shell has reported one via
+/// OSC 7. wezterm parses `ESC ] 7 ; file://host/path ST` into a URL; we hand
+/// back the filesystem path. Prefer the decoded path, falling back to the raw
+/// URL path component when the host isn't local (so it can't be a file path).
+fn current_dir_path(term: &Terminal) -> Option<String> {
+    let url = term.get_current_dir()?;
+    Some(
+        url.to_file_path()
+            .ok()
+            .as_deref()
+            .and_then(std::path::Path::to_str)
+            .map(str::to_string)
+            .unwrap_or_else(|| url.path().to_string()),
+    )
+}
+
 /// Render the cursor overlay element. Lives inside the grid container, gets
 /// its position from CSS custom properties so the only thing that crosses
 /// the wire on a cursor move is the style attribute (~20 bytes per patch).
@@ -1856,7 +1872,7 @@ impl Command for PtyListCommand {
     }
 
     fn description(&self) -> &str {
-        "List all live pty sessions as [{sid, cols, rows, meta}, ...]"
+        "List all live pty sessions as [{sid, cols, rows, meta, last_input_ms, cwd}, ...]"
     }
 
     fn signature(&self) -> Signature {
@@ -1884,6 +1900,9 @@ impl Command for PtyListCommand {
                 meta_rec.push(k.clone(), v.clone());
             }
             let last_input = s.last_input_ms.load(Ordering::Relaxed) as i64;
+            // cwd from OSC 7, if the shell reported one. Brief per-session term
+            // lock; this is a low-throughput listing path.
+            let cwd = current_dir_path(&s.term.lock().unwrap());
             rows.push(Value::record(
                 record! {
                     "sid" => Value::string(sid, head),
@@ -1891,6 +1910,7 @@ impl Command for PtyListCommand {
                     "rows" => Value::int(rs, head),
                     "meta" => Value::record(meta_rec, head),
                     "last_input_ms" => Value::int(last_input, head),
+                    "cwd" => cwd.map(|d| Value::string(d, head)).unwrap_or(Value::nothing(head)),
                 },
                 head,
             ));
@@ -2193,6 +2213,19 @@ mod tests {
         // space leaking into its continuation column.
         let term = term_with_bytes(2, 8, "ab\u{4E2D}cd".as_bytes());
         assert_eq!(screen_to_text(&term), "ab\u{4E2D}cd");
+    }
+
+    /// A shell that emits OSC 7 (`ESC ] 7 ; file://host/path ST`) on each
+    /// prompt -- nushell does by default off Windows -- lets wezterm track the
+    /// cwd. `current_dir_path` pulls the path back out for the API; it's None
+    /// until a shell reports one.
+    #[test]
+    fn current_dir_path_from_osc7() {
+        let term = term_with_bytes(4, 40, b"");
+        assert_eq!(current_dir_path(&term), None, "no cwd reported yet");
+
+        let term = term_with_bytes(4, 40, b"\x1b]7;file://host/tmp/work\x1b\\");
+        assert_eq!(current_dir_path(&term), Some("/tmp/work".to_string()));
     }
 
     /// Implicit detection: a bare URL printed as plain text carries no OSC 8

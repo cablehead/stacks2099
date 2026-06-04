@@ -14,8 +14,9 @@ let sid = (http get $"($base)/api/state" | get terminals.0.sid)
 ```
 
 `GET /api/state` lists `terminals`, each with `sid` (pass this to the `/pty/*`
-routes), `label` (the rename, or null), and `clip` (the owning clip id -- not
-the sid; passing it yields `404 no pty session`).
+routes), `label` (the rename, or null), `clip` (the owning clip id -- not the
+sid; passing it yields `404 no pty session`), and `cwd` (the shell's current
+directory via OSC 7, or null until it reports one).
 
 ## 2. Send keystrokes
 

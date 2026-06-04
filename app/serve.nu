@@ -867,8 +867,9 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
         stacks: ($proj.stacks | each {|s| {id: $s.id, name: ($s.name? | default null), clips: ($s.clips | length)} })
         # Live ptys so CLI tooling can find a terminal's sid (picking by label
         # or clip if it likes) without scraping /sse. label is the rename, null
-        # until renamed; clip is the owning clip id.
-        terminals: (pty list | each {|p| {sid: $p.sid, label: ($p.meta.label? | default null), clip: ($p.meta.clip_id? | default null)} })
+        # until renamed; clip is the owning clip id; cwd is from OSC 7 (null
+        # until the shell reports one).
+        terminals: (pty list | each {|p| {sid: $p.sid, label: ($p.meta.label? | default null), clip: ($p.meta.clip_id? | default null), cwd: ($p.cwd? | default null)} })
       } | to json | metadata set --content-type "application/json"
     })
 

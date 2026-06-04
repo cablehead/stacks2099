@@ -13,10 +13,10 @@ let base = "{{ base | safe }}"
 
 ## Discovery
 
-| Endpoint         | Returns                                            |
-| ---------------- | -------------------------------------------------- |
-| `GET /api`       | this overview (markdown)                           |
-| `GET /api/state` | stacks and live terminals (`sid`, `label`, `clip`) |
+| Endpoint         | Returns                                                   |
+| ---------------- | --------------------------------------------------------- |
+| `GET /api`       | this overview (markdown)                                  |
+| `GET /api/state` | stacks and live terminals (`sid`, `label`, `clip`, `cwd`) |
 
 ```nushell
 http get $"($base)/api/state"
