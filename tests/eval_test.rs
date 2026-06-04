@@ -49,7 +49,7 @@ fn test_eval_nu_constant_available() {
         .args(["eval", "-c", "$nu.current-exe | path basename"])
         .assert()
         .success()
-        .stdout("\"stacks2099\"\n");
+        .stdout("stacks2099\n");
 }
 
 #[test]
@@ -58,7 +58,7 @@ fn test_eval_mj_compile() {
         .args(["eval", "-c", r#".mj compile --inline "test" | describe"#])
         .assert()
         .success()
-        .stdout("\"CompiledTemplate\"\n");
+        .stdout("CompiledTemplate\n");
 }
 
 #[test]
@@ -71,7 +71,7 @@ fn test_eval_mj_compile_and_render() {
         ])
         .assert()
         .success()
-        .stdout("\"Hi World\"\n");
+        .stdout("Hi World\n");
 }
 
 #[test]
@@ -151,7 +151,7 @@ fn test_eval_with_plugin() {
         ])
         .assert()
         .success()
-        .stdout("\"PLUGIN_WORKS\"\n");
+        .stdout("PLUGIN_WORKS\n");
 }
 
 #[test]
@@ -170,7 +170,7 @@ fn test_eval_include_path() {
         ])
         .assert()
         .success()
-        .stdout("\"world\"\n");
+        .stdout("world\n");
 }
 
 #[test]
@@ -312,7 +312,7 @@ fn test_eval_store_append_and_cat() {
         ])
         .assert()
         .success()
-        .stdout("\"hi\"\n");
+        .stdout("hi\n");
 }
 
 #[test]

@@ -735,11 +735,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
         let exit_code = match engine.eval(&script, script_path.as_deref()) {
             Ok(value) => {
-                // eval emits JSON so its stdout pipes cleanly into `from json`.
-                // A void result (Nothing) stays silent rather than printing "null".
-                if !matches!(value, nu_protocol::Value::Nothing { .. }) {
-                    let output = serde_json::to_string(&value_to_json(&value)).unwrap_or_default();
-                    println!("{output}");
+                match value {
+                    // A void result (Nothing) stays silent rather than printing "null".
+                    nu_protocol::Value::Nothing { .. } => {}
+                    // A string result is emitted raw, not JSON-quoted, so fetching
+                    // text/markdown (the /api docs, /pty/snap, ...) reads cleanly
+                    // and a plain string still round-trips without `from json`.
+                    nu_protocol::Value::String { val, .. } => println!("{val}"),
+                    // Everything structured serializes as JSON so stdout pipes
+                    // cleanly into `from json`.
+                    other => {
+                        let output =
+                            serde_json::to_string(&value_to_json(&other)).unwrap_or_default();
+                        println!("{output}");
+                    }
                 }
                 0
             }
