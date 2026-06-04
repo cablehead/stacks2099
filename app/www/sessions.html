@@ -1801,6 +1801,16 @@
       // Reorder #doc panes to match the server's docOrder. appendChild moves an
       // existing node (keeping its live terminal grid + stream attached), so
       // reordering is non-destructive.
+      //
+      // Moves animate via FLIP (First/Last/Invert/Play): snapshot each pane's
+      // rect, do the reorder, then transform each pane back to where it was and
+      // transition that offset to zero so it slides into place. The transform is
+      // compositor-only -- no reflow, no resize, so the pty winsize and live grid
+      // are untouched. 2D rects cover both axes, so flow slides vertically and
+      // niri horizontally with no branching. prefers-reduced-motion skips to the
+      // instant move; panes that didn't move (or just mounted) are no-ops.
+      const FLIP_MS = 180;
+      const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
       window.__applyDocOrder = (json) => {
         let order;
         try {
@@ -1808,11 +1818,16 @@
         } catch {
           return;
         }
-        // Only relocate panes that are actually out of position. Re-appending a
-        // pane that is already in the right slot still detaches and reinserts it,
-        // which resets its .pane-screen scroll container to the top. A new
-        // terminal shifts the whole order, so the old unconditional re-append
-        // sent every other pane's scrollback back to row 0.
+        const panes = [...doc.querySelectorAll(".pane")];
+        // FIRST: snapshot current positions (skip entirely if reduced-motion).
+        const first = reduceMotion.matches
+          ? null
+          : new Map(panes.map((p) => [p, p.getBoundingClientRect()]));
+        // LAST: only relocate panes that are actually out of position. Re-appending
+        // a pane that is already in the right slot still detaches and reinserts it,
+        // which resets its .pane-screen scroll container to the top. A new terminal
+        // shifts the whole order, so the old unconditional re-append sent every
+        // other pane's scrollback back to row 0.
         let prev = null;
         for (const id of order) {
           const pane = doc.querySelector("#pane-" + CSS.escape(id));
@@ -1820,6 +1835,26 @@
           const want = prev ? prev.nextElementSibling : doc.firstElementChild;
           if (want !== pane) doc.insertBefore(pane, want);
           prev = pane;
+        }
+        if (!first) return;
+        // INVERT + PLAY: offset each moved pane back to its old spot, then release.
+        for (const pane of panes) {
+          const a = first.get(pane);
+          const b = pane.getBoundingClientRect();
+          const dx = a.left - b.left;
+          const dy = a.top - b.top;
+          if (!dx && !dy) continue;
+          pane.style.transition = "none";
+          pane.style.transform = `translate(${dx}px, ${dy}px)`;
+          requestAnimationFrame(() => {
+            pane.style.transition = `transform ${FLIP_MS}ms ease`;
+            pane.style.transform = "";
+          });
+          pane.addEventListener("transitionend", function clear(e) {
+            if (e.propertyName !== "transform") return;
+            pane.style.transition = "";
+            pane.removeEventListener("transitionend", clear);
+          });
         }
       };
       // Layout flip: in niri terminals fill their full-height column; in flow
