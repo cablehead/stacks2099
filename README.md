@@ -212,6 +212,18 @@ cat notes.md | xs append ./store clip.add --ttl forever \
   --meta '{"stack_id":"STACK_ID","kind":"content","mime_type":"text/markdown"}'
 ```
 
+Two read surfaces for tooling: `GET /api/state` is a JSON snapshot (stacks,
+every clip, live terminals); `GET /api/events` is the live delta, one log frame
+per line as newline-delimited JSON (`{id, topic, meta}`, history skipped). Take a
+snapshot, then react to the stream:
+
+```bash
+curl -sN localhost:5099/api/events    # -N so lines arrive unbuffered
+# {"id":"...","topic":"clip.add","meta":{"stack_id":"...","mime_type":"text/markdown"}}
+# {"id":"...","topic":"clip.patch","meta":{"id":"...","label":"notes"}}
+# {"id":"...","topic":"clip.delete","meta":{"id":"..."}}
+```
+
 In a store-connected Nushell (`xs` gives you one) the builtin form is
 `<body> | .append <topic> --meta {...}` -- exactly what each route runs.
 

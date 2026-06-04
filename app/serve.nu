@@ -936,6 +936,38 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
       } | to json | metadata set --content-type "application/json"
     })
 
+    (route {method: "GET", path: "/api/events"} {|req ctx|
+      # A machine-readable feed of log frames as newline-delimited JSON -- one
+      # frame per line, streamed as they're appended. Live-only: the replayed
+      # history is skipped, so every line is a change that happened after you
+      # connected. Pair it with /api/state for a snapshot, then react to deltas.
+      #
+      # Frames are the protocol (see app/projection.nu): clip.add / clip.update /
+      # clip.patch / clip.delete and stack.add / stack.update / stack.delete.
+      # Each line is {id, topic, meta}: id is the frame's scru128 (the clip id on
+      # clip.add, the stack id on stack.add), meta its fields. clip.add carries
+      # {stack_id, mime_type, ...}; clip.patch carries whatever changed (label,
+      # view, position, stack_id on a move).
+      #
+      #   curl -sN localhost:5099/api/events        # stream; -N = no buffering
+      .cat -f
+      | generate {|ev, live|
+          if $ev.topic == "xs.threshold" {
+            # End of history replay -- everything after this is live.
+            {next: true}
+          } else if (not $live) or ($ev.topic | str starts-with "xs.") {
+            # Still replaying history, or a system heartbeat: skip.
+            {next: $live}
+          } else if (($ev.topic | str starts-with "clip.") or ($ev.topic | str starts-with "stack.")) {
+            {out: ({id: $ev.id, topic: $ev.topic, meta: ($ev.meta? | default {})} | to json --raw | $"($in)\n"), next: $live}
+          } else {
+            # Ephemeral nudges (focus pings, title, bus events) aren't the feed.
+            {next: $live}
+          }
+        } false
+      | metadata set --content-type "application/x-ndjson"
+    })
+
     (route {method: "POST", path: "/clip/update"} {|req ctx|
       # Replace an existing clip's body (clip.update -> CAS): a note's text on
       # blur, or any asset re-posted from the CLI --

@@ -20,10 +20,11 @@ not populate `$in`, so `curl ... | {{ bin | safe }} eval -c '$in | from json'` s
 
 ## Discovery
 
-| Endpoint         | Returns                                |
-| ---------------- | -------------------------------------- |
-| `GET /api`       | this overview (markdown)               |
-| `GET /api/state` | stacks, every clip, and live terminals |
+| Endpoint          | Returns                                           |
+| ----------------- | ------------------------------------------------- |
+| `GET /api`        | this overview (markdown)                          |
+| `GET /api/state`  | stacks, every clip, and live terminals (snapshot) |
+| `GET /api/events` | live feed of log frames (newline-delimited JSON)  |
 
 `/api/state` returns `{focusedClip, focusedStack, stacks, clips, terminals}`.
 `stacks` is `{id, name}`; `clips` is a flat list across all stacks, each tagged
@@ -31,6 +32,22 @@ with its owning `stack` -- `{id, stack, kind, label, mime, view, position}` -- s
 you can find a clip by label or scope to a stack without a second call.
 `terminals` carries the live pty `sid`, `clip`, and `cwd`; a terminal's label
 lives on its clip, so join via `clip` into `clips`.
+
+`/api/state` is the snapshot; `/api/events` is the live delta. It streams one
+log frame per line as it's appended (history is skipped, so every line is a
+change since you connected). Each line is `{id, topic, meta}` -- the frame's
+scru128, its topic, and its fields. Topics are the protocol: `clip.add` /
+`clip.update` / `clip.patch` / `clip.delete`, `stack.add` / `stack.update` /
+`stack.delete`. Snapshot once, then react to the stream:
+
+```nushell
+{{ bin | safe }} eval -c 'http get --raw {{ base | safe }}/api/events
+  | lines | each {|l| $l | from json }
+  | where topic == "clip.add"'   # e.g. act on every new clip
+```
+
+From a shell, `curl -sN {{ base | safe }}/api/events` (the `-N` disables curl's
+output buffering so lines arrive as they happen).
 
 ## Terminals
 
