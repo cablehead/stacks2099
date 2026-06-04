@@ -29,29 +29,34 @@ fn test_engine_eval() {
 }
 
 #[test]
-fn test_enter_interactive_builds_nu_constant() {
-    // Regression: the embedded REPL must build the `$nu` constant before user
-    // config runs. A real user config references `$nu` in parse-time `const`s
-    // (NU_LIB_DIRS / NU_PLUGIN_DIRS); without the constant those fail to parse.
-
-    // Before: `$nu` has no value, so a parse-time const referencing it errors
-    // (exactly what users were hitting).
-    let mut bare = Engine::new().unwrap();
-    assert!(
-        bare.eval("const P = $nu.config-path", None).is_err(),
-        "$nu should be unavailable before enter_interactive"
-    );
-
-    // After: the const resolves, and the session reports interactive.
+fn test_nu_constant_available_and_interactive_flag() {
+    // `$nu` is built in `Engine::new()`, so it's available in every path -- eval,
+    // the server's serve.nu, and the repl -- not just the interactive shell.
+    // A parse-time const referencing it resolves immediately (user configs rely
+    // on this for NU_LIB_DIRS / NU_PLUGIN_DIRS), and the API docs read
+    // `$nu.current-exe`. Outside the repl the session is not interactive.
     let mut engine = Engine::new().unwrap();
-    engine.enter_interactive();
     engine
         .eval("const P = $nu.config-path; $P", None)
-        .expect("$nu.config-path should resolve in a parse-time const after enter_interactive");
-    let interactive = engine.eval("$nu.is-interactive", None).unwrap();
+        .expect("$nu should resolve right after new()");
     assert!(
-        interactive.as_bool().unwrap(),
-        "$nu.is-interactive should be true"
+        !engine
+            .eval("$nu.is-interactive", None)
+            .unwrap()
+            .as_bool()
+            .unwrap(),
+        "$nu.is-interactive should be false outside the repl"
+    );
+
+    // enter_interactive flips the flag and regenerates the constant.
+    let mut repl = Engine::new().unwrap();
+    repl.enter_interactive();
+    assert!(
+        repl.eval("$nu.is-interactive", None)
+            .unwrap()
+            .as_bool()
+            .unwrap(),
+        "$nu.is-interactive should be true after enter_interactive"
     );
 }
 

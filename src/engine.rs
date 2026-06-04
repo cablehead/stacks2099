@@ -70,6 +70,12 @@ impl Engine {
         let init_cwd = std::env::current_dir()?;
         gather_parent_env_vars(&mut engine_state, init_cwd.as_ref());
 
+        // Build the `$nu` constant (current-exe, ...) so it's available in every
+        // path -- eval, the server's serve.nu, and the repl -- not just the
+        // interactive shell. `enter_interactive` regenerates it after flipping
+        // `is_interactive` so `$nu.is-interactive` stays accurate there.
+        engine_state.generate_nu_constant();
+
         Ok(Self {
             state: engine_state,
             closure: None,

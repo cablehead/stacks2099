@@ -2,14 +2,21 @@
 
 A clip manager served over HTTP. A clip of kind `terminal` is backed by a live
 pty you can drive and read over this API. This page and the howtos it links
-travel with the binary: `http get {{ base | safe }}/api` on any running
-instance.
+travel with the binary:
+`{{ bin | safe }} eval -c 'http get {{ base | safe }}/api'`.
 
-Examples are Nushell. Set the base URL for this instance:
+## Running the examples
+
+The examples are Nushell. Run a complete pipeline with `{{ bin | safe }} eval -c` (a
+Nushell with these commands; no `--store` needed for HTTP, so nothing to lock):
 
 ```nushell
-let base = "{{ base | safe }}"
+{{ bin | safe }} eval -c 'http get {{ base | safe }}/api/state'
 ```
+
+Put `http get` _inside_ the call. Piping data into `eval -c` (or `nu -c`) does
+not populate `$in`, so `curl ... | {{ bin | safe }} eval -c '$in | from json'` sees
+`nothing` and fails. Fetch inside; don't pipe in.
 
 ## Discovery
 
@@ -17,10 +24,6 @@ let base = "{{ base | safe }}"
 | ---------------- | --------------------------------------------------------- |
 | `GET /api`       | this overview (markdown)                                  |
 | `GET /api/state` | stacks and live terminals (`sid`, `label`, `clip`, `cwd`) |
-
-```nushell
-http get $"($base)/api/state"
-```
 
 ## Terminals
 
@@ -36,6 +39,9 @@ http get $"($base)/api/state"
 `404 no pty session: <sid>`.
 
 ## Howtos
+
+Fetch a howto the same way, e.g.
+`{{ bin | safe }} eval -c 'http get {{ base | safe }}/api/howto/drive-pty'`.
 
 - [Drive a pty]({{ base | safe }}/api/howto/drive-pty) -- open a terminal, send keystrokes, read it back
 - [Snapshot a pty]({{ base | safe }}/api/howto/snapshot-pty) -- read a terminal's screen as text

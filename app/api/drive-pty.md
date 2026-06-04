@@ -1,60 +1,57 @@
 # Drive a pty
 
-A terminal clip is backed by a live pty. Find its session id, then write to its
-stdin and read it back. Examples are Nushell.
+A terminal clip is backed by a live pty. Drive it with one self-contained
+`{{ bin | safe }} eval -c` block: find the sid, write to its stdin, read it back.
+(Each `eval -c` is its own process, so resolve the sid in the same block you
+use it.)
+
+## Find a terminal's sid
 
 ```nushell
-let base = "{{ base | safe }}"
+{{ bin | safe }} eval -c 'http get {{ base | safe }}/api/state | get terminals'
 ```
 
-## 1. Find the session id
+`terminals` has `sid` (pass this to the `/pty/*` routes), `label` (the rename,
+or null), `clip` (the owning clip id -- not the sid; passing it yields
+`404 no pty session`), and `cwd` (the shell's directory via OSC 7, or null).
+
+## Send keystrokes and read the result
+
+The request body is written straight to the pty's stdin -- live keystrokes
+into whatever that terminal is running. Don't send to a terminal running an
+interactive program you care about (an editor, or a shell you are operating in
+yourself); read it with `/pty/snap` first if you're unsure what's in it. In a
+Nushell string `\r` is Enter and `\e` is Esc.
 
 ```nushell
-let sid = (http get $"($base)/api/state" | get terminals.0.sid)
+{{ bin | safe }} eval -c '
+  let base = "{{ base | safe }}"
+  let sid = (http get $"($base)/api/state" | get terminals.0.sid)
+  http post $"($base)/pty/input?sid=($sid)" "echo hello\r"
+  sleep 1sec
+  http get $"($base)/pty/snap?sid=($sid)"
+'
 ```
 
-`GET /api/state` lists `terminals`, each with `sid` (pass this to the `/pty/*`
-routes), `label` (the rename, or null), `clip` (the owning clip id -- not the
-sid; passing it yields `404 no pty session`), and `cwd` (the shell's current
-directory via OSC 7, or null until it reports one).
-
-## 2. Send keystrokes
-
-The request body is written straight to the pty's stdin. In a Nushell string
-`\r` is Enter and `\e` is Esc.
+## Resize
 
 ```nushell
-http post $"($base)/pty/input?sid=($sid)" "ls\r"
-http post $"($base)/pty/input?sid=($sid)" "\e"
+{{ bin | safe }} eval -c '
+  let base = "{{ base | safe }}"
+  let sid = (http get $"($base)/api/state" | get terminals.0.sid)
+  {cols: 120, rows: 40} | to json | http post $"($base)/pty/resize?sid=($sid)" --content-type application/json
+'
 ```
 
-## 3. Resize (optional)
+## Read the live raw stream
+
+A tee of the raw output bytes (escape sequences and all) -- it streams until
+the session closes, and is dropped when you disconnect:
 
 ```nushell
-{cols: 120, rows: 40} | to json | http post $"($base)/pty/resize?sid=($sid)" --content-type application/json
-```
-
-## 4. Read it back
-
-A one-shot snapshot (see [Snapshot a pty]({{ base | safe }}/api/howto/snapshot-pty)):
-
-```nushell
-http get $"($base)/pty/snap?sid=($sid)"
-```
-
-Or a live tee of the raw output bytes (escape sequences and all) -- it streams
-until the session closes, and is dropped when you disconnect:
-
-```nushell
-http get $"($base)/pty/raw?sid=($sid)"
-```
-
-## Run a command and read the result
-
-```nushell
-let base = "{{ base | safe }}"
-let sid = (http get $"($base)/api/state" | get terminals.0.sid)
-http post $"($base)/pty/input?sid=($sid)" "echo hello\r"
-sleep 1sec
-http get $"($base)/pty/snap?sid=($sid)"
+{{ bin | safe }} eval -c '
+  let base = "{{ base | safe }}"
+  let sid = (http get $"($base)/api/state" | get terminals.0.sid)
+  http get $"($base)/pty/raw?sid=($sid)"
+'
 ```

@@ -42,6 +42,17 @@ fn test_eval_stdin() {
 }
 
 #[test]
+fn test_eval_nu_constant_available() {
+    // `$nu` must be built for `eval`, not just the interactive repl, so the
+    // served API docs (and any script) can read `$nu.current-exe`.
+    Command::new(assert_cmd::cargo::cargo_bin!("stacks2099"))
+        .args(["eval", "-c", "$nu.current-exe | path basename"])
+        .assert()
+        .success()
+        .stdout("stacks2099\n");
+}
+
+#[test]
 fn test_eval_mj_compile() {
     Command::new(assert_cmd::cargo::cargo_bin!("stacks2099"))
         .args(["eval", "-c", r#".mj compile --inline "test" | describe"#])

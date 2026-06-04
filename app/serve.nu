@@ -840,7 +840,7 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
       # Self-describing API overview (markdown). Travels with the binary so any
       # running instance documents itself: curl <base>/api. Rendered as a
       # minijinja template so `{{ base }}` resolves to this instance's address.
-      {base: (api-base $req)} | .mj ($API_DOCS | path join "index.md")
+      {base: (api-base $req), bin: $nu.current-exe} | .mj ($API_DOCS | path join "index.md")
       | metadata set --content-type "text/markdown; charset=utf-8"
     })
 
@@ -850,7 +850,7 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
       let topic = ($ctx.topic? | default "")
       let file = ($API_DOCS | path join $"($topic).md")
       if ($topic =~ '^[a-z0-9-]+$') and ($file | path exists) {
-        {base: (api-base $req)} | .mj $file
+        {base: (api-base $req), bin: $nu.current-exe} | .mj $file
         | metadata set --content-type "text/markdown; charset=utf-8"
       } else {
         $"no such howto: ($topic)" | metadata set { merge {'http.response': {status: 404}} }
