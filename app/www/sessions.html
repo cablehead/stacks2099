@@ -290,6 +290,7 @@
          whole column scrolls. Each .pane is a fixed-height live terminal whose
          grid.css #screen-<sid> fills the .pane-screen below its header. */
       #doc {
+        position: relative;
         min-height: 0;
         overflow-y: auto;
         overflow-x: hidden;
@@ -1811,10 +1812,33 @@
       // instant move; panes that didn't move (or just mounted) are no-ops.
       const FLIP_MS = 180;
       const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
-      // A reorder can land as several frames (the first move in an unfrozen stack
-      // renumbers the whole thing), each re-running __applyDocOrder. Collapse the
-      // burst to a single reveal of the final position with a short trailing
-      // debounce, so the smooth scroll isn't restarted frame by frame.
+      // Reveal a pane if a reorder pushed it out of view. Scrolls #doc by the
+      // pane's offsetTop/offsetLeft -- layout offsets, immune to the FLIP
+      // transform -- so it targets the final slot even while the pane is sliding,
+      // where getBoundingClientRect would read the mid-animation position and
+      // scroll to the wrong place. Only scrolls when the pane is actually clipped
+      // (no yank when already visible) and never changes focus. A reorder can land
+      // as several frames (the first move in an unfrozen stack renumbers the whole
+      // thing), so a short trailing debounce collapses the burst into one scroll.
+      const revealPane = (cid) => {
+        const pane = doc.querySelector("#pane-" + CSS.escape(cid));
+        if (!pane) return;
+        const niri = doc.classList.contains("layout-niri");
+        const lo = niri ? pane.offsetLeft : pane.offsetTop;
+        const hi = lo + (niri ? pane.offsetWidth : pane.offsetHeight);
+        const view = niri ? doc.scrollLeft : doc.scrollTop;
+        const span = niri ? doc.clientWidth : doc.clientHeight;
+        let next = view;
+        if (lo < view) next = lo; // above/left of view -> align start
+        if (hi > view + span) next = hi - span; // below/right -> align end (wins if both)
+        if (next !== view) {
+          doc.scrollTo(
+            niri
+              ? { left: next, behavior: "smooth" }
+              : { top: next, behavior: "smooth" },
+          );
+        }
+      };
       let revealTimer = null;
       let revealTarget = null;
       const revealSelected = (cid) => {
@@ -1822,7 +1846,7 @@
         if (revealTimer) return;
         revealTimer = setTimeout(() => {
           revealTimer = null;
-          if (revealTarget) window.__onSelect?.(revealTarget);
+          if (revealTarget) revealPane(revealTarget);
         }, 50);
       };
       window.__applyDocOrder = (json) => {
@@ -1841,7 +1865,11 @@
         const selPane = selId
           ? doc.querySelector("#pane-" + CSS.escape(selId))
           : null;
-        const selBefore = selPane ? selPane.getBoundingClientRect() : null;
+        // offset* not getBoundingClientRect: a prior frame's FLIP transform may
+        // still be animating, which would pollute a rect-based comparison.
+        const selBefore = selPane
+          ? { t: selPane.offsetTop, l: selPane.offsetLeft }
+          : null;
         // FIRST: snapshot current positions (skip entirely if reduced-motion).
         const first = reduceMotion.matches
           ? null
@@ -1859,14 +1887,13 @@
           if (want !== pane) doc.insertBefore(pane, want);
           prev = pane;
         }
-        // If the reorder moved the selected pane, reveal it as a click would:
-        // __onSelect scrolls it into view and only focuses in focus mode, so an
-        // unfocused move scrolls without grabbing the keyboard. Measure now, after
-        // the reorder but before the FLIP transforms (which would skew the rect).
+        // If the reorder moved the selected pane, scroll it back into view (only
+        // if clipped, never focusing). The cursor itself didn't change, so the
+        // $cursor effect won't fire; do it here off the actual movement.
         if (selPane && selBefore) {
-          const selAfter = selPane.getBoundingClientRect();
           if (
-            selBefore.top !== selAfter.top || selBefore.left !== selAfter.left
+            selBefore.t !== selPane.offsetTop ||
+            selBefore.l !== selPane.offsetLeft
           ) {
             revealSelected(selId);
           }
