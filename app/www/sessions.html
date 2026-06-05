@@ -1362,7 +1362,7 @@
         <button
           type="button"
           class="picker-row"
-          data-key="L"
+          data-key="w"
           data-on:click="$acting = false; window.app.toggleLayout()"
         >
           <svg
@@ -1380,7 +1380,7 @@
             <rect width="18" height="18" x="3" y="3" rx="2" />
             <path d="M12 3v18" />
           </svg> <span>Toggle layout</span><span class="row-keys"><kbd
-            >Shift</kbd><kbd>L</kbd></span>
+            >w</kbd></span>
         </button>
         <button
           type="button"
@@ -2381,10 +2381,10 @@
         // and Shift+L layout). `x` (terminate) is deliberately leader-only --
         // destructive, not a single bare keystroke.
         if (e.ctrlKey || e.altKey || e.metaKey || e.key === "x") return;
-        // h/l alias prev/next clip (k/j): vim-style, and the natural direction in
-        // the niri horizontal layout (h = left = prev, l = right = next). They
-        // reuse the j/k rows rather than adding duplicate panel entries.
-        const ALIAS = { h: "k", l: "j" };
+        // h/l alias prev/next clip (k/j) and Shift+H/Shift+L the move (K/J):
+        // vim-style, and the natural left/right direction in the niri horizontal
+        // layout. They reuse the existing j/k/J/K rows, no duplicate panel entries.
+        const ALIAS = { h: "k", l: "j", H: "K", L: "J" };
         const key = ALIAS[e.key] ?? e.key;
         const row = [...document.querySelectorAll(".actions-panel [data-key]")]
           .find((r) => r.dataset.key === key);

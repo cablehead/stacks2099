@@ -152,7 +152,7 @@ independently. The UI is three columns: **stacks** | **clips** | **content**
   the selected clip down/up (the first move freezes the current order into
   `manual`).
 - Each stack picks a **layout**: `flow` (a vertical column of panes) or `niri`
-  (a horizontal scrollable strip). The top-bar Layout button or `mod+K Shift+L`
+  (a horizontal scrollable strip). The top-bar Layout button or `mod+K w`
   toggles it.
 - **Terminal clips** bind to an embedded-Nushell pty. The binary re-execs itself
   to run the shell, so there is no external `nu` to find, and placement survives
@@ -284,6 +284,7 @@ Clip:
 | `j` / `k`     | Next / previous clip         |
 | `l` / `h`     | Next / previous clip (alias) |
 | `Shift+J / K` | Move clip down / up          |
+| `Shift+L / H` | Move clip down / up (alias)  |
 | `v`           | View style (raw/rendered)    |
 | `r`           | Rename clip                  |
 | `o`           | Cycle terminal height        |
@@ -298,15 +299,16 @@ Stack:
 | `Shift+N` | New stack                   |
 | `Shift+R` | Rename stack                |
 | `s`       | Toggle sort (auto / manual) |
-| `Shift+L` | Toggle layout (flow / niri) |
+| `w`       | Toggle layout (flow / niri) |
 | `[` / `]` | Previous / next stack       |
 | `g`       | Switch stack (switcher)     |
 
 `x` (terminate) is the one command that is `mod+K` only; a destructive action
 shouldn't ride a single bare keystroke. Everything else works bare in navigate
-mode and under `mod+K` everywhere. `h`/`l` alias `k`/`j` for clip navigation (so
-the niri horizontal strip reads left/right); layout sits on `Shift+L` to keep
-bare `l` for that.
+mode and under `mod+K` everywhere. `h`/`l` and `Shift+H`/`Shift+L` alias the
+`k`/`j` and `Shift+K`/`Shift+J` clip navigate/move pair, so the niri horizontal
+strip reads left/right. Layout toggle is `w` (the `h`/`l` keys it would collide
+with are the aliases).
 
 > **Coming breaking change.** Today `h`/`l` simply mirror `k`/`j` (clip order),
 > a stopgap so niri muscle memory keeps working. They will be rebound to track

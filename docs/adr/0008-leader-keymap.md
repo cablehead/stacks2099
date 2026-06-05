@@ -29,12 +29,13 @@ The bare set is guarded to a true bare press (no Ctrl/Alt/Meta, so Cmd+L and
 friends pass through; Shift is fine), which also retires the `Alt+[`/`Alt+]`
 stack-nav chords that had quietly fallen out of the keymap -- `[`/`]`/`g` are bare
 now. `x` (terminate; was `d`) is the lone exclusion: destructive, so it stays
-`mod+K` only. Layout toggle moved off bare `l` to `Shift+L` so `h`/`l` can alias
-`k`/`j` for clip navigation -- vim-style, and the natural left/right direction in
-the niri horizontal layout. The aliases normalize the key before the row lookup,
-so they reuse the existing `j`/`k` rows rather than adding duplicate entries. This
-is provisional: `h`/`l` currently just mirror `k`/`j` (clip order) to preserve
-muscle memory, and are slated to be rebound to true on-screen direction (active
+`mod+K` only. `h`/`l` and `Shift+H`/`Shift+L` alias the `k`/`j` and
+`Shift+K`/`Shift+J` navigate/move pair -- vim-style, and the natural left/right
+direction in the niri horizontal layout; layout toggle moved to `w` to free those
+keys. The aliases normalize the key before the row lookup, so they reuse the
+existing rows rather than adding duplicate entries. This is provisional: `h`/`l`
+currently just mirror `k`/`j` (clip order) to preserve muscle memory, and are
+slated to be rebound to true on-screen direction (active
 in niri, inert in flow) -- a breaking change, flagged in the README.
 
 ## Context
