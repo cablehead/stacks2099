@@ -383,14 +383,6 @@ def layout-of [proj: record]: nothing -> string {
   if ($stack | is-empty) { "flow" } else { ($stack.layout? | default "flow") }
 }
 
-# Display label of the currently selected clip. Driven into the `$label`
-# signal so the rename modal can seed `$draft` from a signal instead of
-# scraping the DOM.
-def label-of [proj: record]: nothing -> string {
-  let v = (view-of $proj)
-  let c = ($v.clips | where id == $v.sel | get 0?)
-  if ($c | is-empty) { "" } else { (clip-display-label $c) }
-}
 
 # Clip ids that should have a mounted pane right now: content clips always,
 # terminal clips only once their pty is alive (so a just-added terminal whose
@@ -510,7 +502,6 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
             let sel_stack = ($proj.selectedStackId | default "")
             let stack_name = (stack-name-of $proj)
             let layout = (layout-of $proj)
-            let label = (label-of $proj)
             let stacks_patch = (render-stacks $proj | to datastar-patch-elements --selector "#stacks-list")
             let switcher_patch = (render-stack-switcher $proj | to datastar-patch-elements --selector "#stack-switcher")
             let clips_patch = (render-clips $proj | to datastar-patch-elements --selector "#clips-list")
@@ -519,11 +510,11 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
             } else { null }
             # docOrder: the sorted pane order the client applies by relocating
             # existing #doc nodes (preserves live terminal grids).
-            let sel_patch = ({cursor: $sel, selectedStack: $sel_stack, stackName: $stack_name, connId: $conn_id, docReady: true, docOrder: ($doc_order | to json), docLayout: $layout, label: $label} | to datastar-patch-signals)
+            let sel_patch = ({cursor: $sel, selectedStack: $sel_stack, stackName: $stack_name, connId: $conn_id, docReady: true, docOrder: ($doc_order | to json), docLayout: $layout} | to datastar-patch-signals)
             let title_patch = ({title: $title} | to datastar-patch-signals)
 
             let out = ([$sel_patch $title_patch $stacks_patch $switcher_patch $clips_patch $doc_patch] | where {|x| $x != null })
-            {out: $out, next: {proj: $proj, ready: true, rendered: $doc_order, doc_order: $doc_order, title: $title, sel: $sel, sel_stack: $sel_stack, stack_name: $stack_name, layout: $layout, label: $label}}
+            {out: $out, next: {proj: $proj, ready: true, rendered: $doc_order, doc_order: $doc_order, title: $title, sel: $sel, sel_stack: $sel_stack, stack_name: $stack_name, layout: $layout}}
 
           } else if ($topic | str starts-with "xs.") {
             # Heartbeats and other system noise.
@@ -585,13 +576,6 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
               let layout = (layout-of $proj)
               let layout_patch = if $layout != $st.layout { ({docLayout: $layout} | to datastar-patch-signals) } else { null }
 
-              # Selected-clip display label: the rename modal seeds its draft
-              # input from $label, so this signal has to track selection
-              # changes and any clip.patch{label} that renamed the current
-              # clip.
-              let label = (label-of $proj)
-              let label_patch = if $label != $st.label { ({label: $label} | to datastar-patch-signals) } else { null }
-
               # Re-render a clip's pane in place when its content or type
               # changes -- the add/remove above only tracks presence. A note
               # pane re-renders live too: its <pre> picks up the new body while
@@ -637,12 +621,12 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
               let out = ([$stacks_patch $switcher_patch $clips_patch]
                 | append $add_patches
                 | append $rm_patches
-                | append [$repane $docorder_patch $layout_patch $label_patch $sel_patch $selstk_patch $stackname_patch $title_patch]
+                | append [$repane $docorder_patch $layout_patch $sel_patch $selstk_patch $stackname_patch $title_patch]
                 | where {|x| $x != null })
-              {out: $out, next: {proj: $proj, ready: true, rendered: $rendered2, doc_order: $want, title: $title, sel: $sel, sel_stack: $sel_stack, stack_name: $stack_name, layout: $layout, label: $label}}
+              {out: $out, next: {proj: $proj, ready: true, rendered: $rendered2, doc_order: $want, title: $title, sel: $sel, sel_stack: $sel_stack, stack_name: $stack_name, layout: $layout}}
             }
           }
-        } {proj: (projection empty), ready: false, rendered: [], doc_order: [], title: "", sel: "", sel_stack: "", stack_name: "", layout: "flow", label: ""}
+        } {proj: (projection empty), ready: false, rendered: [], doc_order: [], title: "", sel: "", sel_stack: "", stack_name: "", layout: "flow"}
       | flatten
       | to sse
       | metadata set --content-type "text/event-stream"

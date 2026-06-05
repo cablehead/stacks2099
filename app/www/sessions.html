@@ -704,7 +704,7 @@
     </style>
   </head>
   <body
-    data-signals='{"cursor":"","selectedStack":{{ stack_id | default("") | tojson | e }},"connId":"","termCols":0,"termRows":0,"termTitle":"","focusedDims":"","title":{{ title | default("") | tojson | e }},"docReady":false,"picking":false,"acting":false,"themePicking":false,"theme":"default","stackPicking":false,"stackName":"","renaming":false,"renameMode":"title","renameStackId":"","draft":"","label":"","noteEditing":"","docOrder":"[]","docLayout":"flow"}'
+    data-signals='{"cursor":"","selectedStack":{{ stack_id | default("") | tojson | e }},"connId":"","termCols":0,"termRows":0,"termTitle":"","focusedDims":"","title":{{ title | default("") | tojson | e }},"docReady":false,"picking":false,"acting":false,"themePicking":false,"theme":"default","stackPicking":false,"stackName":"","renaming":false,"renameMode":"title","renameStackId":"","draft":"","noteEditing":"","docOrder":"[]","docLayout":"flow"}'
     data-attr:data-theme="$theme"
     data-init="@get('/sse?stack=' + encodeURIComponent($selectedStack))"
     data-effect="document.title = $title || 'ghostty-web-nu sessions'"
@@ -895,14 +895,15 @@
     </footer>
 
     <!-- Hidden trigger so the JS-only rename-clip action can seed signals through
-       datastar's expression evaluator. `$label` is kept in sync server-side
-       with the selected clip's display label (label-of in serve.nu); the
-       click just copies that into the rename modal's draft input. -->
+       datastar's expression evaluator. The draft seeds from the cursored clip's
+       own sidebar row (read on demand), not a server-pushed slot -- the cursor is
+       client-instant (ADR 0006), so a slot would lag it and seed the previously
+       selected clip's name. -->
     <button
       id="rename-tab-trigger"
       type="button"
       hidden
-      data-on:click="$draft = $label; $renameMode = 'tab'; $renaming = true"
+      data-on:click="$draft = window.app.selectedClipLabel($cursor); $renameMode = 'tab'; $renaming = true"
     >
     </button>
 
@@ -925,7 +926,7 @@
           aria-label="rename"
           data-bind="draft"
           data-effect="$renaming && requestAnimationFrame(() => { el.focus(); el.setSelectionRange(0, el.value.length); })"
-          data-on:keydown="if (evt.key === 'Enter') { if ($renameMode === 'tab') { $label = $draft; $renaming = false; @post('/clip/label?clip=' + encodeURIComponent($cursor) + '&label=' + encodeURIComponent($draft)) } else if ($renameMode === 'stack') { $renaming = false; @post('/stack/rename') } else { $title = $draft; $renaming = false; @post('/title') } } else if (evt.key === 'Escape') { $renaming = false }"
+          data-on:keydown="if (evt.key === 'Enter') { if ($renameMode === 'tab') { $renaming = false; @post('/clip/label?clip=' + encodeURIComponent($cursor) + '&label=' + encodeURIComponent($draft)) } else if ($renameMode === 'stack') { $renaming = false; @post('/stack/rename') } else { $title = $draft; $renaming = false; @post('/title') } } else if (evt.key === 'Escape') { $renaming = false }"
         >
       </div>
     </div>
@@ -1759,11 +1760,25 @@
           document.querySelector(".title-display")?.click();
         },
         openRenameTab() {
-          // The trigger button's `data-on:click` reads `$label` directly; we
-          // just need to fire the synthetic click so datastar evaluates the
-          // expression (it can only mutate signals from a real DOM event, not
-          // from arbitrary JS like this).
+          // Fire the hidden trigger's click so datastar evaluates its expression
+          // (signals can only be mutated from a real DOM event, not arbitrary JS).
           document.getElementById("rename-tab-trigger")?.click();
+        },
+        selectedClipLabel(cid) {
+          // The clip's display label, read from its sidebar row on demand. The row
+          // is the label between the icon <svg> and the <small> id tail, so we sum
+          // the row's direct text nodes. Reading the cursored clip's own row (not
+          // a server-pushed slot) is correct the instant the cursor moves.
+          if (!cid) return "";
+          const row = document.querySelector(
+            `#clips-list li[data-clip="${cid}"] .row`,
+          );
+          if (!row) return "";
+          let label = "";
+          for (const n of row.childNodes) {
+            if (n.nodeType === Node.TEXT_NODE) label += n.textContent;
+          }
+          return label.trim();
         },
         toggleFocus() {
           // mod+Enter symmetric toggle (the only focus entry/exit): leave focus
