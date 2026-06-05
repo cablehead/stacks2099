@@ -1811,6 +1811,20 @@
       // instant move; panes that didn't move (or just mounted) are no-ops.
       const FLIP_MS = 180;
       const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
+      // A reorder can land as several frames (the first move in an unfrozen stack
+      // renumbers the whole thing), each re-running __applyDocOrder. Collapse the
+      // burst to a single reveal of the final position with a short trailing
+      // debounce, so the smooth scroll isn't restarted frame by frame.
+      let revealTimer = null;
+      let revealTarget = null;
+      const revealSelected = (cid) => {
+        revealTarget = cid;
+        if (revealTimer) return;
+        revealTimer = setTimeout(() => {
+          revealTimer = null;
+          if (revealTarget) window.__onSelect?.(revealTarget);
+        }, 50);
+      };
       window.__applyDocOrder = (json) => {
         let order;
         try {
@@ -1819,6 +1833,15 @@
           return;
         }
         const panes = [...doc.querySelectorAll(".pane")];
+        // The selected pane's position before the reorder. A move keeps the same
+        // clip selected, so the $cursor effect (which scrolls on select) never
+        // re-fires -- we detect the pane actually moving and reveal it ourselves.
+        // Snapshot independently of the FLIP map so it works under reduced-motion.
+        const selId = currentClip();
+        const selPane = selId
+          ? doc.querySelector("#pane-" + CSS.escape(selId))
+          : null;
+        const selBefore = selPane ? selPane.getBoundingClientRect() : null;
         // FIRST: snapshot current positions (skip entirely if reduced-motion).
         const first = reduceMotion.matches
           ? null
@@ -1835,6 +1858,18 @@
           const want = prev ? prev.nextElementSibling : doc.firstElementChild;
           if (want !== pane) doc.insertBefore(pane, want);
           prev = pane;
+        }
+        // If the reorder moved the selected pane, reveal it as a click would:
+        // __onSelect scrolls it into view and only focuses in focus mode, so an
+        // unfocused move scrolls without grabbing the keyboard. Measure now, after
+        // the reorder but before the FLIP transforms (which would skew the rect).
+        if (selPane && selBefore) {
+          const selAfter = selPane.getBoundingClientRect();
+          if (
+            selBefore.top !== selAfter.top || selBefore.left !== selAfter.left
+          ) {
+            revealSelected(selId);
+          }
         }
         if (!first) return;
         // INVERT + PLAY: offset each moved pane back to its old spot, then release.
