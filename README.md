@@ -152,7 +152,7 @@ independently. The UI is three columns: **stacks** | **clips** | **content**
   the selected clip down/up (the first move freezes the current order into
   `manual`).
 - Each stack picks a **layout**: `flow` (a vertical column of panes) or `niri`
-  (a horizontal scrollable strip). The top-bar Layout button or `mod+K l`
+  (a horizontal scrollable strip). The top-bar Layout button or `mod+K Shift+L`
   toggles it.
 - **Terminal clips** bind to an embedded-Nushell pty. The binary re-execs itself
   to run the shell, so there is no external `nu` to find, and placement survives
@@ -279,15 +279,15 @@ same rows, so the panel documents both. See
 
 Clip:
 
-| Key           | Action                    |
-| ------------- | ------------------------- |
-| `j` / `k`     | Next / previous clip      |
-| `Shift+J / K` | Move clip down / up       |
-| `v`           | View style (raw/rendered) |
-| `r`           | Rename clip               |
-| `o`           | Cycle terminal height     |
-| `mod+K` `d`   | Delete clip (leader-only) |
-| `Enter`       | Focus the selected clip   |
+| Key           | Action                       |
+| ------------- | ---------------------------- |
+| `j` / `k`     | Next / previous clip         |
+| `Shift+J / K` | Move clip down / up          |
+| `v`           | View style (raw/rendered)    |
+| `r`           | Rename clip                  |
+| `o`           | Cycle terminal height        |
+| `mod+K` `x`   | Terminate clip (leader-only) |
+| `Enter`       | Focus the selected clip      |
 
 Stack:
 
@@ -297,13 +297,14 @@ Stack:
 | `Shift+N` | New stack                   |
 | `Shift+R` | Rename stack                |
 | `s`       | Toggle sort (auto / manual) |
-| `l`       | Toggle layout (flow / niri) |
+| `Shift+L` | Toggle layout (flow / niri) |
 | `[` / `]` | Previous / next stack       |
 | `g`       | Switch stack (switcher)     |
 
-`d` (delete) is the one command that is `mod+K` only, a destructive action
+`x` (terminate) is the one command that is `mod+K` only; a destructive action
 shouldn't ride a single bare keystroke. Everything else works bare in navigate
-mode and under `mod+K` everywhere.
+mode and under `mod+K` everywhere. (Bare `l` is intentionally left free for
+future niri `h`/`l` pane navigation, hence layout on `Shift+L`.)
 
 The top bar carries the stack breadcrumb and the Theme button; the status bar
 shows the active mode.

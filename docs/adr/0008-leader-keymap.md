@@ -28,7 +28,9 @@ alike, and the panel is the cheat-sheet for both. The separate
 The bare set is guarded to a true bare press (no Ctrl/Alt/Meta, so Cmd+L and
 friends pass through; Shift is fine), which also retires the `Alt+[`/`Alt+]`
 stack-nav chords that had quietly fallen out of the keymap -- `[`/`]`/`g` are bare
-now. `d` (delete) is the lone exclusion: destructive, so it stays `mod+K` only.
+now. `x` (terminate; was `d`) is the lone exclusion: destructive, so it stays
+`mod+K` only. Layout toggle moved off bare `l` to `Shift+L`, freeing `l` for the
+planned niri `h`/`l` pane navigation.
 
 ## Context
 

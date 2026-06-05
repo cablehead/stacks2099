@@ -1242,7 +1242,7 @@
         <button
           type="button"
           class="picker-row"
-          data-key="d"
+          data-key="x"
           data-on:click="$acting = false; window.app.closeSelected()"
         >
           <svg
@@ -1259,7 +1259,8 @@
           >
             <path d="M18 6 6 18" />
             <path d="m6 6 12 12" />
-          </svg> <span>Delete</span><span class="row-keys"><kbd>d</kbd></span>
+          </svg> <span>Terminate</span><span class="row-keys"><kbd
+            >x</kbd></span>
         </button>
         <div class="picker-heading">Stack</div>
         <button
@@ -1360,7 +1361,7 @@
         <button
           type="button"
           class="picker-row"
-          data-key="l"
+          data-key="L"
           data-on:click="$acting = false; window.app.toggleLayout()"
         >
           <svg
@@ -1378,7 +1379,7 @@
             <rect width="18" height="18" x="3" y="3" rx="2" />
             <path d="M12 3v18" />
           </svg> <span>Toggle layout</span><span class="row-keys"><kbd
-            >l</kbd></span>
+            >Shift</kbd><kbd>L</kbd></span>
         </button>
         <button
           type="button"
@@ -2361,10 +2362,10 @@
         // exact rows the mod+K leader dispatches to. One source of truth, so a
         // command works bare and under the leader alike, and the panel doubles as
         // the cheat-sheet for both. Only a true bare press (no Ctrl/Alt/Meta, so
-        // browser/OS chords like Cmd+L are left alone; Shift is fine for J/K/N/R).
-        // `d` (delete) is deliberately leader-only -- destructive, not a single
-        // bare keystroke.
-        if (e.ctrlKey || e.altKey || e.metaKey || e.key === "d") return;
+        // browser/OS chords like Cmd+L are left alone; Shift is fine for J/K/N/R
+        // and Shift+L layout). `x` (terminate) is deliberately leader-only --
+        // destructive, not a single bare keystroke.
+        if (e.ctrlKey || e.altKey || e.metaKey || e.key === "x") return;
         const row = [...document.querySelectorAll(".actions-panel [data-key]")]
           .find((r) => r.dataset.key === e.key);
         if (!row) return;

@@ -1195,7 +1195,7 @@ test("clip-actions: mod-K opens in navigate; Ctrl-n/Ctrl-p move; Enter opens ren
     );
   }));
 
-test("clip-actions: Delete removes the selected clip", () =>
+test("clip-actions: Terminate (x) removes the selected clip", () =>
   withApp(async (page) => {
     // Add a note so there are two clips, then select the note and close it.
     await page.evaluate(async () => {
@@ -1235,13 +1235,13 @@ test("clip-actions: Delete removes the selected clip", () =>
       { timeout: 5000 },
     );
 
-    // Open actions; bare `d` runs Close (its data-key), regardless of row order.
+    // Open actions; `x` runs Terminate (its data-key), regardless of row order.
     await page.keyboard.press("Control+k");
     await page.waitForSelector(".actions-backdrop", {
       state: "visible",
       timeout: 5000,
     });
-    await page.keyboard.press("d");
+    await page.keyboard.press("x");
 
     await page.waitForFunction(
       (cid) => !document.querySelector("#pane-" + CSS.escape(cid)),
