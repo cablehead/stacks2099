@@ -282,6 +282,7 @@ Clip:
 | Key           | Action                       |
 | ------------- | ---------------------------- |
 | `j` / `k`     | Next / previous clip         |
+| `l` / `h`     | Next / previous clip (alias) |
 | `Shift+J / K` | Move clip down / up          |
 | `v`           | View style (raw/rendered)    |
 | `r`           | Rename clip                  |
@@ -303,8 +304,9 @@ Stack:
 
 `x` (terminate) is the one command that is `mod+K` only; a destructive action
 shouldn't ride a single bare keystroke. Everything else works bare in navigate
-mode and under `mod+K` everywhere. (Bare `l` is intentionally left free for
-future niri `h`/`l` pane navigation, hence layout on `Shift+L`.)
+mode and under `mod+K` everywhere. `h`/`l` alias `k`/`j` for clip navigation (so
+the niri horizontal strip reads left/right); layout sits on `Shift+L` to keep
+bare `l` for that.
 
 The top bar carries the stack breadcrumb and the Theme button; the status bar
 shows the active mode.

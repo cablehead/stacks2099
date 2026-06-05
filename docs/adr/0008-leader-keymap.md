@@ -29,8 +29,10 @@ The bare set is guarded to a true bare press (no Ctrl/Alt/Meta, so Cmd+L and
 friends pass through; Shift is fine), which also retires the `Alt+[`/`Alt+]`
 stack-nav chords that had quietly fallen out of the keymap -- `[`/`]`/`g` are bare
 now. `x` (terminate; was `d`) is the lone exclusion: destructive, so it stays
-`mod+K` only. Layout toggle moved off bare `l` to `Shift+L`, freeing `l` for the
-planned niri `h`/`l` pane navigation.
+`mod+K` only. Layout toggle moved off bare `l` to `Shift+L` so `h`/`l` can alias
+`k`/`j` for clip navigation -- vim-style, and the natural left/right direction in
+the niri horizontal layout. The aliases normalize the key before the row lookup,
+so they reuse the existing `j`/`k` rows rather than adding duplicate entries.
 
 ## Context
 

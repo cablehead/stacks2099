@@ -2366,8 +2366,13 @@
         // and Shift+L layout). `x` (terminate) is deliberately leader-only --
         // destructive, not a single bare keystroke.
         if (e.ctrlKey || e.altKey || e.metaKey || e.key === "x") return;
+        // h/l alias prev/next clip (k/j): vim-style, and the natural direction in
+        // the niri horizontal layout (h = left = prev, l = right = next). They
+        // reuse the j/k rows rather than adding duplicate panel entries.
+        const ALIAS = { h: "k", l: "j" };
+        const key = ALIAS[e.key] ?? e.key;
         const row = [...document.querySelectorAll(".actions-panel [data-key]")]
-          .find((r) => r.dataset.key === e.key);
+          .find((r) => r.dataset.key === key);
         if (!row) return;
         e.preventDefault();
         e.stopPropagation();
