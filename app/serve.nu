@@ -398,6 +398,19 @@ def clip-stack-of [proj: record, cid: string]: nothing -> any {
   if ($owner | is-empty) { null } else { $owner.id }
 }
 
+# Does a live clip with this id exist? The by-id routes use it to 404 on an
+# unknown clip instead of a silent 204 -- the UI crops ids to the tail, so a
+# caller pasting what it sees would otherwise no-op and look like it worked.
+def clip-exists [cid: string]: nothing -> bool {
+  if ($cid | is-empty) { return false }
+  (clip-stack-of (.cat | projection project) $cid) != null
+}
+
+# A 404 response body for an unknown clip id, mirroring the /pty/* routes.
+def no-such-clip [cid: string]: nothing -> any {
+  $"no such clip: ($cid)" | metadata set { merge {'http.response': {status: 404}} }
+}
+
 # Resolve a target stack for an add. `want` may be a stack id, a stack name, or
 # "" -- in which case fall back to the last-focused clip's stack, else the
 # default stack. Unknown ids/names also fall back (never silently misfile).
@@ -786,7 +799,11 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
         ($proj.stacks | where {|s| ($s.name? | default "") == $dest_q } | get 0?.id | default "")
       }
       let dest = ($proj.stacks | where id == $dest_id | get 0?)
-      if $cid != "" and ($src | is-not-empty) and ($dest | is-not-empty) {
+      if $cid == "" or ($src | is-empty) {
+        no-such-clip $cid
+      } else if ($dest | is-empty) {
+        $"no such stack: ($dest_q)" | metadata set { merge {'http.response': {status: 404}} }
+      } else {
         let cross = ($dest_id != $src.id)
         let moved = ($src.clips | where id == $cid | get 0)
         if $cross and ($to == null) {
@@ -827,8 +844,8 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
             }
           }
         }
+        null | metadata set { merge {'http.response': {status: 204}} }
       }
-      null | metadata set { merge {'http.response': {status: 204}} }
     })
 
     (route {method: "GET", path: "/clip/blob"} {|req ctx|
@@ -879,10 +896,14 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
       # propagates via `.cat -f`.
       let cid = ($req.query.clip? | default "")
       let view = ($req.query.view? | default "")
-      if $cid != "" and ($view in ["embed" "raw" "rendered"]) {
-        null | .append "clip.patch" --meta {id: $cid, view: $view} --ttl forever | ignore
+      if not (clip-exists $cid) {
+        no-such-clip $cid
+      } else {
+        if ($view in ["embed" "raw" "rendered"]) {
+          null | .append "clip.patch" --meta {id: $cid, view: $view} --ttl forever | ignore
+        }
+        null | metadata set { merge {'http.response': {status: 204}} }
       }
-      null | metadata set { merge {'http.response': {status: 204}} }
     })
 
     (route {method: "POST", path: "/clip/view/cycle"} {|req ctx|
@@ -891,11 +912,15 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
       let cid = ($req.query.clip? | default "")
       let proj = (.cat | projection project)
       let clip = ($proj.stacks | each {|s| $s.clips } | flatten | where id == $cid | get 0?)
-      if ($clip | is-not-empty) and (($clip.mime_type? | default "") == "text/markdown") {
-        let next = if (($clip.view? | default "") == "rendered") { "raw" } else { "rendered" }
-        null | .append "clip.patch" --meta {id: $cid, view: $next} --ttl forever | ignore
+      if ($clip | is-empty) {
+        no-such-clip $cid
+      } else {
+        if (($clip.mime_type? | default "") == "text/markdown") {
+          let next = if (($clip.view? | default "") == "rendered") { "raw" } else { "rendered" }
+          null | .append "clip.patch" --meta {id: $cid, view: $next} --ttl forever | ignore
+        }
+        null | metadata set { merge {'http.response': {status: 204}} }
       }
-      null | metadata set { merge {'http.response': {status: 204}} }
     })
 
     (route {method: "GET", path: "/api"} {|req ctx|
@@ -994,8 +1019,12 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
       # (the <pre> picks up the new body underneath).
       let body = $in
       let cid = ($req.query.clip? | default "")
-      if $cid != "" { $body | set-clip-body $cid }
-      null | metadata set { merge {'http.response': {status: 204}} }
+      if not (clip-exists $cid) {
+        no-such-clip $cid
+      } else {
+        $body | set-clip-body $cid
+        null | metadata set { merge {'http.response': {status: 204}} }
+      }
     })
 
     (route {method: "POST", path: "/clip/close"} {|req ctx|
@@ -1003,12 +1032,14 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
       # pty. The clip.delete frame propagates via `.cat -f`; each /sse drops
       # the pane in its #doc reconcile.
       let cid = ($req.query.clip? | default "")
-      if $cid != "" {
+      if not (clip-exists $cid) {
+        no-such-clip $cid
+      } else {
         let sid = (sid-for-clip $cid)
         if $sid != "" { pty close $sid }
         delete-clip $cid
+        null | metadata set { merge {'http.response': {status: 204}} }
       }
-      null | metadata set { merge {'http.response': {status: 204}} }
     })
 
     (route {method: "POST", path: "/clip/label"} {|req ctx|
@@ -1018,8 +1049,12 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
       # `/clip/` route keyed by ?clip=, like its siblings -- no pty involved.
       let cid = ($req.query.clip? | default "")
       let new = ($req.query.label? | default "" | str trim)
-      if $cid != "" { set-clip-label $cid $new }
-      null | metadata set { merge {'http.response': {status: 204}} }
+      if not (clip-exists $cid) {
+        no-such-clip $cid
+      } else {
+        set-clip-label $cid $new
+        null | metadata set { merge {'http.response': {status: 204}} }
+      }
     })
 
     (route {method: "POST", path: "/title"} {|req ctx|

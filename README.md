@@ -257,6 +257,12 @@ it goes: `?dir=up|down` for one step, `?to=<n>` for an absolute index, or
 `?stack=<id|name>` to move it to another stack (add `?to=` to place it, else it
 appends). An ordered move freezes the destination to manual sort.
 
+The by-id clip routes (`/clip/close`, `/clip/label`, `/clip/view`,
+`/clip/update`, `/clip/move`) answer `404 no such clip: <id>` for an unknown
+clip, rather than a silent success. The UI crops ids to the tail, so pasting
+what you see fails loudly instead of looking like it worked; get full ids from
+`/api/state`.
+
 ## Keys
 
 Two modes. **Navigate** browses (read-only, dimmed); **focus** drives the

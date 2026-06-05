@@ -49,6 +49,11 @@ scru128, its topic, and its fields. Topics are the protocol: `clip.add` /
 From a shell, `curl -sN {{ base | safe }}/api/events` (the `-N` disables curl's
 output buffering so lines arrive as they happen).
 
+Clip `id`s are full scru128s from `/api/state` (the `clips` list). The UI crops
+them to the tail for display, so don't paste what you see -- the by-id routes
+(`/clip/close`, `/clip/label`, `/clip/view`, `/clip/update`, `/clip/move`) answer
+`404 no such clip: <id>` for an unknown id, never a silent success.
+
 ## Terminals
 
 | Endpoint                | Purpose                                       |
