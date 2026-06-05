@@ -267,46 +267,43 @@ international keyboards type cleanly into the terminal: composed characters
 char) reach the pty via a hidden input. See
 [docs/adr/0005-mode-projected-keymap.md](docs/adr/0005-mode-projected-keymap.md).
 
-**Focus.** `Enter` (or `mod+Enter`) focuses the selected clip; `mod+Enter`
-leaves. `mod` is Cmd on macOS, Ctrl elsewhere.
+`Enter` (or `mod+Enter`) focuses the selected clip; `mod+Enter` leaves. `mod` is
+Cmd on macOS, Ctrl elsewhere.
 
-**Navigate** (read-only browsing):
-
-| Key                   | Action                  |
-| --------------------- | ----------------------- |
-| `j` / `k`             | Next / previous clip    |
-| `Shift+J` / `Shift+K` | Move clip down / up     |
-| `Enter`               | Focus the selected clip |
-
-**The `mod+K` leader** (works in any mode, even over a focused terminal). `mod+K`
-then a letter runs a command; pausing opens the actions panel as a which-key
-cheatsheet (`mod+K` again, or `Esc`, closes it). See
+**One command set, two ways to reach it.** In **navigate** mode press the bare
+key. In **any** mode (even over a focused terminal) press `mod+K` then the same
+key, the **leader**; pausing opens the actions panel as a which-key cheatsheet
+(`mod+K` again, or `Esc`, closes it). The bare keys and the leader dispatch the
+same rows, so the panel documents both. See
 [docs/adr/0008-leader-keymap.md](docs/adr/0008-leader-keymap.md).
 
 Clip:
 
-| Chord            | Action                    |
-| ---------------- | ------------------------- |
-| `mod+K` then `j` | Next clip                 |
-| `mod+K` then `k` | Previous clip             |
-| `mod+K` then `v` | View style (raw/rendered) |
-| `mod+K` then `r` | Rename clip               |
-| `mod+K` then `d` | Delete clip               |
-| `mod+K` then `o` | Cycle terminal height     |
-| `mod+K` then `J` | Move clip down            |
-| `mod+K` then `K` | Move clip up              |
+| Key           | Action                    |
+| ------------- | ------------------------- |
+| `j` / `k`     | Next / previous clip      |
+| `Shift+J / K` | Move clip down / up       |
+| `v`           | View style (raw/rendered) |
+| `r`           | Rename clip               |
+| `o`           | Cycle terminal height     |
+| `mod+K` `d`   | Delete clip (leader-only) |
+| `Enter`       | Focus the selected clip   |
 
 Stack:
 
-| Chord                  | Action                      |
-| ---------------------- | --------------------------- |
-| `mod+K` then `n`       | New clip (note / terminal)  |
-| `mod+K` then `N`       | New stack                   |
-| `mod+K` then `R`       | Rename stack                |
-| `mod+K` then `s`       | Toggle sort (auto / manual) |
-| `mod+K` then `l`       | Toggle layout (flow / niri) |
-| `mod+K` then `[` / `]` | Previous / next stack       |
-| `mod+K` then `g`       | Switch stack (switcher)     |
+| Key       | Action                      |
+| --------- | --------------------------- |
+| `n`       | New clip (note / terminal)  |
+| `Shift+N` | New stack                   |
+| `Shift+R` | Rename stack                |
+| `s`       | Toggle sort (auto / manual) |
+| `l`       | Toggle layout (flow / niri) |
+| `[` / `]` | Previous / next stack       |
+| `g`       | Switch stack (switcher)     |
+
+`d` (delete) is the one command that is `mod+K` only, a destructive action
+shouldn't ride a single bare keystroke. Everything else works bare in navigate
+mode and under `mod+K` everywhere.
 
 The top bar carries the stack breadcrumb and the Theme button; the status bar
 shows the active mode.

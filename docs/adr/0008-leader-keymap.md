@@ -20,6 +20,16 @@ nav keeps `Alt+[`/`Alt+]`/`Alt+\`). `mod+K v` cycles a clip's view style
 editor takes the keyboard, regardless of view). Still pending: per-content-type
 leader rows beyond the universal set; plus the 0007 deferred items.
 
+Follow-up (2026-06): the navigate-mode keymap and the leader were unified. A bare
+key in navigate mode now dispatches by clicking the same `.actions-panel` row the
+leader does -- one source of truth, so every command works bare and under `mod+K`
+alike, and the panel is the cheat-sheet for both. The separate
+`data-keymap`/`data-actions` bag and its `runAction`/`readJson` path are deleted.
+The bare set is guarded to a true bare press (no Ctrl/Alt/Meta, so Cmd+L and
+friends pass through; Shift is fine), which also retires the `Alt+[`/`Alt+]`
+stack-nav chords that had quietly fallen out of the keymap -- `[`/`]`/`g` are bare
+now. `d` (delete) is the lone exclusion: destructive, so it stays `mod+K` only.
+
 ## Context
 
 0007 made `mod+K` a leader but left two seams:

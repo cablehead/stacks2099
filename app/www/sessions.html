@@ -709,18 +709,6 @@
     data-init="@get('/sse?stack=' + encodeURIComponent($selectedStack))"
     data-effect="document.title = $title || 'ghostty-web-nu sessions'"
     data-class:nav-collapsed="$docLayout === 'niri'"
-    data-actions='{
-    "next":      "window.app.cycle(1)",
-    "prev":      "window.app.cycle(-1)",
-    "moveDown":  "window.app.move(\"down\")",
-    "moveUp":    "window.app.move(\"up\")"
-  }'
-    data-keymap='{
-    "j": "next",
-    "k": "prev",
-    "shift+j": "moveDown",
-    "shift+k": "moveUp"
-  }'
   >
     <!-- Three-pane: stacks | clips | content (#doc). Server overwrites the two
        asides on every event. -->
@@ -1659,8 +1647,9 @@
         ).catch(() => {});
       });
 
-      // Action registry. data-actions maps id -> JS, data-keymap maps combo ->
-      // id. The capture-phase handler below evaluates the matched action's JS.
+      // The methods the clip-actions rows call (data-on:click). The capture-phase
+      // handler dispatches both the mod+K leader and bare navigate keys by
+      // clicking the row whose data-key matches, so these are the one action set.
       window.app = {
         newSession() {
           // The + button sets $picking; opens the note/terminal type picker.
@@ -2205,36 +2194,6 @@
         parts.push(k.toLowerCase());
         return parts.join("+");
       }
-      function readJson(name) {
-        const raw = document.body.dataset[name];
-        if (!raw) return {};
-        try {
-          return JSON.parse(raw);
-        } catch {
-          return {};
-        }
-      }
-      // Capture-phase keymap. A matched combo calls stopPropagation so it never
-      // reaches key-buffer's window (bubble-phase) listener. App chords are
-      // Alt-prefixed (ADR 0004) and fire in EVERY mode -- navigate, a focused
-      // terminal, or while editing a note -- so clip management (Alt+T/D/J/K/R/O)
-      // never requires leaving what you're in. Non-Alt keys are context-scoped:
-      //   editing a note -- the textarea owns them (Enter = newline, Escape ends
-      //                      the edit by blurring; the blur handler renders the
-      //                      <pre> and persists).
-      //   focused terminal -- everything (plain Esc and Enter included) goes to
-      //                        the pty; mod+Enter is the only exit.
-      //   navigate         -- no non-Alt bindings today (mod+Enter focuses).
-      // The modal-input guard keeps the rename field's own Enter/Esc/typing.
-      function runAction(id) {
-        const js = readJson("actions")[id];
-        if (!js) return;
-        try {
-          new Function(js)();
-        } catch (err) {
-          console.error("action", id, err);
-        }
-      }
 
       // mod+K clip-actions modal (ADR 0008). mod+K is the one key safe to pierce
       // a focused clip (Meta -- key-buffer drops it before the pty). It makes the
@@ -2398,12 +2357,20 @@
           window.app.toggleFocus();
           return;
         }
-        // The app keymap owns the rest (Alt chords + bare j/k bindings).
-        const id = readJson("keymap")[combo];
-        if (!id) return;
+        // Navigate mode: a bare key runs the matching clip-actions row -- the
+        // exact rows the mod+K leader dispatches to. One source of truth, so a
+        // command works bare and under the leader alike, and the panel doubles as
+        // the cheat-sheet for both. Only a true bare press (no Ctrl/Alt/Meta, so
+        // browser/OS chords like Cmd+L are left alone; Shift is fine for J/K/N/R).
+        // `d` (delete) is deliberately leader-only -- destructive, not a single
+        // bare keystroke.
+        if (e.ctrlKey || e.altKey || e.metaKey || e.key === "d") return;
+        const row = [...document.querySelectorAll(".actions-panel [data-key]")]
+          .find((r) => r.dataset.key === e.key);
+        if (!row) return;
         e.preventDefault();
         e.stopPropagation();
-        runAction(id);
+        row.click();
       }, { capture: true });
 
       // Module fully evaluated: every const above is initialized, so scanPanes
