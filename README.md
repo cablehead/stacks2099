@@ -308,6 +308,12 @@ mode and under `mod+K` everywhere. `h`/`l` alias `k`/`j` for clip navigation (so
 the niri horizontal strip reads left/right); layout sits on `Shift+L` to keep
 bare `l` for that.
 
+> **Coming breaking change.** Today `h`/`l` simply mirror `k`/`j` (clip order),
+> a stopgap so niri muscle memory keeps working. They will be rebound to track
+> the actual on-screen direction: left/right, which is meaningful in the niri
+> horizontal layout and not in the standard flow column (where `h`/`l` will do
+> nothing). If you rely on `h`/`l` in flow today, expect them to stop there.
+
 The top bar carries the stack breadcrumb and the Theme button; the status bar
 shows the active mode.
 
