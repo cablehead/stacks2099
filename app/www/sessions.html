@@ -1577,6 +1577,8 @@
         // reloaded note has a body, so it stays in display mode until selected.
         if (ta.value === "") window.__focusClip(cid);
       }
+      const knownPanes = new Set(); // clip ids whose pane has been seen mounted
+      let booted = false; // set at module end; gates reveal-on-mount past the TDZ
       function scanPanes() {
         doc.querySelectorAll(".pane").forEach((pane) => {
           // data-render: 'terminal' mounts the grid, 'note' wires the editor,
@@ -1584,11 +1586,33 @@
           if (pane.dataset.render === "terminal") {
             mountTerminalPane(pane);
           } else if (pane.dataset.render === "note") wireNotePane(pane);
+          // A genuinely new pane that is the selected clip is a just-created clip:
+          // scroll it into view. The $cursor scroll effect can't, because it runs
+          // before this pane exists -- the append races the cursor signal, and a
+          // terminal's pane lands later still (its pty spawns async). A reorder
+          // re-runs this for existing panes, but they're already known, so it
+          // won't re-fire here (the move's own reveal handles those).
+          const cid = pane.dataset.clip;
+          if (cid && !knownPanes.has(cid)) {
+            knownPanes.add(cid);
+            // `booted` gates this until the module has finished evaluating: on
+            // localhost the SSE can fill #doc before then, and currentClip /
+            // revealSelected (const, declared lower) would be in the temporal
+            // dead zone. The initial panes scroll via the $cursor effect anyway;
+            // this reveal is for clips created mid-session (a new terminal mounts
+            // after its pty spawns, racing past the cursor effect).
+            if (booted && cid === currentClip()) revealSelected(cid);
+          }
         });
         for (const cid of [...mounted.keys()]) {
           if (!doc.querySelector("#pane-" + CSS.escape(cid))) {
             mounted.delete(cid);
             paneDims.delete(cid);
+          }
+        }
+        for (const cid of [...knownPanes]) {
+          if (!doc.querySelector("#pane-" + CSS.escape(cid))) {
+            knownPanes.delete(cid);
           }
         }
       }
@@ -2381,6 +2405,12 @@
         e.stopPropagation();
         runAction(id);
       }, { capture: true });
+
+      // Module fully evaluated: every const above is initialized, so scanPanes
+      // may now reveal a freshly-mounted selected pane (a clip created in this
+      // session). A final scan catches any pane the SSE mounted during eval.
+      booted = true;
+      scanPanes();
     </script>
   </body>
 </html>
