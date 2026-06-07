@@ -36,7 +36,7 @@ use wezterm_term::{
     Underline,
 };
 
-use crate::bus::Bus;
+use http_nu::bus::Bus;
 
 // --- wezterm-term plumbing --------------------------------------------------
 
@@ -1046,7 +1046,7 @@ impl Command for PtyWriteCommand {
 
         let bytes: Vec<u8> = match input {
             PipelineData::Empty => Vec::new(),
-            PipelineData::Value(v, _) => crate::response::value_to_bytes(v),
+            PipelineData::Value(v, _) => http_nu::response::value_to_bytes(v),
             PipelineData::ByteStream(stream, _) => stream
                 .into_bytes()
                 .map_err(|e| err(head, "read stream", e.to_string()))?,

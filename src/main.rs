@@ -1,3 +1,7 @@
+// nu_protocol::ShellError is a large enum; pty.rs returns it in Result Err
+// positions throughout. The vendored engine crate carried this same allow.
+#![allow(clippy::result_large_err)]
+
 use std::io::Read;
 use std::path::PathBuf;
 use std::sync::{
@@ -7,8 +11,14 @@ use std::sync::{
 use std::time::Duration;
 
 use arc_swap::ArcSwap;
+use bytes::Bytes;
 use clap::Parser;
+use http_body_util::{combinators::BoxBody, BodyExt, Empty};
 use include_dir::{include_dir, Dir};
+
+mod pty;
+
+type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
 /// The app (serve.nu + www) baked into the binary at compile time. In the
 /// default (production) mode we materialize this to a per-user dir and run it,
@@ -177,7 +187,12 @@ fn create_base_engine(
     options: &HttpNuOptions,
 ) -> Result<Engine, Box<dyn std::error::Error + Send + Sync>> {
     let mut engine = Engine::new()?;
+    // stacks: build $nu in every engine (eval, serve.nu, repl) so user nu
+    // config and parse-time consts can read $nu.*. Upstream Engine::new leaves
+    // it unbuilt.
+    engine.state.generate_nu_constant();
     engine.add_custom_commands()?;
+    register_pty_commands(&mut engine)?;
     engine.set_lib_dirs(include_paths)?;
     engine.set_http_nu_const(options)?;
 
@@ -332,6 +347,89 @@ async fn stdin_source(watch: bool, base_engine: Engine, tx: mpsc::Sender<Engine>
     }
 }
 
+/// Register the pty command surface (stacks2099-specific) on top of http-nu's
+/// built-ins. The vendored engine registered these inside add_custom_commands,
+/// so eval / serve / repl all saw them; mirror that by calling this right after
+/// add_custom_commands in each path.
+fn register_pty_commands(engine: &mut Engine) -> Result<(), BoxError> {
+    // Hoist the bus clone so the command vec doesn't borrow `engine` while
+    // add_commands holds it mutably.
+    let bus = engine.bus.clone();
+    engine.add_commands(vec![
+        Box::new(pty::PtyOpenCommand::new(bus.clone())),
+        Box::new(pty::PtyWriteCommand::new()),
+        Box::new(pty::PtyResizeCommand::new(bus.clone())),
+        Box::new(pty::PtyViewCommand::new()),
+        Box::new(pty::PtyRawCommand::new()),
+        Box::new(pty::PtySnapCommand::new()),
+        Box::new(pty::PtyCloseCommand::new(bus.clone())),
+        Box::new(pty::PtyMetaSetCommand::new(bus.clone())),
+        Box::new(pty::PtyMetaGetCommand::new()),
+        Box::new(pty::PtyListCommand::new()),
+    ])
+}
+
+/// An empty response body in the shape http-nu's `handle` returns, so the pty
+/// fast-path and the delegated closure path share one return type.
+fn empty_body() -> BoxBody<Bytes, BoxError> {
+    Empty::<Bytes>::new()
+        .map_err(|never| match never {})
+        .boxed()
+}
+
+/// Per-request entry: the pty fast-path first, otherwise http-nu's handler.
+/// A free async fn (not an inline async block in the service closure) so the
+/// closure returns one concrete future, keeping the connection future's
+/// lifetime bounds nameable for serve_connection_with_upgrades.
+async fn dispatch(
+    engine: Arc<ArcSwap<Engine>>,
+    remote_addr: Option<std::net::SocketAddr>,
+    config: Arc<AppConfig>,
+    req: hyper::Request<hyper::body::Incoming>,
+) -> Result<hyper::Response<BoxBody<Bytes, BoxError>>, BoxError> {
+    // stacks fast-path: a pty keystroke writes straight to the fd instead of
+    // spawning an eval thread through the nu closure.
+    if req.method() == hyper::Method::POST && req.uri().path() == "/pty/input" {
+        return pty_input(req).await;
+    }
+    handle(engine, remote_addr, config, req).await
+}
+
+/// stacks2099 fast-path for `POST /pty/input`: drain the body and write it
+/// straight to the pty fd, skipping the nu closure dispatch. A sid is required;
+/// without one we 400 rather than 404 so "no sid -> never reaches a pty" stays
+/// explicit, and a misrouted POST can't fall through to a user handler.
+async fn pty_input(
+    req: hyper::Request<hyper::body::Incoming>,
+) -> Result<hyper::Response<BoxBody<Bytes, BoxError>>, BoxError> {
+    let sid = req
+        .uri()
+        .query()
+        .and_then(|q| {
+            url::form_urlencoded::parse(q.as_bytes())
+                .find(|(k, _)| k == "sid")
+                .map(|(_, v)| v.into_owned())
+        })
+        .unwrap_or_default();
+
+    let status: u16 = if sid.is_empty() {
+        400
+    } else {
+        match req.into_body().collect().await {
+            Err(_) => 500,
+            Ok(collected) => match pty::write_input(&sid, &collected.to_bytes()) {
+                Ok(()) => 204,
+                Err(pty::WriteInputError::NotFound) => 404,
+                Err(pty::WriteInputError::Io(_)) => 500,
+            },
+        }
+    };
+
+    Ok(hyper::Response::builder()
+        .status(status)
+        .body(empty_body())?)
+}
+
 async fn serve(
     addr: String,
     tls: Option<PathBuf>,
@@ -414,7 +512,7 @@ async fn serve(
                         let config = config.clone();
 
                         let service = service_fn(move |req| {
-                            handle(engine.clone(), remote_addr, config.clone(), req)
+                            dispatch(engine.clone(), remote_addr, config.clone(), req)
                         });
 
                         // serve_connection_with_upgrades supports HTTP/1 and HTTP/2
@@ -585,7 +683,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             let _ = sigaction(Signal::SIGTTOU, &ignore);
         }
         let mut engine = Engine::new()?;
+        engine.state.generate_nu_constant();
         engine.add_custom_commands()?;
+        register_pty_commands(&mut engine)?;
         engine.set_lib_dirs(&args.include_paths)?;
         engine.set_http_nu_const(&HttpNuOptions::default())?;
         for plugin_path in &args.plugins {
@@ -599,10 +699,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             eprintln!("warning: nu_std::load_standard_library failed: {e:?}");
         }
 
-        // Become an interactive shell: mark interactive + build the $nu
+        // Become an interactive shell: mark interactive + rebuild the $nu
         // constant BEFORE evaluating config, so user env.nu/config.nu can read
-        // $nu.* (including parse-time consts). See Engine::enter_interactive.
-        engine.enter_interactive();
+        // $nu.* (including parse-time consts) and $nu.is-interactive is accurate.
+        engine.state.is_interactive = true;
+        engine.state.generate_nu_constant();
 
         // Build a fresh Stack and bootstrap default env+config, then layer
         // the user's ~/.config/nushell/{env,config}.nu on top (same order
@@ -705,7 +806,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         };
 
         let mut engine = Engine::new()?;
+        engine.state.generate_nu_constant();
         engine.add_custom_commands()?;
+        register_pty_commands(&mut engine)?;
         engine.set_lib_dirs(&args.include_paths)?;
 
         #[cfg(feature = "cross-stream")]

@@ -5,7 +5,7 @@ members = [".", "tests/test_plugin"]
 name = "stacks2099"
 version = "0.4.1-dev"
 edition = "2021"
-rust-version = "1.88.0"
+rust-version = "1.93.1"
 description = "Server-projected terminal + notes workspace in a single Nushell-powered binary."
 license = "MIT"
 repository = "https://github.com/cablehead/stacks2099"
@@ -17,15 +17,12 @@ categories = ["command-line-utilities"]
 name = "stacks2099"
 path = "src/main.rs"
 
-# The lib crate keeps the name `http_nu` so the forked engine code (and the one
-# `use http_nu::` in main.rs) is unchanged -- only the package/binary are
-# stacks2099. The nu-module namespace (`http-nu/router`, ...) and `$HTTP_NU`
-# const are likewise left as engine internals.
-[lib]
-name = "http_nu"
-path = "src/lib.rs"
-
 [dependencies]
+# The engine lives upstream. stacks2099 is a thin binary on top: it adds the
+# pty command surface (src/pty.rs), the /pty/input fast-path, and the bundled
+# app.
+http-nu = "0.17.1"
+
 clap = { version = "4", features = ["derive"] }
 include_dir = "0.7"
 
@@ -45,15 +42,14 @@ futures-util = "0.3"
 bytes = "1.6.0"
 url = "2.5.0"
 
-nu-cli = "0.112.1"
-nu-cmd-lang = "0.112.1"
-nu-cmd-extra = "0.112.1"
-nu-command = { version = "0.112.1", features = ["sqlite"] }
-nu-engine = "0.112.1"
-nu-parser = "0.112.1"
-nu-path = "0.112.1"
-nu-plugin-engine = "0.112.1"
-nu-protocol = { version = "0.112.1", features = ["plugin"] }
+# Pinned to the same engine http-nu bundles (0.113.1). Only the crates main.rs
+# and pty.rs touch directly remain; the vendored engine's nu-parser /
+# nu-cmd-* / nu-plugin-engine deps went with it.
+nu-cli = "0.113.1"
+nu-command = { version = "0.113.1", features = ["sqlite"] }
+nu-engine = "0.113.1"
+nu-path = "0.113.1"
+nu-protocol = { version = "0.113.1", features = ["plugin"] }
 ctrlc = "3.4"
 arc-swap = "1.7"
 rustls = { version = "0.23.28", features = ["aws_lc_rs"] }
@@ -71,8 +67,8 @@ http_encoding_headers = "0.2.0"
 headers = "0.4.1"
 minijinja = { version = "2", features = ["json", "urlencode", "loop_controls", "loader"] }
 v_htmlescape = "0.15"
-nu-std = { version = "0.112.1", features = ["sqlite"] }
-nu-utils = "0.112.1"
+nu-std = { version = "0.113.1", features = ["sqlite"] }
+nu-utils = "0.113.1"
 typetag = "0.2"
 xxhash-rust = { version = "0.8.15", features = ["xxh3"] }
 syntect = "5.3.0"
@@ -87,7 +83,7 @@ wezterm-term = { git = "https://github.com/wezterm/wezterm", rev = "577474d89ee6
 wezterm-surface = { git = "https://github.com/wezterm/wezterm", rev = "577474d89ee61aef4a48145cdec82a638d874751" }
 
 [dependencies.cross-stream]
-version = "0.12.0"
+version = "0.13.2"
 optional = true
 
 [features]

@@ -2,9 +2,7 @@
 
 set -euo pipefail
 
-nu tests/test_router.nu
-nu tests/test_html.nu
-nu tests/test_datastar.nu
+# router/html/datastar nu stdlib lives in http-nu now and is tested there.
 nu tests/test_projection.nu
 nu tests/test_render.nu
 # Endpoint test: drive serve.nu's handler via the binary's `eval --store` so

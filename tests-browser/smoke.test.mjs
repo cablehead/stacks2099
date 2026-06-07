@@ -85,6 +85,11 @@ test("uri-list clip renders a live <iframe> embed", () =>
     );
   }));
 
+// KNOWN FLAKE (~40% under full-suite load, passes in isolation): a late SSE
+// re-render of #doc reverts slot 1 after the move visibly lands, so
+// `after[1] === before[2]` intermittently fails. Root cause is the per-view
+// /pty/view fan-out racing the #doc patch; deferred until pty views are
+// multiplexed over the single /sse endpoint, then revisit.
 test("move reorders #doc panes by relocating nodes (terminal stays live)", () =>
   withApp(async (page) => {
     // seed two notes -> doc is [terminal, alpha, beta]
@@ -111,9 +116,10 @@ test("move reorders #doc panes by relocating nodes (terminal stays live)", () =>
       "terminal grid is live before the move",
     );
 
-    // select the last clip, move it up one slot
-    await page.locator("#clips-list ul.clips li").last().locator(".row")
-      .click();
+    // select the last doc clip by id and move it up one slot. The clips-list
+    // order can lag the doc during SSE settle, so positional .last() is racy;
+    // target the clip we actually mean (before[2], the last doc pane).
+    await page.locator(`#clips-list li[data-clip="${before[2]}"] .row`).click();
     await page.waitForTimeout(300);
     await page.evaluate(() => window.app.move("up"));
     await page.waitForFunction(
