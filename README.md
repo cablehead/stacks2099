@@ -41,6 +41,10 @@ eget cablehead/stacks2099
 ### Homebrew (macOS)
 
 ```bash
+# Homebrew now asks you to trust a third-party tap before installing from it
+brew trust --formula cablehead/tap/stacks2099
+# or if you use a few of cablehead's projects, and trust me 😆, the whole tap
+# brew trust cablehead/tap
 brew install cablehead/tap/stacks2099
 ```
 
