@@ -372,9 +372,19 @@
   left: calc(var(--cursor-col, 0) * 1ch);
   width: 1ch;
   height: var(--cell-h);
-  background: var(--term-fg);
-  mix-blend-mode: difference;
   pointer-events: none;
+  /* Inert by default: a hollow, non-blinking outline. A terminal only takes
+     keys when it's the focused pane, so the live filled-and-blinking block is
+     reserved for that state (below). This is the "inert" tell -- the screen
+     keeps full contrast, the cursor alone says whether keys will land. */
+  box-shadow: inset 0 0 0 1px var(--term-fg);
+}
+/* The focused terminal's cursor is live: solid block, XOR-inverted over the
+   glyph (mix-blend-mode: difference), blinking. */
+body.mode-focus .pane.active .cursor {
+  background: var(--term-fg);
+  box-shadow: none;
+  mix-blend-mode: difference;
   animation: cursor-blink 1s steps(2) infinite;
 }
 @keyframes cursor-blink {

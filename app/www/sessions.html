@@ -455,25 +455,17 @@
         background: #222;
         color: var(--fg);
       }
-      /* The active (selected) pane is highlighted. In navigate mode every pane
-         is dimmed (read-only); focus mode lights the active one fully. */
+      /* Selection is an accent border, not a dim: content stays fully legible in
+         every pane so you can read the whole stack at a glance. The selected
+         pane carries a blurred accent; focus mode brightens it to the full
+         accent. A terminal signals "inert" (won't take keys until focused) via
+         its cursor shape -- hollow when not focused, solid block when focused --
+         see grid.css, not by dimming the screen. */
       .pane.active {
         border-color: var(--sel-blur);
       }
       body.mode-focus .pane.active {
         border-color: var(--sel);
-      }
-      body.mode-navigate .pane {
-        opacity: 0.3;
-      }
-      body.mode-navigate .pane.active {
-        opacity: 0.55;
-      }
-      body.mode-focus .pane {
-        opacity: 0.4;
-      }
-      body.mode-focus .pane.active {
-        opacity: 1;
       }
       .mode-badge {
         margin-left: auto;
@@ -2132,6 +2124,15 @@
         }
       };
 
+      // A plain pane click is a select gesture (like the sidebar / Alt+J/K), not
+      // an edit. If we were focused (editing a note, typing in a terminal), drop
+      // back to navigate so a click never leaves you half-in an editor. The
+      // open textarea stops its own clicks from bubbling here (see render-content),
+      // so repositioning the caret mid-edit doesn't trip this.
+      window.__paneClicked = () => {
+        if (mode === "focus") setMode("navigate");
+      };
+
       // Focus a clip by id -- the one entry point for "go into this pane".
       // Terminal: point key-buffer at the pane's pty (its .pane-screen carries
       // data-pty), enable it, and enter focus mode so typing lands immediately.
@@ -2180,10 +2181,11 @@
       };
 
       // Clicking truly outside a pane (topbar, empty doc area) drops
-      // back to navigate mode. Exempt surfaces: a pane (its own handler focuses
-      // it), the sidebar (selecting a clip carries focus, like Alt+J/K -- and
-      // cycle() drives selection via a synthetic sidebar click), the rename
-      // modal/picker (keeps their inputs working), and the status bar.
+      // back to navigate mode. Exempt surfaces: a pane (its own handler selects
+      // it, and __paneClicked already settles the mode), the sidebar (selecting
+      // a clip, like Alt+J/K -- cycle() drives selection via a synthetic sidebar
+      // click), the rename modal/picker (keeps their inputs working), and the
+      // status bar.
       document.addEventListener("click", (e) => {
         if (
           e.target.closest(".pane") ||

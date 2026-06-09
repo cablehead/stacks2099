@@ -239,7 +239,10 @@ def render-content [c: record]: nothing -> string {
       } else {
         $"<pre class='note-pre note-view' id='note-view-($c.id)' data-show=\"$noteEditing != '($c.id)'\">($esc)</pre>"
       }
-      $"<div class='note-body'>($styled)<textarea class='note-edit' id='note-edit-($c.id)' data-ignore-morph spellcheck='false' style='display:none'>($esc)</textarea></div>"
+      # Clicks inside the open editor (e.g. repositioning the caret) are editor
+      # clicks, not pane-select clicks -- stop them bubbling to the pane handler
+      # so editing a note isn't interrupted by the select gesture.
+      $"<div class='note-body'>($styled)<textarea class='note-edit' id='note-edit-($c.id)' data-ignore-morph spellcheck='false' style='display:none' data-on:click=\"evt.stopPropagation\(\)\">($esc)</textarea></div>"
     }
     _ => {
       let m = ($c.mime_type? | default "")
@@ -343,8 +346,20 @@ def render-pane [c: record]: nothing -> string {
   # can update just this header rather than re-morph the whole <section>
   # (which would wipe the live `<div id='grid-{cid}'>` underneath).
   let head = $"<header class='bar pane-head' id='pane-head-($cid)'>($label)<small>(id-tail $cid)</small></header>"
-  let onsel = $"$cursor = '($cid)'; @post\('/nav'\); window.__focusClip && window.__focusClip\('($cid)'\)"
   let rtype = (clip-render-type $c)
+  # Every click selects (cursor highlight + /nav). What follows depends on the
+  # clip: a terminal focuses on the single click so you can type immediately (no
+  # separate gesture -- typing IS the point of clicking a terminal); a document
+  # only selects, and editing is the explicit gesture (double-click or mod+Enter
+  # on the selection). __paneClicked drops focus mode back to navigate so a plain
+  # select after editing is consistent.
+  let select = $"$cursor = '($cid)'; @post\('/nav'\)"
+  let onfocus = $"window.__focusClip && window.__focusClip\('($cid)'\)"
+  let onsel = if $c.kind == "terminal" {
+    $"($select); ($onfocus)"
+  } else {
+    $"($select); window.__paneClicked && window.__paneClicked\(\)"
+  }
   let body = if $c.kind == "terminal" {
     let sid = (sid-for-clip $cid)
     if $sid == "" {
@@ -359,7 +374,7 @@ def render-pane [c: record]: nothing -> string {
   # data-render tells the client how to mount: terminal grid, editable note, or
   # a static preview (image/file/html) it leaves alone.
   let render_attr = match $rtype { "terminal" => "terminal", "note" => "note", _ => "static" }
-  $"<section class='pane' id='pane-($cid)' data-clip='($cid)' data-kind='($c.kind)' data-render='($render_attr)' data-class:active=\"$cursor == '($cid)'\" data-on:click=\"($onsel)\">($head)($body)</section>"
+  $"<section class='pane' id='pane-($cid)' data-clip='($cid)' data-kind='($c.kind)' data-render='($render_attr)' data-class:active=\"$cursor == '($cid)'\" data-on:click=\"($onsel)\" data-on:dblclick=\"($onfocus)\">($head)($body)</section>"
 }
 
 # Full continuous document, every clip's pane in render order. The layout-niri
