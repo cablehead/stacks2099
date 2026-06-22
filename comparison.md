@@ -12,13 +12,13 @@ zoomable canvas of floating editor, terminal, and browser panels. Like
 stacks2099, it treats a spatial surface as where your work lives. It
 differs on where the terminal's canonical state is held.
 
-|  | stacks2099 | Cate |
-|---|---|---|
-| Terminal emulator | server (wezterm-term) | client (xterm.js) |
-| Canonical grid | server | client |
-| Over the wire | HTML morph patches | raw pty bytes |
-| Remote unit | the whole UI | a headless byte-shipping daemon |
-| After a drop | reattach to the live grid | old log replayed as inert text, drops you in a new pty (no reattach) |
+|                   | stacks2099                | Cate                                                                 |
+| ----------------- | ------------------------- | -------------------------------------------------------------------- |
+| Terminal emulator | server (wezterm-term)     | client (xterm.js)                                                    |
+| Canonical grid    | server                    | client                                                               |
+| Over the wire     | HTML morph patches        | raw pty bytes                                                        |
+| Remote unit       | the whole UI              | a headless byte-shipping daemon                                      |
+| After a drop      | reattach to the live grid | old log replayed as inert text, drops you in a new pty (no reattach) |
 
 **Where the grid lives.** Each terminal is an
 [xterm.js](https://xtermjs.org) instance in Cate's renderer; the pty
