@@ -101,6 +101,13 @@
   height: 100%;
   overflow-y: auto;
   overflow-x: hidden;
+  /* When the user has scrolled up to read scrollback, keep the line under their
+     eye fixed as rows trim off the top (scrollback purge). This is the browser's
+     default, stated explicitly because terminal.js depends on it: while not
+     stuck to the bottom it deliberately leaves scrollTop alone and lets anchoring
+     do the work. Note: Safari does not implement overflow-anchor, so there the
+     view follows the trim instead of holding position. */
+  overflow-anchor: auto;
 }
 
 /* The grid root always carries data-cols (single-pane #grid or per-pane

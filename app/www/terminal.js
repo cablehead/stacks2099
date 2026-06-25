@@ -77,16 +77,31 @@ export function mountTerminal({ screen, grid, onResize, fixedRows }) {
     screen.style.height = Math.round(rows * cell.h) + "px";
   }
 
-  // Auto-stick-to-bottom. A suppression flag distinguishes our programmatic
-  // scroll (set just before writing scrollTop, consumed by the synchronous
-  // scroll event) from a real user scroll.
+  // Auto-stick-to-bottom plus scroll anchoring. `stick` means "pinned to the
+  // live prompt"; it must flip only on a genuine user scroll. The trap is that
+  // rebuilding the grid (a morph clamping scrollTop, our own anchor/stick writes)
+  // also fires scroll events -- and reading those as user intent is what cleared
+  // `stick` on a reconnect, leaving the view stuck at the scrollback top. The
+  // `mutating` window swallows every scroll event a mutation triggers, so `stick`
+  // survives rebuilds and only real user scrolls (which fire on their own) change
+  // it. That makes both cases idiomatic: at the bottom you stay pinned across a
+  // reconnect/resize; scrolled up you keep your place.
   let stick = true;
-  let suppress = false;
+  let mutating = false;
+  let mutatingClear = null;
+  function beginMutating() {
+    mutating = true;
+    clearTimeout(mutatingClear);
+    // Clear on the next task. A mutation's scroll events fire in the rendering
+    // step before then, so they land inside the window; a later user scroll does
+    // not. A genuine scroll within a few ms of a frame is the only thing this can
+    // miss, which is harmless (the next scroll re-reads the position).
+    mutatingClear = setTimeout(() => {
+      mutating = false;
+    }, 0);
+  }
   screen.addEventListener("scroll", () => {
-    if (suppress) {
-      suppress = false;
-      return;
-    }
+    if (mutating) return;
     stick = screen.scrollHeight - screen.scrollTop - screen.clientHeight < 8;
   });
 
@@ -125,24 +140,9 @@ export function mountTerminal({ screen, grid, onResize, fixedRows }) {
   }
 
   new MutationObserver((muts) => {
-    // A full "screen" snapshot re-emits the whole grid container, so its own
-    // data-cols/data-rows/data-total attributes change. That is the only frame
-    // that touches the container's attributes -- diffs ship row/append/trim/
-    // cursor records, never the container -- so it's a reliable marker. It fires
-    // on first mount and on every /pty/view resubscribe: SSE reset, dev hot
-    // reload, resize, alt-screen flip. Each is a reset point, so re-stick to the
-    // bottom (the live prompt), matching a fresh page load. Without this, a
-    // snapshot that lands while stick is false (a reconnect rebuild clears it via
-    // a non-suppressed scroll event) leaves the view pinned at the scrollback top.
-    if (muts.some((m) => m.type === "attributes" && m.target === grid)) {
-      stick = true;
-    }
-    if (
-      stick && screen.scrollTop !== screen.scrollHeight - screen.clientHeight
-    ) {
-      suppress = true;
-      screen.scrollTop = screen.scrollHeight;
-    }
+    beginMutating();
+
+    // Count this frame's row churn (one batch == one server patch) for the HUD.
     let adds = 0;
     let removes = 0;
     const changedIds = new Set();
@@ -165,6 +165,22 @@ export function mountTerminal({ screen, grid, onResize, fixedRows }) {
         if (row && row.isConnected) changedIds.add(row.id);
       }
     }
+
+    if (stick) {
+      // Pinned to the bottom: follow new output (and snapshots) down to the
+      // prompt. A reconnect at the bottom lands here because `stick` survived the
+      // rebuild (the mutating guard above keeps the scroll events it fired from
+      // clearing the flag).
+      if (screen.scrollTop !== screen.scrollHeight - screen.clientHeight) {
+        screen.scrollTop = screen.scrollHeight;
+      }
+    }
+    // else: the user is reading scrollback. We deliberately leave scrollTop
+    // alone so CSS scroll anchoring (overflow-anchor on #screen, set in grid.css)
+    // holds the line under their eye as rows trim off the top -- appends below
+    // the viewport don't move it. Anchoring needs us NOT to touch scrollTop, so
+    // there's no manual adjustment here.
+
     if (adds || removes || changedIds.size) {
       bumpHud(adds, removes, changedIds.size);
     }
