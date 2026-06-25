@@ -2309,12 +2309,18 @@
         actionsTimer = null;
         mergePatch({ acting: false });
       }
+      // h/l alias prev/next clip (k/j) and Shift+H/Shift+L the move (K/J):
+      // vim-style, and the natural left/right direction in the niri horizontal
+      // layout. They reuse the existing j/k/J/K rows, no duplicate panel entries.
+      // Shared by the bare-key path and the mod+K leader (runActionKey) so the
+      // aliases work identically under the leader and bare.
+      const ALIAS = { h: "k", l: "j", H: "K", L: "J" };
       // Run the panel action bound to `key` (its data-key row). Returns true if a
       // row matched. Clicking the row runs its data-on:click (which also sets
       // $acting=false); we still endActions() to release ownership + the timer.
       function runActionKey(key) {
         const row = document.querySelector(
-          `.actions-panel [data-key="${key}"]`,
+          `.actions-panel [data-key="${ALIAS[key] ?? key}"]`,
         );
         if (!row) return false;
         endActions();
@@ -2437,10 +2443,7 @@
         // and Shift+L layout). `x` (terminate) is deliberately leader-only --
         // destructive, not a single bare keystroke.
         if (e.ctrlKey || e.altKey || e.metaKey || e.key === "x") return;
-        // h/l alias prev/next clip (k/j) and Shift+H/Shift+L the move (K/J):
-        // vim-style, and the natural left/right direction in the niri horizontal
-        // layout. They reuse the existing j/k/J/K rows, no duplicate panel entries.
-        const ALIAS = { h: "k", l: "j", H: "K", L: "J" };
+        // ALIAS (hoisted above) maps h/l/H/L onto the k/j/K/J rows.
         const key = ALIAS[e.key] ?? e.key;
         const row = [...document.querySelectorAll(".actions-panel [data-key]")]
           .find((r) => r.dataset.key === key);
