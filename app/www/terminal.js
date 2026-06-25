@@ -125,6 +125,18 @@ export function mountTerminal({ screen, grid, onResize, fixedRows }) {
   }
 
   new MutationObserver((muts) => {
+    // A full "screen" snapshot re-emits the whole grid container, so its own
+    // data-cols/data-rows/data-total attributes change. That is the only frame
+    // that touches the container's attributes -- diffs ship row/append/trim/
+    // cursor records, never the container -- so it's a reliable marker. It fires
+    // on first mount and on every /pty/view resubscribe: SSE reset, dev hot
+    // reload, resize, alt-screen flip. Each is a reset point, so re-stick to the
+    // bottom (the live prompt), matching a fresh page load. Without this, a
+    // snapshot that lands while stick is false (a reconnect rebuild clears it via
+    // a non-suppressed scroll event) leaves the view pinned at the scrollback top.
+    if (muts.some((m) => m.type === "attributes" && m.target === grid)) {
+      stick = true;
+    }
     if (
       stick && screen.scrollTop !== screen.scrollHeight - screen.clientHeight
     ) {
