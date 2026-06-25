@@ -298,6 +298,7 @@ Clip:
 | `v`           | View style (raw/rendered)    |
 | `r`           | Rename clip                  |
 | `o`           | Cycle terminal height        |
+| `z`           | Zoom clip (90% overlay)      |
 | `mod+K` `x`   | Terminate clip (leader-only) |
 | `Enter`       | Focus the selected clip      |
 

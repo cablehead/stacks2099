@@ -467,6 +467,35 @@
       body.mode-focus .pane.active {
         border-color: var(--sel);
       }
+      /* Zoom: float the cursored pane at 90% of the viewport above everything,
+         over a dimmed backdrop. Keyed off .pane.active so it follows the cursor
+         -- navigating while zoomed swaps which pane is floated. Layout-agnostic
+         (overlays both flow and niri). z-index sits below the panels (1000), so
+         mod+K and the switchers still open on top. The terminal grid keeps its
+         row count for now (it sits at the pane's top); reflow-to-fill is a
+         separate follow-up. */
+      body.zoomed::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.6);
+        z-index: 40;
+      }
+      body.zoomed #doc .pane.active {
+        position: fixed;
+        inset: 5dvh 5vw;
+        width: auto;
+        margin: 0;
+        z-index: 50;
+        overflow: auto;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+      }
+      /* The cursored pane carries a stable view-transition-name so toggling zoom
+         morphs it between its in-flow rect and the float instead of cutting.
+         Only one pane is ever .active, so the name stays unique. */
+      .pane.active {
+        view-transition-name: zoom-pane;
+      }
       .mode-badge {
         margin-left: auto;
         font-size: 11px;
@@ -696,11 +725,12 @@
     </style>
   </head>
   <body
-    data-signals='{"cursor":"","selectedStack":{{ stack_id | default("") | tojson | e }},"connId":"","termCols":0,"termRows":0,"termTitle":"","focusedDims":"","title":{{ title | default("") | tojson | e }},"docReady":false,"picking":false,"acting":false,"themePicking":false,"theme":"default","stackPicking":false,"stackName":"","renaming":false,"renameMode":"title","renameStackId":"","draft":"","noteEditing":"","docOrder":"[]","docLayout":"flow"}'
+    data-signals='{"cursor":"","selectedStack":{{ stack_id | default("") | tojson | e }},"connId":"","termCols":0,"termRows":0,"termTitle":"","focusedDims":"","title":{{ title | default("") | tojson | e }},"docReady":false,"picking":false,"acting":false,"themePicking":false,"theme":"default","stackPicking":false,"stackName":"","renaming":false,"renameMode":"title","renameStackId":"","draft":"","noteEditing":"","docOrder":"[]","docLayout":"flow","zoomed":false}'
     data-attr:data-theme="$theme"
     data-init="@get('/sse?stack=' + encodeURIComponent($selectedStack))"
     data-effect="document.title = $title || 'ghostty-web-nu sessions'"
     data-class:nav-collapsed="$docLayout === 'niri'"
+    data-class:zoomed="$zoomed"
   >
     <!-- Three-pane: stacks | clips | content (#doc). Server overwrites the two
        asides on every event. -->
@@ -1231,6 +1261,30 @@
             <path d="m3 8 4-4 4 4" />
             <path d="M7 4v16" />
           </svg> <span>Height</span><span class="row-keys"><kbd>o</kbd></span>
+        </button>
+        <button
+          type="button"
+          class="picker-row"
+          data-key="z"
+          data-on:click__viewtransition="$acting = false; $zoomed = !$zoomed"
+        >
+          <svg
+            class="icon"
+            xmlns="http://www.w3.org/2000/svg"
+            width="1em"
+            height="1em"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M15 3h6v6" />
+            <path d="M9 21H3v-6" />
+            <path d="m21 3-7 7" />
+            <path d="m3 21 7-7" />
+          </svg> <span>Zoom</span><span class="row-keys"><kbd>z</kbd></span>
         </button>
         <button
           type="button"
