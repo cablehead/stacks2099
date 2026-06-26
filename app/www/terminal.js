@@ -209,9 +209,10 @@ export function mountTerminal({ screen, grid, onResize, fixedRows }) {
     }, 80);
   }
 
-  window.addEventListener("resize", () => reflow(false));
-  // Catch pane-geometry changes that don't fire window resize: the sidebar
-  // collapsing in the sessions surface, topbar growth, etc.
+  // A ResizeObserver on the pane is the single geometry driver. It fires on any
+  // box change -- a window resize (the pane width tracks the viewport), the
+  // sidebar collapsing, topbar growth, the zoom float -- so a separate window
+  // "resize" listener would be redundant.
   if (screen.parentElement && typeof ResizeObserver !== "undefined") {
     new ResizeObserver(() => reflow(false)).observe(screen.parentElement);
   }
