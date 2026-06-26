@@ -175,6 +175,14 @@ def sid-for-clip [cid: string]: nothing -> string {
   if ($m | is-empty) { "" } else { $m | first | get sid }
 }
 
+# The live cwd of a clip's pty (from OSC 7), or "" if it isn't a terminal or the
+# shell hasn't reported one. Seeds a new terminal with the cwd of the one it was
+# opened from.
+def cwd-for-clip [cid: string]: nothing -> string {
+  let m = (pty list | where {|p| ($p.meta.clip_id? | default "") == $cid })
+  if ($m | is-empty) { "" } else { ($m | first | get cwd? | default "") }
+}
+
 # True when a live pty session has this sid. The /pty GET routes guard on it so
 # a stale, wrong, or missing sid returns a clean 404 instead of letting the pty
 # command error mid-handler (which http-nu surfaces as an opaque 500 "channel
@@ -194,10 +202,16 @@ def api-base [req: record]: nothing -> string {
 }
 
 # Spawn a pty for a clip and tag it (meta.clip_id) so it can be rebound to the
-# same clip after a restart. Re-applies the clip's persisted label.
-def spawn-for-clip [cid: string]: nothing -> string {
+# same clip after a restart. An optional cwd seeds the working directory (a
+# non-existing dir is ignored server-side, falling back to the server cwd).
+def spawn-for-clip [cid: string, cwd?: string]: nothing -> string {
   let cmd = $env.GHOSTTY_WEB_NU_CMD? | default "nu"
-  let sid = if $cmd == "nu" { pty open --embedded } else { pty open $cmd }
+  let has_cwd = ($cwd | is-not-empty)
+  let sid = if $cmd == "nu" {
+    if $has_cwd { pty open --embedded --cwd $cwd } else { pty open --embedded }
+  } else {
+    if $has_cwd { pty open $cmd --cwd $cwd } else { pty open $cmd }
+  }
   pty meta set $sid "clip_id" $cid
   $sid
 }
@@ -692,8 +706,12 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
       let stack = (resolve-stack $proj $target)
       let type = ($req.query.type? | default "note")
       let cid = if $type == "terminal" {
+        # Inherit the cwd of the clip this was launched from (the cursor), so a
+        # new terminal opens where you were. Best-effort: "" when the source is a
+        # note or its shell hasn't reported a cwd via OSC 7 (then server cwd).
+        let src_cwd = if $cursor != "" { (cwd-for-clip $cursor) } else { "" }
         let c = (add-clip $stack "terminal" "application/x-stacks-terminal")
-        spawn-for-clip $c | ignore
+        spawn-for-clip $c $src_cwd | ignore
         $c
       } else {
         "" | add-clip $stack "content" "text/markdown"

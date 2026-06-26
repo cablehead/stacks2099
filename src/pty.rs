@@ -712,6 +712,12 @@ impl Command for PtyOpenCommand {
                 None,
             )
             .named("rows", SyntaxShape::Int, "initial rows (default 24)", None)
+            .named(
+                "cwd",
+                SyntaxShape::String,
+                "working directory for the spawned process (default: server cwd; ignored if not an existing dir)",
+                None,
+            )
             .switch(
                 "embedded",
                 "fork http-nu and run nu's REPL in-process (no external nu binary)",
@@ -733,6 +739,7 @@ impl Command for PtyOpenCommand {
         let args: Option<Vec<String>> = call.get_flag(engine_state, stack, "args")?;
         let cols: Option<i64> = call.get_flag(engine_state, stack, "cols")?;
         let rows: Option<i64> = call.get_flag(engine_state, stack, "rows")?;
+        let cwd: Option<String> = call.get_flag(engine_state, stack, "cwd")?;
         let embedded = call.has_flag(engine_state, stack, "embedded")?;
 
         let size = PtySize {
@@ -743,10 +750,10 @@ impl Command for PtyOpenCommand {
         };
 
         let (session, reader) = if embedded {
-            open_embedded(engine_state, size, head, self.bus.clone())?
+            open_embedded(engine_state, size, head, self.bus.clone(), cwd)?
         } else {
             let cmd = cmd.ok_or_else(|| err(head, "missing cmd", "required without --embedded"))?;
-            open_exec(&cmd, args, size, head, self.bus.clone())?
+            open_exec(&cmd, args, size, head, self.bus.clone(), cwd)?
         };
 
         let sid = scru128::new().to_string();
@@ -777,6 +784,15 @@ impl Command for PtyOpenCommand {
     }
 }
 
+/// Pick the working directory for a spawned pty: the requested dir when it's an
+/// existing directory, otherwise the server's cwd. Returning `None` only when
+/// even the server cwd is unreadable lets the caller leave the builder default.
+fn resolve_start_dir(cwd: Option<String>) -> Option<std::path::PathBuf> {
+    cwd.filter(|d| std::path::Path::new(d).is_dir())
+        .map(std::path::PathBuf::from)
+        .or_else(|| std::env::current_dir().ok())
+}
+
 #[allow(clippy::result_large_err)]
 fn open_exec(
     cmd: &str,
@@ -784,6 +800,7 @@ fn open_exec(
     size: PtySize,
     span: Span,
     bus: Arc<Bus>,
+    cwd: Option<String>,
 ) -> Result<(PtySession, Box<dyn Read + Send>), ShellError> {
     let pair = native_pty_system()
         .openpty(size)
@@ -812,8 +829,12 @@ fn open_exec(
     // it alongside the rev when bumping wezterm-term.
     builder.env("TERM_PROGRAM_VERSION", "20260331-040028-577474d8");
     builder.env("COLORTERM", "truecolor");
-    if let Ok(cwd) = std::env::current_dir() {
-        builder.cwd(cwd);
+    // Start in the requested dir (a new terminal inherits the cwd of the one it
+    // was opened from, surfaced via OSC 7) when it's a real directory; otherwise
+    // fall back to the server cwd. The guard keeps a stale or unreported source
+    // cwd from failing the spawn -- a missing dir would make spawn_command error.
+    if let Some(start_dir) = resolve_start_dir(cwd) {
+        builder.cwd(start_dir);
     }
 
     let child = pair
@@ -971,6 +992,7 @@ fn open_embedded(
     size: PtySize,
     span: Span,
     bus: Arc<Bus>,
+    cwd: Option<String>,
 ) -> Result<(PtySession, Box<dyn Read + Send>), ShellError> {
     // Self-re-exec into our own `repl` subcommand. The fork-no-exec variant
     // ran fine for trivial use but silently dropped output from bare
@@ -994,7 +1016,14 @@ fn open_embedded(
         .into_os_string()
         .into_string()
         .map_err(|_| err(span, "current_exe path not utf-8", ""))?;
-    open_exec(&self_exe, Some(vec!["repl".to_string()]), size, span, bus)
+    open_exec(
+        &self_exe,
+        Some(vec!["repl".to_string()]),
+        size,
+        span,
+        bus,
+        cwd,
+    )
 }
 
 // --- pty write --------------------------------------------------------------
@@ -2226,6 +2255,33 @@ mod tests {
 
         let term = term_with_bytes(4, 40, b"\x1b]7;file://host/tmp/work\x1b\\");
         assert_eq!(current_dir_path(&term), Some("/tmp/work".to_string()));
+    }
+
+    /// A new terminal seeds its cwd from the requested dir when it exists, and
+    /// otherwise falls back to the server cwd (a stale/unreported source dir must
+    /// not break the spawn).
+    #[test]
+    fn resolve_start_dir_prefers_existing_else_server_cwd() {
+        let server = std::env::current_dir().ok();
+
+        // An existing dir is used verbatim.
+        let tmp = std::env::temp_dir();
+        assert_eq!(
+            resolve_start_dir(Some(tmp.to_string_lossy().into_owned())),
+            Some(tmp.clone()),
+        );
+
+        // A non-existent dir falls back to the server cwd.
+        assert_eq!(
+            resolve_start_dir(Some("/no/such/dir/stacks2099-xyz".to_string())),
+            server,
+        );
+
+        // No request also falls back to the server cwd.
+        assert_eq!(resolve_start_dir(None), server);
+
+        // An empty string is not a dir, so it falls back too.
+        assert_eq!(resolve_start_dir(Some(String::new())), server);
     }
 
     /// Implicit detection: a bare URL printed as plain text carries no OSC 8
