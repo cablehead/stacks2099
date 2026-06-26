@@ -38,6 +38,13 @@ currently just mirror `k`/`j` (clip order) to preserve muscle memory, and are
 slated to be rebound to true on-screen direction (active
 in niri, inert in flow) -- a breaking change, flagged in the README.
 
+Follow-up (2026-06): added `z` -- zoom the cursored clip to a 90% floating
+overlay over a dimmed backdrop, with a view transition; the same chord toggles
+it off. It's a clip-tier row like the others (bare `z` and `mod+K z`) but
+layout-agnostic: it overlays rather than reflowing, so it behaves identically in
+flow and niri, and it tracks the cursor (navigating while zoomed swaps the
+floated clip). Pure client state (a `$zoomed` signal), no server round-trip.
+
 ## Context
 
 0007 made `mod+K` a leader but left two seams:

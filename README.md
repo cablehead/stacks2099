@@ -158,6 +158,9 @@ independently. The UI is three columns: **stacks** | **clips** | **content**
 - Each stack picks a **layout**: `flow` (a vertical column of panes) or `niri`
   (a horizontal scrollable strip). The top-bar Layout button or `mod+K w`
   toggles it.
+- Any clip can be **zoomed** to a 90% floating overlay with `mod+K z` (or bare
+  `z`) -- a quick full-size look that tracks the cursor as you navigate and works
+  the same in flow and niri. The same chord exits.
 - **Terminal clips** bind to an embedded-Nushell pty. The binary re-execs itself
   to run the shell, so there is no external `nu` to find, and placement survives
   a restart -- the pty respawns where it was, zellij-style.

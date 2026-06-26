@@ -25,19 +25,9 @@
 #   clip.events {}                                 "re-evaluate panes" nudge (post-spawn)
 #   title.events {connId, title}                   live title echo (connId-filtered)
 #
-# Endpoints:
-#   GET  /                  -> 302 redirect to /stack/<current stack>
-#   GET  /stack/:id         -> the sessions shell for one stack (MPA page)
-#   GET  /sse?stack=<id>    -> projected UX state stream for that stack (datastar)
-#   POST /nav               -> best-effort cursor ping (persists focused clip)
-#   POST /clip/new?type=    -> create a clip (terminal | note) and select it
-#   POST /clip/update?clip= -> persist a note body
-#   POST /clip/close?clip=  -> tombstone a clip (+ kill its pty)
-#   POST /clip/label?clip=  -> rename a clip (label=)
-#   POST /title             -> set the window title
-#   POST /pty/input?sid=    -> raw input bytes to pty stdin
-#   POST /pty/resize?sid=   -> resize pty (cols, rows in JSON body)
-#   GET  /pty/view?sid=     -> SSE of HTML grid frames (datastar morph)
+# Endpoints are the `route {...}` blocks below; the full catalogue with examples
+# lives in the README API table and is served live at GET /api. (A hand-kept list
+# here only drifted -- the routes are the source of truth.)
 
 use http-nu/datastar *
 use http-nu/router *
