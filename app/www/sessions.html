@@ -850,6 +850,14 @@
       style="display: none"
     >
     </div>
+    <!-- Zoom: size the floated (cursored) terminal to fill the float, restoring
+       others. Lead with a bare $zoomed read so datastar registers the dependency
+       on first eval (the `&&` would short-circuit before re-reading it). -->
+    <div
+      data-effect="$zoomed; window.__applyZoom && window.__applyZoom($zoomed)"
+      style="display: none"
+    >
+    </div>
     <!-- Patch the picker's key handler in and out on the $picking edge. The
        picker node is static (toggled by data-show), so this stands in for the
        morph-driven mount/self-clean that an action panel gets for free. Lead
@@ -2013,10 +2021,42 @@
           }
         });
       };
+      // Zoom sizing. While zoomed, the cursored terminal fills the float -- its
+      // rows derive from the float's height instead of the flow layout's constant
+      // PANE_ROWS (setFixedRows(null), the same mechanism niri uses). Navigating
+      // while zoomed moves the float to a new clip, so restore the pane leaving it
+      // and fill the one entering it. zoomFilled is the clip currently sized to
+      // fill, updated synchronously so a same-tick re-entry (zoom toggle + cursor
+      // move) reconciles correctly; the actual measure runs on the next frame so
+      // the .zoomed/.active CSS (sibling data-class reactions) has floated the pane
+      // before we read its height -- same reason __applyLayout uses rAF.
+      let zoomActive = false;
+      let zoomFilled = null;
+      function syncZoom(cid) {
+        // Use the explicit cid when __onSelect passes one: the .active class lags
+        // the $cursor change, so currentClip() can still read the old pane here.
+        const want = zoomActive ? (cid ?? currentClip()) : "";
+        const target = (want && mounted.has(want)) ? want : null;
+        if (target === zoomFilled) return;
+        const prev = zoomFilled;
+        zoomFilled = target;
+        requestAnimationFrame(() => {
+          if (prev && prev !== target) {
+            mounted.get(prev)?.setFixedRows(layoutRows());
+          }
+          if (target) mounted.get(target)?.setFixedRows(null);
+        });
+      }
+      window.__applyZoom = (z) => {
+        zoomActive = !!z;
+        syncZoom();
+      };
       window.__onSelect = (cid) => {
         // The status-bar dims follow the cursor: this clip's geometry if it's a
         // terminal, empty otherwise.
         refreshDims();
+        // Track the float onto the newly cursored pane while zoomed.
+        syncZoom(cid);
         if (cid) {
           // Reveal the selected pane's bottom (a terminal's prompt sits there).
           const pane = doc.querySelector("#pane-" + CSS.escape(cid));
