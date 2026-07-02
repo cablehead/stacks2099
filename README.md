@@ -87,6 +87,14 @@ cargo run -- --dev 127.0.0.1:5099 --store ./dev-store
 
 Only changing the Rust (the pty projection, new builtins) needs `cargo build`.
 
+`--dev` only works via `cargo run`/`cargo build` from inside a stacks2099
+checkout. The path it reads (`$CARGO_MANIFEST_DIR/app/serve.nu`) is a Rust
+compile-time constant, baked into the binary wherever it was built — for a
+release binary that's GitHub Actions' checkout path, which doesn't exist
+anywhere else. `--dev` on an installed/downloaded binary fails with
+`No such file or directory`; there's no way to point it at a local checkout
+after the fact.
+
 ### App lives in the store
 
 On a non-`--dev` launch the binary unpacks its baked-in app (`serve.nu`,
