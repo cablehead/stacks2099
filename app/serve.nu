@@ -1098,6 +1098,27 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
       null | metadata set { merge {'http.response': {status: 204}} }
     })
 
+    # Write the request body to an absolute filesystem path. Same reach as a
+    # pty on this connection already has (arbitrary write as the server's
+    # user) -- this just gives a script a clean one-shot call instead of
+    # needing to drive a terminal to do the same thing.
+    (route {|req|
+      if ($req.method == "PUT") and ($req.path | str starts-with "/file/") {
+        {dest: ($req.path | str substring 5..)}
+      }
+    } {|req ctx|
+      let body = $in
+      let dest = $ctx.dest
+      if (not ($dest | str starts-with "/")) or ($dest == "/") {
+        $"bad path: PUT /file/<absolute-path>, got ($dest)" | metadata set { merge {'http.response': {status: 400}} }
+      } else {
+        mkdir ($dest | path dirname)
+        $body | save -r -f $dest
+        chmod 600 $dest
+        null | metadata set { merge {'http.response': {status: 204}} }
+      }
+    })
+
     (route {method: "POST", path: "/pty/resize"} {|req ctx|
       let body = $in
       let cfg = $body | from json
