@@ -1114,6 +1114,12 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
       } else {
         mkdir ($dest | path dirname)
         $body | save -r -f $dest
+        # chmod after create, not `umask` before: umask is process-wide state
+        # in a server handling concurrent requests, so scoping it around this
+        # write would also tighten (or leave tightened) permissions for any
+        # other in-flight request's unrelated writes. This leaves a brief
+        # window where $dest exists at the default mode, scoped to this one
+        # path -- narrower blast radius than a global umask mutation.
         chmod 600 $dest
         null | metadata set { merge {'http.response': {status: 204}} }
       }
