@@ -67,6 +67,30 @@ them to the tail for display, so don't paste what you see -- the by-id routes
 `sid` values come from `GET /api/state`. An unknown `sid` returns
 `404 no pty session: <sid>`.
 
+## System access
+
+These reach past the clip/stack protocol to the machine the server runs on --
+same reach a pty already has (arbitrary read/write/execute as the server's
+user, sudo included). No sandboxing, no configurable root: deliberate, since
+these routes don't cross a trust boundary the terminal doesn't already cross.
+
+| Endpoint           | Purpose                                                  |
+| ------------------ | -------------------------------------------------------- |
+| `GET /file/<path>` | read an absolute path's raw bytes                        |
+| `PUT /file/<path>` | write the request body to an absolute path (mode 0600)   |
+| `POST /exec`       | run Nushell code, get back `{stdout, stderr, exit_code}` |
+
+`<path>` is everything after `/file/`, used directly -- `GET /file/etc/hosts`
+reads `/etc/hosts`. A relative or empty path answers `400`; a missing file on
+`GET` answers `404`.
+
+`POST /exec` runs the request body as Nushell in a fresh subprocess (the same
+`eval -c` these docs use) and always answers `200` with the result as JSON --
+check `exit_code`, not the HTTP status, for whether the code succeeded. The
+subprocess has no `--store`, so it can't touch `.cat`/`.append` directly; code
+that needs clip/stack state calls this server's own HTTP API instead, same as
+any other caller.
+
 ## Howtos
 
 Fetch a howto the same way, e.g.
@@ -74,3 +98,5 @@ Fetch a howto the same way, e.g.
 
 - [Drive a pty]({{ base | safe }}/api/howto/drive-pty) -- open a terminal, send keystrokes, read it back
 - [Snapshot a pty]({{ base | safe }}/api/howto/snapshot-pty) -- read a terminal's screen as text
+- [Read, write, and exec]({{ base | safe }}/api/howto/files-and-exec) -- touch the filesystem and run commands directly
+- [Nushell in five minutes]({{ base | safe }}/api/howto/nushell-tutorial) -- enough syntax to write `/exec` payloads

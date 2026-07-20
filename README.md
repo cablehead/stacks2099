@@ -278,6 +278,12 @@ clip, rather than a silent success. The UI crops ids to the tail, so pasting
 what you see fails loudly instead of looking like it worked; get full ids from
 `/api/state`.
 
+Outside the clip/stack protocol, `GET`/`PUT /file/<absolute-path>` and
+`POST /exec` give a caller with access to the port the same reach a pty on it
+already has: read/write any file, run any command, as the server's user. No
+sandboxing -- see `GET /api` (served live, self-describing) for the full
+reference and worked examples.
+
 ## Keys
 
 Two modes. **Navigate** browses (read-only, dimmed); **focus** drives the

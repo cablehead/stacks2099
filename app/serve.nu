@@ -1098,19 +1098,28 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
       null | metadata set { merge {'http.response': {status: 204}} }
     })
 
-    # Write the request body to an absolute filesystem path. Same reach as a
-    # pty on this connection already has (arbitrary write as the server's
-    # user) -- this just gives a script a clean one-shot call instead of
-    # needing to drive a terminal to do the same thing.
+    # Read (GET) or write (PUT) an absolute filesystem path. Same reach as a
+    # pty on this connection already has (arbitrary read/write as the
+    # server's user, sudo included) -- these aren't new capabilities, just
+    # clean one-shot calls for a script instead of needing to drive a
+    # terminal to do the same thing.
     (route {|req|
-      if ($req.method == "PUT") and ($req.path | str starts-with "/file/") {
+      if ($req.path | str starts-with "/file/") and ($req.method in ["GET" "PUT"]) {
         {dest: ($req.path | str substring 5..)}
       }
     } {|req ctx|
+      # $in must be captured here, before any branching, even though GET
+      # doesn't use it -- read anywhere else in the closure and it's gone.
       let body = $in
       let dest = $ctx.dest
       if (not ($dest | str starts-with "/")) or ($dest == "/") {
-        $"bad path: PUT /file/<absolute-path>, got ($dest)" | metadata set { merge {'http.response': {status: 400}} }
+        $"bad path: GET/PUT /file/<absolute-path>, got ($dest)" | metadata set { merge {'http.response': {status: 400}} }
+      } else if $req.method == "GET" {
+        if ($dest | path type) != "file" {
+          $"no such file: ($dest)" | metadata set { merge {'http.response': {status: 404}} }
+        } else {
+          open --raw $dest | metadata set --content-type "application/octet-stream"
+        }
       } else {
         mkdir ($dest | path dirname)
         $body | save -r -f $dest
@@ -1122,6 +1131,30 @@ def resolve-stack [proj: record, want: string]: nothing -> string {
         # path -- narrower blast radius than a global umask mutation.
         chmod 600 $dest
         null | metadata set { merge {'http.response': {status: 204}} }
+      }
+    })
+
+    # Execute Nushell code in a fresh subprocess (self re-exec via `nu eval
+    # -c`, the same invocation the API docs already tell scripted callers to
+    # use) and return its result. One round trip instead of driving a pty
+    # through a VT100 stream and scraping rendered output -- same reach the
+    # pty routes and /file already have (arbitrary command as the server's
+    # user, sudo included), just a clean request/response shape for a script
+    # or an LLM.
+    #
+    # No --store on the subprocess: this server already holds the store open,
+    # so a second process opening it would just contend for its lock. Code
+    # that needs clip/stack state calls this server's own HTTP API instead
+    # (e.g. `http get $"($base)/api/state"`), same as any other caller.
+    (route {method: "POST", path: "/exec"} {|req ctx|
+      let code = ($in | into string)
+      if ($code | str trim) == "" {
+        "empty body: POST nushell code to /exec" | metadata set { merge {'http.response': {status: 400}} }
+      } else {
+        let result = (^$nu.current-exe eval -c $code | complete)
+        {stdout: $result.stdout, stderr: $result.stderr, exit_code: $result.exit_code}
+        | to json
+        | metadata set --content-type "application/json"
       }
     })
 
