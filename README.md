@@ -1,3 +1,7 @@
+REPLACED BY: https://github.com/cablehead/ptyZZZ
+
+---
+
 # stacks2099
 
 [Stacks](https://stacks.cross.stream) is a tool for thought: a collection of
